@@ -1,0 +1,195 @@
+---
+layout: base.njk
+title: Sofiisticated
+permalink: /
+---
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-left">
+    <div class="hero-eyebrow">
+      <div class="eyebrow-line"></div>
+      <span class="eyebrow-text">{{ site.hero.eyebrow }}</span>
+    </div>
+    <h1 class="hero-title">
+      {{ site.hero.title_main }}<br>
+      <em>{{ site.hero.title_emphasis }}</em>
+    </h1>
+    <p class="hero-sub">{{ site.hero.subtitle }}</p>
+    <div class="hero-btns">
+      <a href="#posts" class="btn-primary">Read the blog</a>
+      {% if collections.posts.length %}<a href="{{ collections.posts[0].url }}" class="btn-ghost">Latest post &nbsp;→</a>{% endif %}
+    </div>
+  </div>
+
+  <div class="hero-right">
+    <div class="hero-orb"></div>
+    <div class="hero-orb-2"></div>
+
+    <div class="hero-photo">
+      <img src="{{ site.hero.photo }}" alt="Sofia Panting" onerror="this.parentElement.innerHTML='<div class=\'photo-placeholder\'><span>🧪</span><p>Sofia Panting</p></div>'" />
+    </div>
+
+    {% if collections.posts.length %}
+    <div class="hero-card">
+      <div class="hc-label"><span class="hc-dot"></span> Latest post</div>
+      <div class="hc-title">{{ collections.posts[0].data.title }}</div>
+      <div class="hc-meta"><span>Sofia Panting</span><span>{{ collections.posts[0].templateContent | readTime }}</span></div>
+    </div>
+    {% endif %}
+
+    <div class="formula-badge">
+      {{ site.hero.formula_code }}<br>
+      <span>{{ site.hero.formula_label }}</span>
+    </div>
+  </div>
+
+  <div class="scroll-hint">
+    <span>Scroll</span>
+    <div class="scroll-line"></div>
+  </div>
+</section>
+
+<!-- ABOUT BANNER -->
+<div class="about-banner" id="about">
+  <div class="avatar-wrap">
+    <div class="avatar">
+      <img src="{{ site.about.photo }}" alt="Sofia" onerror="this.parentElement.innerHTML='<div class=\'avatar-placeholder\'>🧪</div>'" />
+    </div>
+    <div class="avatar-ring"></div>
+  </div>
+  <div>
+    <div class="about-name">{{ site.about.name_main }} <em>{{ site.about.name_emphasis }}</em></div>
+    <div class="about-role">{{ site.about.role }}</div>
+    <p class="about-quote">"{{ site.about.quote | mdInline | safe }}"</p>
+    <div class="about-badges">
+      {% for badge in site.about.badges %}<span class="badge">{{ badge }}</span>{% endfor %}
+    </div>
+  </div>
+</div>
+
+<!-- TOPICS -->
+<div class="section-wrap">
+  <div style="height:2.5rem"></div>
+  <div class="topics-row">
+    <div class="topic-pill active" data-category="all">✦ All posts</div>
+    {% for cat in collections.categories %}
+    <div class="topic-pill" data-category="{{ cat.name }}">{{ cat.emoji }} {{ cat.name }}</div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- POSTS -->
+<div class="posts-wrap" id="posts">
+  <div class="section-hdr">
+    <h2>Recent <em>posts</em></h2>
+    <a href="/blog/">All posts →</a>
+  </div>
+  <div class="posts-grid">
+    {% for post in collections.posts | limit(9) %}
+    {% set imgClasses = ["ia","ib","ic","id","ie","if"] %}
+    {% set tintClasses = ["tint-rose","","tint-sage"] %}
+    <a href="{{ post.url }}" class="post-card" data-category="{{ post.data.category }}">
+      <div class="card-img {{ imgClasses[loop.index0 % 6] }}">
+        <img class="card-photo {{ tintClasses[loop.index0 % 3] }}" src="{{ post.data.image }}" alt="" onerror="this.remove()" />
+        <span class="card-emoji">{{ post.data.emoji or "🧪" }}</span>
+        <div class="card-overlay"></div>
+      </div>
+      <div class="post-cat">{{ post.data.category }}</div>
+      <div class="post-title">{{ post.data.title }}</div>
+      <p class="post-excerpt">{{ post.data.excerpt }}</p>
+      <div class="post-foot"><span>{{ post.date | postDate }} · {{ post.templateContent | readTime }}</span><span class="post-read">Read →</span></div>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- INGREDIENT SPOTLIGHT -->
+<div class="feat-dark">
+  <div>
+    <div class="fd-label">{{ site.ingredient_spotlight.label }}</div>
+    <h2 class="fd-title">{{ site.ingredient_spotlight.title_main }}<br><em>{{ site.ingredient_spotlight.title_emphasis }}</em></h2>
+    <p class="fd-body">{{ site.ingredient_spotlight.body }}</p>
+    <a href="/blog/" class="btn-primary" style="font-size:11px;padding:11px 20px">{{ site.ingredient_spotlight.link_text }}</a>
+  </div>
+  <div class="ing-grid">
+    {% for tile in site.ingredient_spotlight.tiles %}
+    <div class="ing-tile">
+      <span class="it-icon">{{ tile.icon }}</span>
+      <div class="it-tag">{{ tile.tag }}</div>
+      <div class="it-name">{{ tile.name }}</div>
+      <div class="it-desc">{{ tile.desc }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- SOFIA'S STORY / PROFILE -->
+<div class="profile-section" id="profile">
+  <div class="profile-photo-wrap">
+    <div class="profile-photo">
+      <img src="{{ site.profile.photo }}" alt="Sofia Panting" onerror="this.parentElement.innerHTML='<div class=\'profile-photo-placeholder\'><span>🌿</span><p>Replace with<br>Sofia\'s photo</p></div>'" />
+    </div>
+    <div class="profile-accent"></div>
+    <div class="profile-accent-2"></div>
+  </div>
+  <div class="profile-content">
+    <div class="profile-eyebrow">{{ site.profile.eyebrow }}</div>
+    <h2 class="profile-title">{{ site.profile.title_main }}<br><em>{{ site.profile.title_emphasis }}</em></h2>
+    <p class="profile-text">{{ site.profile.bio_1 | mdInline | safe }}</p>
+    <p class="profile-text">{{ site.profile.bio_2 | mdInline | safe }}</p>
+    <div class="profile-stats">
+      {% for stat in site.profile.stats %}
+      <div>
+        <div class="stat-num">{{ stat.number }}</div>
+        <div class="stat-label">{{ stat.label }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="profile-links">
+      <a href="{{ site.social.instagram_url }}" target="_blank" class="profile-link">
+        <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="0.01" stroke-width="3"/></svg>
+        Instagram
+      </a>
+      <a href="{{ site.social.linkedin_url }}" target="_blank" class="profile-link linkedin-link">
+        <svg viewBox="0 0 24 24"><path d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-2-2 2 2 0 00-2 2v7h-4v-7a6 6 0 016-6z"/><rect x="2" y="9" width="4" height="12"/><circle cx="4" cy="4" r="2"/></svg>
+        LinkedIn
+      </a>
+      <a href="mailto:{{ site.social.email }}" class="profile-link">
+        <svg viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+        Email me
+      </a>
+    </div>
+  </div>
+</div>
+
+<!-- INSTAGRAM STRIP -->
+<div class="ig-wrap">
+  <div class="ig-hdr">
+    <div class="ig-icon">
+      <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="0.01" stroke-width="3"/></svg>
+    </div>
+    <div class="ig-handle">Sofi<em>i</em>sticated <small>on Instagram</small></div>
+    <a href="{{ site.social.instagram_url }}" target="_blank" class="ig-follow">{{ site.social.instagram_handle }} →</a>
+  </div>
+  <div class="ig-grid">
+    {% for img in site.instagram.images %}
+    {% set imgClasses = ["ia","ib","ic","id","ie","if"] %}
+    <div class="ig-tile {{ imgClasses[loop.index0 % 6] }}">
+      <img src="{{ img.src }}" alt="" onerror="this.remove()" style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0" />
+      {{ img.emoji }}<div class="ig-tile-ov"><svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="0.01" stroke-width="3"/></svg></div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- NEWSLETTER -->
+<div class="nl-section">
+  <div class="nl-eyebrow">{{ site.newsletter.eyebrow }}</div>
+  <h2 class="nl-title">{{ site.newsletter.title }}</h2>
+  <p class="nl-sub">{{ site.newsletter.subtitle }}</p>
+  <div class="nl-form">
+    <input type="email" placeholder="your@email.com" />
+    <button>Subscribe</button>
+  </div>
+  <div class="nl-note">{{ site.newsletter.note }}</div>
+</div>

@@ -1,0 +1,84 @@
+{
+  "title": "Sofiisticated",
+  "ticker": [
+    "Cosmetic Chemistry",
+    "Skin Formulation",
+    "Sofia Panting",
+    "Purdue University",
+    "Honduras 🇭🇳",
+    "Ingredient Science",
+    "Beauty Research",
+    "Chemical Engineering",
+    "Sofiisticated"
+  ],
+  "nav_links": ["Ingredients", "Formulation", "Skin Science", "Reviews", "About"],
+  "social": {
+    "instagram_url": "https://www.instagram.com/sofiisticated",
+    "instagram_handle": "@sofiisticated",
+    "linkedin_url": "https://www.linkedin.com/in/sofia-panting",
+    "email": "sofia@sofiisticated.com"
+  },
+  "hero": {
+    "eyebrow": "Cosmetic Chemistry Blog",
+    "title_main": "Beauty decoded",
+    "title_emphasis": "by a chemist",
+    "subtitle": "The science behind your skincare, written by Sofia Panting — Honduran chemical engineering student at Purdue, future cosmetic formulator, and full-time ingredient obsessive.",
+    "photo": "https://images.unsplash.com/photo-1531123897727-8f129e1688ce?w=440&q=80&auto=format&fit=crop",
+    "formula_code": "C₁₄H₂₂N₂O₁₀",
+    "formula_label": "niacinamide · MW 122.12 g/mol"
+  },
+  "about": {
+    "photo": "https://images.unsplash.com/photo-1531123897727-8f129e1688ce?w=200&q=80&auto=format&fit=crop&crop=face",
+    "name_main": "Sofia",
+    "name_emphasis": "Panting",
+    "role": "Chemical Engineering · Purdue University · Cosmetic Formulation",
+    "quote": "I started Sofiisticated because beauty marketing is full of buzzwords and zero chemistry. I want to show you **what's actually in your products**, how they interact with your skin at a molecular level, and how to shop smarter — **because you deserve to understand what you're putting on your face.**",
+    "badges": ["🇭🇳 From Honduras", "📍 Studying at Purdue", "⚗️ Chemical Engineering", "💄 Cosmetic Formulation"]
+  },
+  "ingredient_spotlight": {
+    "label": "Ingredient spotlight",
+    "title_main": "The quiet science",
+    "title_emphasis": "of Niacinamide",
+    "body": "It's in every serum, every toner, every moisturizer — but do you actually know why? Niacinamide (Vitamin B3) works across multiple biological targets simultaneously, making it every formulator's dream ingredient. Here's the chemistry behind the hype.",
+    "link_text": "Read the deep dive →",
+    "tiles": [
+      { "icon": "✨", "tag": "brightening", "name": "Melanogenesis", "desc": "Inhibits melanosome transfer between melanocytes and keratinocytes" },
+      { "icon": "🛡️", "tag": "barrier", "name": "Ceramide boost", "desc": "Stimulates fatty acid and ceramide synthesis in the stratum corneum" },
+      { "icon": "💧", "tag": "hydration", "name": "NMF increase", "desc": "Boosts natural moisturizing factor retention in the epidermis" },
+      { "icon": "🧬", "tag": "anti-aging", "name": "NAD⁺ pathway", "desc": "Precursor to NAD⁺ — coenzyme critical for cellular energy and repair" }
+    ]
+  },
+  "profile": {
+    "photo": "https://images.unsplash.com/photo-1531123897727-8f129e1688ce?w=600&q=80&auto=format&fit=crop",
+    "eyebrow": "Meet Sofia",
+    "title_main": "From Honduras",
+    "title_emphasis": "to Purdue's labs",
+    "bio_1": "I grew up in **Honduras**, surrounded by incredible natural ingredients — tropical botanicals, exotic oils, plants my grandmother used for everything. I always wondered: *why do these work?* That curiosity brought me all the way to **Purdue University**, where I'm studying chemical engineering with a focus on cosmetic formulation.",
+    "bio_2": "Sofiisticated is where I merge my two worlds — the **rich ingredient heritage** of Central America and the rigorous science of a chemical engineering program. Every post is a deep-dive into what's really happening inside your products, written for people who want more than just \"dermatologist-approved\" on the label.",
+    "stats": [
+      { "number": "40+", "label": "Posts published" },
+      { "number": "3+", "label": "Years studying ChemE" },
+      { "number": "100%", "label": "Science-backed" }
+    ]
+  },
+  "instagram": {
+    "images": [
+      { "src": "https://images.unsplash.com/photo-1556228578-8c89e6adf883?w=300&q=80&auto=format&fit=crop", "emoji": "🌹" },
+      { "src": "https://images.unsplash.com/photo-1607006344380-b6775a0824a7?w=300&q=80&auto=format&fit=crop", "emoji": "⚗️" },
+      { "src": "https://images.unsplash.com/photo-1570194065650-d99fb4b8ccb0?w=300&q=80&auto=format&fit=crop", "emoji": "🪷" },
+      { "src": "https://images.unsplash.com/photo-1587734195503-904fca47e0e9?w=300&q=80&auto=format&fit=crop", "emoji": "🌿" },
+      { "src": "https://images.unsplash.com/photo-1576426863848-c21f53c60b19?w=300&q=80&auto=format&fit=crop", "emoji": "🔬" },
+      { "src": "https://images.unsplash.com/photo-1521590832167-7bcbfaa6381f?w=300&q=80&auto=format&fit=crop", "emoji": "✨" }
+    ]
+  },
+  "newsletter": {
+    "eyebrow": "✦ The lab notes",
+    "title": "Stay in the know",
+    "subtitle": "New posts on ingredients, formulations and cosmetic chemistry — straight to your inbox. No fluff, just real science.",
+    "note": "No spam, ever. Unsubscribe anytime."
+  },
+  "footer": {
+    "description": "Cosmetic chemistry and beauty decoded — by Sofia Panting, Purdue University. 🇭🇳",
+    "copyright": "© 2026 Sofia Panting. All rights reserved."
+  }
+}

@@ -1,0 +1,23 @@
+---
+layout: base.njk
+---
+<article>
+  <div class="post-hero">
+    <a href="/#posts" class="post-back">← Back to posts</a>
+    <div class="post-hero-cat">{{ category }}</div>
+    <h1 class="post-hero-title">{{ title }}</h1>
+    <div class="post-hero-meta">
+      <span>Sofia Panting</span>
+      <span>{{ page.date | postDate }}</span>
+      <span>{{ content | readTime }}</span>
+    </div>
+  </div>
+  {% if image %}
+  <div class="post-hero-img">
+    <img src="{{ image }}" alt="{{ title }}" onerror="this.parentElement.remove()" />
+  </div>
+  {% endif %}
+  <div class="post-content">
+    {{ content | safe }}
+  </div>
+</article>
