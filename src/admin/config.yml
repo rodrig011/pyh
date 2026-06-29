@@ -1,0 +1,175 @@
+backend:
+  name: git-gateway
+  branch: main
+
+publish_mode: simple
+media_folder: "src/images/uploads"
+public_folder: "/images/uploads"
+
+locale: "es"
+
+collections:
+  - name: "posts"
+    label: "Posts del blog"
+    label_singular: "Post"
+    folder: "src/posts"
+    create: true
+    delete: true
+    slug: "{{slug}}"
+    identifier_field: title
+    summary: "{{title}} — {{date}}"
+    sortable_fields: ["date", "title"]
+    fields:
+      - { label: "Título del post", name: "title", widget: "string" }
+      - label: "Categoría"
+        name: "category"
+        widget: "select"
+        options:
+          - "Ingredients"
+          - "Formulation"
+          - "Skin Science"
+          - "Naturals"
+          - "Color Cosmetics"
+          - "INCI Decoded"
+          - "Actives"
+      - label: "Emoji de la categoría"
+        name: "categoryEmoji"
+        widget: "string"
+        default: "✨"
+        hint: "Un solo emoji para esta categoría (aparece en el filtro de arriba de los posts)"
+      - label: "Emoji de la tarjeta"
+        name: "emoji"
+        widget: "string"
+        default: "🧪"
+        hint: "Un emoji decorativo que aparece sobre la imagen de portada en la tarjeta"
+      - label: "Resumen corto"
+        name: "excerpt"
+        widget: "text"
+        hint: "1-2 frases. Esto se muestra en la tarjeta del post en la página principal"
+      - label: "Imagen de portada"
+        name: "image"
+        widget: "image"
+        hint: "Arrastra una imagen aquí o haz clic para subirla"
+      - label: "Fecha de publicación"
+        name: "date"
+        widget: "datetime"
+        format: "yyyy-MM-dd"
+      - label: "Contenido del post"
+        name: "body"
+        widget: "markdown"
+        hint: "Aquí escribes el post completo. Puedes poner negritas, títulos, listas e imágenes."
+
+  - name: "settings"
+    label: "Configuración del sitio"
+    files:
+      - name: "general"
+        label: "Contenido general"
+        file: "src/_data/site.json"
+        fields:
+          - label: "Redes sociales y contacto"
+            name: "social"
+            widget: "object"
+            collapsed: true
+            fields:
+              - { label: "Link de Instagram", name: "instagram_url", widget: "string" }
+              - { label: "Usuario de Instagram (@...)", name: "instagram_handle", widget: "string" }
+              - { label: "Link de LinkedIn", name: "linkedin_url", widget: "string" }
+              - { label: "Correo de contacto", name: "email", widget: "string" }
+
+          - label: "Portada (Hero)"
+            name: "hero"
+            widget: "object"
+            collapsed: true
+            fields:
+              - { label: "Texto pequeño de arriba", name: "eyebrow", widget: "string" }
+              - { label: "Título — línea 1", name: "title_main", widget: "string" }
+              - { label: "Título — línea 2 (en cursiva, color rosa)", name: "title_emphasis", widget: "string" }
+              - { label: "Subtítulo", name: "subtitle", widget: "text" }
+              - { label: "Foto principal", name: "photo", widget: "image" }
+              - { label: "Fórmula química decorativa", name: "formula_code", widget: "string" }
+              - { label: "Texto bajo la fórmula", name: "formula_label", widget: "string" }
+
+          - label: "Sección Sobre mí (banner)"
+            name: "about"
+            widget: "object"
+            collapsed: true
+            fields:
+              - { label: "Foto circular", name: "photo", widget: "image" }
+              - { label: "Nombre", name: "name_main", widget: "string" }
+              - { label: "Apellido (en color rosa)", name: "name_emphasis", widget: "string" }
+              - { label: "Rol / estudios", name: "role", widget: "string" }
+              - label: "Frase / cita"
+                name: "quote"
+                widget: "text"
+                hint: "Puedes usar **texto** para ponerlo en negrita y color rosa"
+              - label: "Insignias (badges)"
+                name: "badges"
+                widget: "list"
+                hint: "Una por línea, por ejemplo: 🇭🇳 From Honduras"
+
+          - label: "Ingrediente destacado"
+            name: "ingredient_spotlight"
+            widget: "object"
+            collapsed: true
+            fields:
+              - { label: "Etiqueta pequeña", name: "label", widget: "string" }
+              - { label: "Título — línea 1", name: "title_main", widget: "string" }
+              - { label: "Título — línea 2 (en cursiva)", name: "title_emphasis", widget: "string" }
+              - { label: "Texto", name: "body", widget: "text" }
+              - { label: "Texto del botón", name: "link_text", widget: "string" }
+              - label: "Tarjetas (4 datos del ingrediente)"
+                name: "tiles"
+                widget: "list"
+                fields:
+                  - { label: "Icono / emoji", name: "icon", widget: "string" }
+                  - { label: "Etiqueta", name: "tag", widget: "string" }
+                  - { label: "Nombre", name: "name", widget: "string" }
+                  - { label: "Descripción", name: "desc", widget: "text" }
+
+          - label: "Mi historia (sección con foto grande)"
+            name: "profile"
+            widget: "object"
+            collapsed: true
+            fields:
+              - { label: "Foto", name: "photo", widget: "image" }
+              - { label: "Texto pequeño de arriba", name: "eyebrow", widget: "string" }
+              - { label: "Título — línea 1", name: "title_main", widget: "string" }
+              - { label: "Título — línea 2 (en cursiva)", name: "title_emphasis", widget: "string" }
+              - { label: "Párrafo 1", name: "bio_1", widget: "text" }
+              - { label: "Párrafo 2", name: "bio_2", widget: "text" }
+              - label: "Estadísticas (3 números)"
+                name: "stats"
+                widget: "list"
+                fields:
+                  - { label: "Número", name: "number", widget: "string" }
+                  - { label: "Descripción", name: "label", widget: "string" }
+
+          - label: "Fotos estilo Instagram"
+            name: "instagram"
+            widget: "object"
+            collapsed: true
+            fields:
+              - label: "Fotos (6 recomendadas)"
+                name: "images"
+                widget: "list"
+                fields:
+                  - { label: "Foto", name: "src", widget: "image" }
+                  - { label: "Emoji decorativo", name: "emoji", widget: "string", default: "✨" }
+
+          - label: "Newsletter"
+            name: "newsletter"
+            widget: "object"
+            collapsed: true
+            fields:
+              - { label: "Etiqueta pequeña", name: "eyebrow", widget: "string" }
+              - { label: "Título", name: "title", widget: "string" }
+              - { label: "Subtítulo", name: "subtitle", widget: "text" }
+              - { label: "Nota pequeña abajo", name: "note", widget: "string" }
+
+          - label: "Pie de página"
+            name: "footer"
+            widget: "object"
+            collapsed: true
+            fields:
+              - { label: "Descripción corta", name: "description", widget: "text" }
+              - { label: "Texto de copyright", name: "copyright", widget: "string" }

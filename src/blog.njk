@@ -1,0 +1,28 @@
+---
+layout: base.njk
+title: All posts
+permalink: /blog/
+---
+<div class="posts-wrap" style="padding-top:3rem">
+  <div class="section-hdr">
+    <h2>All <em>posts</em></h2>
+    <a href="/">← Home</a>
+  </div>
+  <div class="posts-grid">
+    {% for post in collections.posts %}
+    {% set imgClasses = ["ia","ib","ic","id","ie","if"] %}
+    {% set tintClasses = ["tint-rose","","tint-sage"] %}
+    <a href="{{ post.url }}" class="post-card" data-category="{{ post.data.category }}">
+      <div class="card-img {{ imgClasses[loop.index0 % 6] }}">
+        <img class="card-photo {{ tintClasses[loop.index0 % 3] }}" src="{{ post.data.image }}" alt="" onerror="this.remove()" />
+        <span class="card-emoji">{{ post.data.emoji or "🧪" }}</span>
+        <div class="card-overlay"></div>
+      </div>
+      <div class="post-cat">{{ post.data.category }}</div>
+      <div class="post-title">{{ post.data.title }}</div>
+      <p class="post-excerpt">{{ post.data.excerpt }}</p>
+      <div class="post-foot"><span>{{ post.date | postDate }} · {{ post.templateContent | readTime }}</span><span class="post-read">Read →</span></div>
+    </a>
+    {% endfor %}
+  </div>
+</div>
