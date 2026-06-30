@@ -7,6 +7,13 @@ module.exports = function (eleventyConfig) {
   eleventyConfig.addFilter("mdInline", (str) => md.renderInline(str || ""));
   eleventyConfig.addPassthroughCopy({ "src/admin": "admin" });
   eleventyConfig.addPassthroughCopy({ "src/images": "images" });
+  eleventyConfig.addPassthroughCopy({
+    "src/favicon/favicon.ico": "favicon.ico",
+    "src/favicon/favicon-16x16.png": "favicon-16x16.png",
+    "src/favicon/favicon-32x32.png": "favicon-32x32.png",
+    "src/favicon/apple-touch-icon.png": "apple-touch-icon.png",
+    "src/favicon/icon-512.png": "icon-512.png",
+  });
 
   eleventyConfig.addFilter("postDate", (dateObj) => {
     return DateTime.fromJSDate(dateObj, { zone: "utc" }).toFormat("LLL d");
