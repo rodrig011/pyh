@@ -49,10 +49,11 @@ collections:
     summary: "{{title}} — {{date}}"
     sortable_fields: ["date", "title"]
     fields:
-      - { label: "Título del post", name: "title", widget: "string" }
+      - { label: "Título del post", name: "title", widget: "string", required: false }
       - label: "Categoría"
         name: "category"
         widget: "select"
+        required: false
         options:
           - "Ingredients"
           - "Formulation"
@@ -65,27 +66,33 @@ collections:
         name: "categoryEmoji"
         widget: "string"
         default: "✨"
+        required: false
         hint: "Un solo emoji para esta categoría (aparece en el filtro de arriba de los posts)"
       - label: "Emoji de la tarjeta"
         name: "emoji"
         widget: "string"
         default: "🧪"
+        required: false
         hint: "Un emoji decorativo que aparece sobre la imagen de portada en la tarjeta"
       - label: "Resumen corto"
         name: "excerpt"
         widget: "text"
+        required: false
         hint: "1-2 frases. Esto se muestra en la tarjeta del post en la página principal"
       - label: "Imagen de portada"
         name: "image"
         widget: "image"
+        required: false
         hint: "Arrastra una imagen aquí o haz clic para subirla"
       - label: "Fecha de publicación"
         name: "date"
         widget: "datetime"
         format: "yyyy-MM-dd"
+        required: false
       - label: "Contenido del post"
         name: "body"
         widget: "markdown"
+        required: false
         hint: "Aquí escribes el post completo. Puedes poner negritas, títulos, listas e imágenes."
 
   - name: "settings"
@@ -100,40 +107,42 @@ collections:
             widget: "object"
             collapsed: true
             fields:
-              - { label: "Link de Instagram", name: "instagram_url", widget: "string" }
-              - { label: "Usuario de Instagram (@...)", name: "instagram_handle", widget: "string" }
-              - { label: "Link de LinkedIn", name: "linkedin_url", widget: "string" }
-              - { label: "Correo de contacto", name: "email", widget: "string" }
+              - { label: "Link de Instagram", name: "instagram_url", widget: "string", required: false }
+              - { label: "Usuario de Instagram (@...)", name: "instagram_handle", widget: "string", required: false }
+              - { label: "Link de LinkedIn", name: "linkedin_url", widget: "string", required: false }
+              - { label: "Correo de contacto", name: "email", widget: "string", required: false }
 
           - label: "Portada (Hero)"
             name: "hero"
             widget: "object"
             collapsed: true
             fields:
-              - { label: "Texto pequeño de arriba", name: "eyebrow", widget: "string" }
-              - { label: "Título — línea 1", name: "title_main", widget: "string" }
-              - { label: "Título — línea 2 (en cursiva, color rosa)", name: "title_emphasis", widget: "string" }
-              - { label: "Subtítulo", name: "subtitle", widget: "text" }
-              - { label: "Foto principal", name: "photo", widget: "image" }
-              - { label: "Fórmula química decorativa", name: "formula_code", widget: "string" }
-              - { label: "Texto bajo la fórmula", name: "formula_label", widget: "string" }
+              - { label: "Texto pequeño de arriba", name: "eyebrow", widget: "string", required: false }
+              - { label: "Título — línea 1", name: "title_main", widget: "string", required: false }
+              - { label: "Título — línea 2 (en cursiva, color rosa)", name: "title_emphasis", widget: "string", required: false }
+              - { label: "Subtítulo", name: "subtitle", widget: "text", required: false }
+              - { label: "Foto principal", name: "photo", widget: "image", required: false }
+              - { label: "Fórmula química decorativa", name: "formula_code", widget: "string", required: false }
+              - { label: "Texto bajo la fórmula", name: "formula_label", widget: "string", required: false }
 
           - label: "Sección Sobre mí (banner)"
             name: "about"
             widget: "object"
             collapsed: true
             fields:
-              - { label: "Foto circular", name: "photo", widget: "image" }
-              - { label: "Nombre", name: "name_main", widget: "string" }
-              - { label: "Apellido (en color rosa)", name: "name_emphasis", widget: "string" }
-              - { label: "Rol / estudios", name: "role", widget: "string" }
+              - { label: "Foto circular", name: "photo", widget: "image", required: false }
+              - { label: "Nombre", name: "name_main", widget: "string", required: false }
+              - { label: "Apellido (en color rosa)", name: "name_emphasis", widget: "string", required: false }
+              - { label: "Rol / estudios", name: "role", widget: "string", required: false }
               - label: "Frase / cita"
                 name: "quote"
                 widget: "text"
+                required: false
                 hint: "Puedes usar **texto** para ponerlo en negrita y color rosa"
               - label: "Insignias (badges)"
                 name: "badges"
                 widget: "list"
+                required: false
                 hint: "Una por línea, por ejemplo: 🇭🇳 From Honduras"
 
           - label: "Ingrediente destacado"
@@ -141,37 +150,39 @@ collections:
             widget: "object"
             collapsed: true
             fields:
-              - { label: "Etiqueta pequeña", name: "label", widget: "string" }
-              - { label: "Título — línea 1", name: "title_main", widget: "string" }
-              - { label: "Título — línea 2 (en cursiva)", name: "title_emphasis", widget: "string" }
-              - { label: "Texto", name: "body", widget: "text" }
-              - { label: "Texto del botón", name: "link_text", widget: "string" }
+              - { label: "Etiqueta pequeña", name: "label", widget: "string", required: false }
+              - { label: "Título — línea 1", name: "title_main", widget: "string", required: false }
+              - { label: "Título — línea 2 (en cursiva)", name: "title_emphasis", widget: "string", required: false }
+              - { label: "Texto", name: "body", widget: "text", required: false }
+              - { label: "Texto del botón", name: "link_text", widget: "string", required: false }
               - label: "Tarjetas (4 datos del ingrediente)"
                 name: "tiles"
                 widget: "list"
+                required: false
                 fields:
-                  - { label: "Icono / emoji", name: "icon", widget: "string" }
-                  - { label: "Etiqueta", name: "tag", widget: "string" }
-                  - { label: "Nombre", name: "name", widget: "string" }
-                  - { label: "Descripción", name: "desc", widget: "text" }
+                  - { label: "Icono / emoji", name: "icon", widget: "string", required: false }
+                  - { label: "Etiqueta", name: "tag", widget: "string", required: false }
+                  - { label: "Nombre", name: "name", widget: "string", required: false }
+                  - { label: "Descripción", name: "desc", widget: "text", required: false }
 
           - label: "Mi historia (sección con foto grande)"
             name: "profile"
             widget: "object"
             collapsed: true
             fields:
-              - { label: "Foto", name: "photo", widget: "image" }
-              - { label: "Texto pequeño de arriba", name: "eyebrow", widget: "string" }
-              - { label: "Título — línea 1", name: "title_main", widget: "string" }
-              - { label: "Título — línea 2 (en cursiva)", name: "title_emphasis", widget: "string" }
-              - { label: "Párrafo 1", name: "bio_1", widget: "text" }
-              - { label: "Párrafo 2", name: "bio_2", widget: "text" }
+              - { label: "Foto", name: "photo", widget: "image", required: false }
+              - { label: "Texto pequeño de arriba", name: "eyebrow", widget: "string", required: false }
+              - { label: "Título — línea 1", name: "title_main", widget: "string", required: false }
+              - { label: "Título — línea 2 (en cursiva)", name: "title_emphasis", widget: "string", required: false }
+              - { label: "Párrafo 1", name: "bio_1", widget: "text", required: false }
+              - { label: "Párrafo 2", name: "bio_2", widget: "text", required: false }
               - label: "Estadísticas (3 números)"
                 name: "stats"
                 widget: "list"
+                required: false
                 fields:
-                  - { label: "Número", name: "number", widget: "string" }
-                  - { label: "Descripción", name: "label", widget: "string" }
+                  - { label: "Número", name: "number", widget: "string", required: false }
+                  - { label: "Descripción", name: "label", widget: "string", required: false }
 
           - label: "Fotos estilo Instagram"
             name: "instagram"
@@ -181,24 +192,25 @@ collections:
               - label: "Fotos (6 recomendadas)"
                 name: "images"
                 widget: "list"
+                required: false
                 fields:
-                  - { label: "Foto", name: "src", widget: "image" }
-                  - { label: "Emoji decorativo", name: "emoji", widget: "string", default: "✨" }
+                  - { label: "Foto", name: "src", widget: "image", required: false }
+                  - { label: "Emoji decorativo", name: "emoji", widget: "string", default: "✨", required: false }
 
           - label: "Newsletter"
             name: "newsletter"
             widget: "object"
             collapsed: true
             fields:
-              - { label: "Etiqueta pequeña", name: "eyebrow", widget: "string" }
-              - { label: "Título", name: "title", widget: "string" }
-              - { label: "Subtítulo", name: "subtitle", widget: "text" }
-              - { label: "Nota pequeña abajo", name: "note", widget: "string" }
+              - { label: "Etiqueta pequeña", name: "eyebrow", widget: "string", required: false }
+              - { label: "Título", name: "title", widget: "string", required: false }
+              - { label: "Subtítulo", name: "subtitle", widget: "text", required: false }
+              - { label: "Nota pequeña abajo", name: "note", widget: "string", required: false }
 
           - label: "Pie de página"
             name: "footer"
             widget: "object"
             collapsed: true
             fields:
-              - { label: "Descripción corta", name: "description", widget: "text" }
-              - { label: "Texto de copyright", name: "copyright", widget: "string" }
+              - { label: "Descripción corta", name: "description", widget: "text", required: false }
+              - { label: "Texto de copyright", name: "copyright", widget: "string", required: false }
