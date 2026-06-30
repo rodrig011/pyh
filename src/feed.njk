@@ -1,0 +1,30 @@
+---
+permalink: /feed.xml
+eleventyExcludeFromCollections: true
+---
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/modules/content/">
+<channel>
+  <title>{{ site.title }}</title>
+  <link>https://sofisticated.lat/</link>
+  <atom:link href="https://sofisticated.lat/feed.xml" rel="self" type="application/rss+xml" />
+  <description>{{ site.hero.subtitle }}</description>
+  <language>en</language>
+  {%- if collections.posts.length %}
+  <lastBuildDate>{{ collections.posts | getNewestCollectionItemDate | dateToRfc822 }}</lastBuildDate>
+  {%- endif %}
+  {%- for post in collections.posts %}
+  <item>
+    <title>{{ post.data.title }}</title>
+    <link>https://sofisticated.lat{{ post.url }}</link>
+    <guid>https://sofisticated.lat{{ post.url }}</guid>
+    <pubDate>{{ post.date | dateToRfc822 }}</pubDate>
+    <description><![CDATA[{{ post.data.excerpt }}]]></description>
+    {%- if post.data.image %}
+    <enclosure url="{{ post.data.image }}" type="image/jpeg" length="0" />
+    {%- endif %}
+    <content:encoded><![CDATA[{{ post.templateContent | safe }}]]></content:encoded>
+  </item>
+  {%- endfor %}
+</channel>
+</rss>
