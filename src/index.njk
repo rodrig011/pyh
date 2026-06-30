@@ -187,9 +187,16 @@ permalink: /
   <div class="nl-eyebrow">{{ site.newsletter.eyebrow }}</div>
   <h2 class="nl-title">{{ site.newsletter.title }}</h2>
   <p class="nl-sub">{{ site.newsletter.subtitle }}</p>
+  {% if site.newsletter.form_action %}
+  <form class="nl-form" action="{{ site.newsletter.form_action }}" method="post" target="_blank" rel="noopener">
+    <input type="email" name="EMAIL" placeholder="your@email.com" required />
+    <button type="submit">Subscribe</button>
+  </form>
+  {% else %}
   <div class="nl-form">
-    <input type="email" placeholder="your@email.com" />
-    <button>Subscribe</button>
+    <input type="email" placeholder="your@email.com" disabled />
+    <button disabled>Subscribe</button>
   </div>
+  {% endif %}
   <div class="nl-note">{{ site.newsletter.note }}</div>
 </div>

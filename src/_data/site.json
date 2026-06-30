@@ -117,7 +117,8 @@
     "eyebrow": "✦ The lab notes",
     "title": "Stay in the know",
     "subtitle": "New posts on ingredients, formulations and cosmetic chemistry — straight to your inbox. No fluff, just real science.",
-    "note": "No spam, ever. Unsubscribe anytime."
+    "note": "No spam, ever. Unsubscribe anytime.",
+    "form_action": ""
   },
   "hero": {
     "eyebrow": "Cosmetic Chemistry Blog",

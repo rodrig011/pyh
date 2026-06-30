@@ -1,0 +1,131 @@
+<!--
+  Sofiisticated — "New post" notification email
+  ================================================
+  Use this as a Mailchimp "Code your own" RSS-Driven Campaign template.
+
+  How the RSS blocks work:
+  - Everything between *|RSS:ITEMS|* and *|RSS:ITEMS:END|* repeats once for
+    every new post published since the last email went out (usually just one).
+  - *|RSS:ITEM:...|* tags are filled in by Mailchimp from sofisticated.lat/feed.xml.
+  - *|UNSUB|*, *|UPDATE_PROFILE|*, *|LIST:ADDRESS|* are required by Mailchimp/
+    anti-spam law — don't remove them.
+
+  See README.md "Correos automáticos de nuevos posts" for the step-by-step
+  setup guide in Spanish.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>*|RSS:FEED_TITLE|*</title>
+</head>
+<body style="margin:0;padding:0;background:#F2EBE0;font-family:Helvetica,Arial,sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F2EBE0;padding:32px 16px;">
+  <tr>
+    <td align="center">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#FAF6F1;border:1px solid rgba(139,104,88,0.18);">
+
+        <!-- Header -->
+        <tr>
+          <td style="padding:28px 36px;border-bottom:1px solid rgba(139,104,88,0.18);">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="font-family:Georgia,'Times New Roman',serif;font-size:22px;color:#2A1F1A;">
+                  Sofi<em style="color:#C8856A;font-style:italic;">i</em>sticated
+                </td>
+                <td align="right" style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#8A7468;">
+                  New post
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- Intro line -->
+        <tr>
+          <td style="padding:28px 36px 4px;">
+            <p style="margin:0;font-size:14px;line-height:1.7;color:#2A1F1A;">
+              Hi *|FNAME|*,
+            </p>
+            <p style="margin:8px 0 0;font-size:14px;line-height:1.7;color:#2A1F1A;">
+              Sofia just published something new on Sofiisticated — here's the science, decoded:
+            </p>
+          </td>
+        </tr>
+
+        <!-- RSS repeating block: one card per new post -->
+        *|RSS:ITEMS|*
+        <tr>
+          <td style="padding:24px 36px 8px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid rgba(139,104,88,0.18);">
+              <tr>
+                <td>
+                  <img src="*|RSS:ITEM:IMAGEURL|*" width="528" alt="" style="display:block;width:100%;max-width:528px;height:auto;border-bottom:1px solid rgba(139,104,88,0.18);">
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:24px 28px 28px;">
+                  <div style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#C8856A;margin-bottom:10px;">
+                    *|RSS:ITEM:CATEGORIES|*
+                  </div>
+                  <a href="*|RSS:ITEM:URL|*" style="text-decoration:none;">
+                    <div style="font-family:Georgia,'Times New Roman',serif;font-size:22px;line-height:1.35;color:#2A1F1A;margin-bottom:12px;">
+                      *|RSS:ITEM:TITLE|*
+                    </div>
+                  </a>
+                  <div style="font-size:13.5px;line-height:1.75;color:#8A7468;margin-bottom:20px;">
+                    *|RSS:ITEM:CONTENT|*
+                  </div>
+                  <a href="*|RSS:ITEM:URL|*"
+                     style="display:inline-block;background:#2A1F1A;color:#FAF6F1;text-decoration:none;font-size:11px;font-weight:bold;letter-spacing:.12em;text-transform:uppercase;padding:13px 24px;">
+                    Read the full post →
+                  </a>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        *|RSS:ITEMS:END|*
+
+        <!-- Sign-off -->
+        <tr>
+          <td style="padding:8px 36px 32px;">
+            <p style="margin:0;font-size:13px;line-height:1.7;color:#8A7468;">
+              No fluff, just real science — see you in the next one.<br>
+              — Sofia
+            </p>
+          </td>
+        </tr>
+
+        <!-- Socials -->
+        <tr>
+          <td style="padding:0 36px 32px;border-top:1px solid rgba(139,104,88,0.18);padding-top:24px;">
+            <a href="https://www.instagram.com/sofisticated" style="text-decoration:none;font-size:11px;color:#8A7468;margin-right:16px;">Instagram →</a>
+            <a href="https://www.linkedin.com/in/sofia-panting" style="text-decoration:none;font-size:11px;color:#8A7468;">LinkedIn →</a>
+          </td>
+        </tr>
+
+        <!-- Footer / compliance -->
+        <tr>
+          <td style="padding:20px 36px 32px;background:#2A1F1A;">
+            <p style="margin:0 0 10px;font-size:11px;line-height:1.7;color:#BBA99E;">
+              You're getting this email because you subscribed at sofisticated.lat.
+            </p>
+            <p style="margin:0 0 10px;font-size:11px;line-height:1.7;color:#BBA99E;">
+              *|LIST:ADDRESS|*
+            </p>
+            <p style="margin:0;font-size:11px;line-height:1.7;">
+              <a href="*|UNSUB|*" style="color:#C8856A;text-decoration:underline;">Unsubscribe</a>
+              &nbsp;·&nbsp;
+              <a href="*|UPDATE_PROFILE|*" style="color:#C8856A;text-decoration:underline;">Update preferences</a>
+            </p>
+          </td>
+        </tr>
+
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>

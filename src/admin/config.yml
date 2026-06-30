@@ -218,6 +218,11 @@ collections:
               - { label: "Título", name: "title", widget: "string", required: false }
               - { label: "Subtítulo", name: "subtitle", widget: "text", required: false }
               - { label: "Nota pequeña abajo", name: "note", widget: "string", required: false }
+              - label: "Enlace del formulario (Mailchimp)"
+                name: "form_action"
+                widget: "string"
+                required: false
+                hint: "Pega aquí la URL de tu formulario de Mailchimp (Audience → Signup forms → Embedded forms → copia la URL que dice action=\"...\"). Mientras esté vacío, el botón de suscribirse no hará nada."
 
           - label: "Pie de página"
             name: "footer"
