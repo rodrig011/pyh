@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{{ title or site.title }} — Sofia Panting</title>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;1,400;1,500&family=Jost:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -29,16 +33,6 @@ body{background:var(--cream);color:var(--warm-dark);font-family:var(--sans);font
 
 /* grain */
 body::before{content:'';position:fixed;inset:0;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");pointer-events:none;z-index:9000;opacity:0.42}
-
-/* custom cursor — desktop only */
-#cursor,#cursor-ring{display:none}
-@media(pointer:fine){
-  body{cursor:none}
-  #cursor{display:block;width:8px;height:8px;background:var(--rose);border-radius:50%;position:fixed;top:0;left:0;pointer-events:none;z-index:9999;transform:translate(-50%,-50%);transition:transform .15s,background .2s}
-  #cursor-ring{display:block;width:28px;height:28px;border:1px solid rgba(200,133,106,.5);border-radius:50%;position:fixed;top:0;left:0;pointer-events:none;z-index:9998;transform:translate(-50%,-50%)}
-  body:has(a:hover) #cursor,body:has(button:hover) #cursor{transform:translate(-50%,-50%) scale(2.5);background:var(--burgundy)}
-  body:has(a:hover) #cursor-ring,body:has(button:hover) #cursor-ring{transform:translate(-50%,-50%) scale(1.8);border-color:rgba(107,50,40,.3)}
-}
 
 /* TICKER */
 .ticker{background:var(--warm-dark);color:var(--blush);font-size:11px;letter-spacing:.18em;text-transform:uppercase;padding:9px 0;overflow:hidden;white-space:nowrap;font-family:var(--sans)}
@@ -299,6 +293,11 @@ nav{background:rgba(250,246,241,.92);backdrop-filter:blur(16px);-webkit-backdrop
 .nl-note{font-size:11px;color:var(--light-muted);margin-top:.85rem;position:relative;z-index:1}
 .nl-form input:disabled,.nl-form button:disabled{opacity:.45;cursor:not-allowed}
 .nl-form button:disabled:hover{background:var(--warm-dark);border-color:var(--warm-dark)}
+.nl-hp{position:absolute;left:-9999px;width:1px;height:1px;opacity:0}
+.nl-success,.nl-error{display:none;font-size:13px;margin-top:.85rem;position:relative;z-index:1}
+.nl-success{color:var(--deep-rose)}
+.nl-error{color:var(--rose)}
+.nl-success.show,.nl-error.show{display:block}
 
 /* FOOTER */
 footer{background:var(--warm-dark);color:rgba(250,246,241,.45);padding:3.5rem 3rem 2.5rem}
@@ -350,9 +349,6 @@ footer{background:var(--warm-dark);color:rgba(250,246,241,.45);padding:3.5rem 3r
 </style>
 </head>
 <body>
-
-<div id="cursor"></div>
-<div id="cursor-ring"></div>
 
 <!-- TICKER -->
 <div class="ticker">
@@ -434,21 +430,6 @@ footer{background:var(--warm-dark);color:rgba(250,246,241,.45);padding:3.5rem 3r
 </footer>
 
 <script>
-const cursor = document.getElementById('cursor');
-const ring = document.getElementById('cursor-ring');
-if(window.matchMedia('(pointer:fine)').matches && cursor){
-  let mx=0,my=0,rx=0,ry=0;
-  document.addEventListener('mousemove',e=>{
-    mx=e.clientX;my=e.clientY;
-    cursor.style.left=mx+'px';cursor.style.top=my+'px';
-  });
-  (function anim(){
-    rx+=(mx-rx)*.1;ry+=(my-ry)*.1;
-    ring.style.left=rx+'px';ring.style.top=ry+'px';
-    requestAnimationFrame(anim);
-  })();
-}
-
 const els = document.querySelectorAll('.post-card,.ing-tile,.topic-pill,.ig-tile,.profile-photo-wrap,.profile-content,.stat-num');
 const io = new IntersectionObserver(entries=>{
   entries.forEach((e,i)=>{
@@ -475,6 +456,30 @@ if(navToggle && navLinks){
       navToggle.classList.remove('open');
       navToggle.setAttribute('aria-expanded','false');
     });
+  });
+}
+
+const newsletterForm = document.getElementById('newsletterForm');
+if(newsletterForm){
+  newsletterForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const successEl = document.getElementById('newsletterSuccess');
+    const errorEl = document.getElementById('newsletterError');
+    errorEl.classList.remove('show');
+    const data = new FormData(newsletterForm);
+    fetch('/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams(data).toString(),
+    })
+      .then(() => {
+        newsletterForm.reset();
+        newsletterForm.style.display = 'none';
+        successEl.classList.add('show');
+      })
+      .catch(() => {
+        errorEl.classList.add('show');
+      });
   });
 }
 

@@ -193,10 +193,14 @@ permalink: /
     <button type="submit">Subscribe</button>
   </form>
   {% else %}
-  <div class="nl-form">
-    <input type="email" placeholder="your@email.com" disabled />
-    <button disabled>Subscribe</button>
-  </div>
+  <form class="nl-form" name="newsletter" method="POST" data-netlify="true" netlify-honeypot="bot-field" id="newsletterForm">
+    <input type="hidden" name="form-name" value="newsletter" />
+    <input type="text" name="bot-field" class="nl-hp" tabindex="-1" autocomplete="off" />
+    <input type="email" name="email" placeholder="your@email.com" required />
+    <button type="submit">Subscribe</button>
+  </form>
+  <p class="nl-success" id="newsletterSuccess">¡Listo! Ya estás suscrita 🎉</p>
+  <p class="nl-error" id="newsletterError">Algo salió mal. Intenta de nuevo en un momento.</p>
   {% endif %}
   <div class="nl-note">{{ site.newsletter.note }}</div>
 </div>
