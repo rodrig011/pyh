@@ -26,7 +26,11 @@ permalink: /
     <div class="hero-orb-2"></div>
 
     <div class="hero-photo">
+      {% if site.hero.photo %}
       <img src="{{ site.hero.photo }}" alt="Sofia Panting" onerror="this.parentElement.innerHTML='<div class=\'photo-placeholder\'><span>🧪</span><p>Sofia Panting</p></div>'" />
+      {% else %}
+      <div class="photo-placeholder"><span>🧪</span><p>Sofia Panting</p></div>
+      {% endif %}
     </div>
 
     {% if collections.posts.length %}
@@ -53,7 +57,11 @@ permalink: /
 <div class="about-banner" id="about">
   <div class="avatar-wrap">
     <div class="avatar">
+      {% if site.about.photo %}
       <img src="{{ site.about.photo }}" alt="Sofia" onerror="this.parentElement.innerHTML='<div class=\'avatar-placeholder\'>🧪</div>'" />
+      {% else %}
+      <div class="avatar-placeholder">🧪</div>
+      {% endif %}
     </div>
     <div class="avatar-ring"></div>
   </div>
@@ -127,7 +135,11 @@ permalink: /
 <div class="profile-section" id="profile">
   <div class="profile-photo-wrap">
     <div class="profile-photo">
+      {% if site.profile.photo %}
       <img src="{{ site.profile.photo }}" alt="Sofia Panting" onerror="this.parentElement.innerHTML='<div class=\'profile-photo-placeholder\'><span>🌿</span><p>Replace with<br>Sofia\'s photo</p></div>'" />
+      {% else %}
+      <div class="profile-photo-placeholder"><span>🌿</span><p>Replace with<br>Sofia's photo</p></div>
+      {% endif %}
     </div>
     <div class="profile-accent"></div>
     <div class="profile-accent-2"></div>
@@ -199,8 +211,8 @@ permalink: /
     <input type="email" name="email" placeholder="your@email.com" required />
     <button type="submit">Subscribe</button>
   </form>
-  <p class="nl-success" id="newsletterSuccess">¡Listo! Ya estás suscrita 🎉</p>
-  <p class="nl-error" id="newsletterError">Algo salió mal. Intenta de nuevo en un momento.</p>
+  <p class="nl-success" id="newsletterSuccess">You're subscribed! 🎉</p>
+  <p class="nl-error" id="newsletterError">Something went wrong. Please try again in a moment.</p>
   {% endif %}
   <div class="nl-note">{{ site.newsletter.note }}</div>
 </div>
