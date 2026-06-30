@@ -102,6 +102,18 @@ collections:
         label: "Contenido general"
         file: "src/_data/site.json"
         fields:
+          - label: "Barra de texto que se mueve arriba (ticker)"
+            name: "ticker"
+            widget: "list"
+            required: false
+            hint: "Palabras que se repiten en la barra negra de arriba del sitio. Una por línea."
+
+          - label: "Enlaces del menú de navegación"
+            name: "nav_links"
+            widget: "list"
+            required: false
+            hint: "Las palabras que aparecen en el menú de arriba (Ingredients, Formulation, etc.)"
+
           - label: "Redes sociales y contacto"
             name: "social"
             widget: "object"
