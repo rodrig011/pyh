@@ -1,7 +1,9 @@
 const { DateTime } = require("luxon");
 const md = require("markdown-it")({ html: false });
+const pluginRss = require("@11ty/eleventy-plugin-rss");
 
 module.exports = function (eleventyConfig) {
+  eleventyConfig.addPlugin(pluginRss);
   eleventyConfig.addFilter("mdInline", (str) => md.renderInline(str || ""));
   eleventyConfig.addPassthroughCopy({ "src/admin": "admin" });
   eleventyConfig.addPassthroughCopy({ "src/images": "images" });

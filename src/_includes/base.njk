@@ -59,9 +59,31 @@ nav{background:rgba(250,246,241,.92);backdrop-filter:blur(16px);-webkit-backdrop
 .nav-social{display:flex;align-items:center;gap:6px;text-decoration:none;color:var(--muted);font-size:11px;letter-spacing:.05em;padding:6px 11px;border:1px solid var(--border);border-radius:20px;transition:all .2s;font-family:var(--sans);white-space:nowrap}
 .nav-social:hover{color:var(--rose);border-color:var(--rose);background:rgba(200,133,106,.05)}
 .nav-social svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.nav-toggle{display:none;flex-direction:column;justify-content:center;align-items:flex-end;gap:5px;width:28px;height:28px;background:none;border:none;cursor:pointer;padding:0;flex-shrink:0}
+.nav-toggle span{display:block;width:100%;height:1.5px;background:var(--warm-dark);transition:transform .25s,opacity .2s,width .25s}
+.nav-toggle.open span:nth-child(1){transform:translateY(6.5px) rotate(45deg);width:100%}
+.nav-toggle.open span:nth-child(2){opacity:0}
+.nav-toggle.open span:nth-child(3){transform:translateY(-6.5px) rotate(-45deg);width:100%}
 @media(max-width:768px){
-  .nav-links{display:none}
+  .nav-toggle{display:flex}
+  .nav-links{
+    display:flex;flex-direction:column;gap:0;
+    position:fixed;top:62px;left:0;right:0;
+    background:var(--cream);border-bottom:1px solid var(--border);
+    box-shadow:0 16px 30px rgba(42,31,26,.1);
+    padding:0;max-height:0;overflow:hidden;opacity:0;pointer-events:none;
+    transition:max-height .3s ease,opacity .2s ease;z-index:499;
+  }
+  .nav-links.open{max-height:400px;opacity:1;pointer-events:auto;padding:.5rem 0}
+  .nav-links li{width:100%}
+  .nav-links a{display:block;padding:.9rem 1.5rem;font-size:12px}
+  .nav-links a::after{display:none}
   .nav-logo{font-size:1.15rem}
+}
+@media(max-width:480px){
+  .nav-social-text{display:none}
+  .nav-social{padding:8px;border-radius:50%}
+  .nav-social svg{width:15px;height:15px}
 }
 
 /* HERO */
@@ -347,13 +369,16 @@ footer{background:var(--warm-dark);color:rgba(250,246,241,.45);padding:3.5rem 3r
   <div class="nav-socials">
     <a href="{{ site.social.instagram_url }}" target="_blank" class="nav-social">
       <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="0.01" stroke-width="3"/></svg>
-      {{ site.social.instagram_handle }}
+      <span class="nav-social-text">{{ site.social.instagram_handle }}</span>
     </a>
     <a href="{{ site.social.linkedin_url }}" target="_blank" class="nav-social">
       <svg viewBox="0 0 24 24"><path d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-2-2 2 2 0 00-2 2v7h-4v-7a6 6 0 016-6z"/><rect x="2" y="9" width="4" height="12"/><circle cx="4" cy="4" r="2"/></svg>
-      LinkedIn
+      <span class="nav-social-text">LinkedIn</span>
     </a>
   </div>
+  <button class="nav-toggle" id="navToggle" aria-label="Open menu" aria-expanded="false">
+    <span></span><span></span><span></span>
+  </button>
 </nav>
 
 {{ content | safe }}
@@ -433,6 +458,23 @@ const io = new IntersectionObserver(entries=>{
   });
 },{threshold:.08});
 els.forEach(el=>{el.style.opacity='0';io.observe(el);});
+
+const navToggle = document.getElementById('navToggle');
+const navLinks = document.querySelector('.nav-links');
+if(navToggle && navLinks){
+  navToggle.addEventListener('click',()=>{
+    const isOpen = navLinks.classList.toggle('open');
+    navToggle.classList.toggle('open',isOpen);
+    navToggle.setAttribute('aria-expanded',isOpen);
+  });
+  navLinks.querySelectorAll('a').forEach(a=>{
+    a.addEventListener('click',()=>{
+      navLinks.classList.remove('open');
+      navToggle.classList.remove('open');
+      navToggle.setAttribute('aria-expanded','false');
+    });
+  });
+}
 
 document.querySelectorAll('.topic-pill').forEach(p=>{
   p.addEventListener('click',()=>{
