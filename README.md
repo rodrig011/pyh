@@ -1,4 +1,4 @@
-# Sofiisticated
+# Sofisticated
 
 Blog de química cosmética hecho con [Eleventy](https://www.11ty.dev/) (genera el sitio) y [Decap CMS](https://decapcms.org/) (panel de edición tipo "Word/Canva" en `/admin`).
 
@@ -89,7 +89,7 @@ Esto se configura **una sola vez**. Después de eso, cada vez que le des **Publi
 
 ### 4.1 Crear cuenta en Mailchimp (gratis)
 1. Entra a [mailchimp.com](https://mailchimp.com) y crea una cuenta gratis (el plan gratis alcanza hasta 500 contactos, de sobra para empezar).
-2. Cuando te pida crear una **Audience** (audiencia), ponle un nombre como "Sofiisticated — suscriptores" y llena los datos básicos que pida (de dónde escribes los correos, etc.).
+2. Cuando te pida crear una **Audience** (audiencia), ponle un nombre como "Sofisticated — suscriptores" y llena los datos básicos que pida (de dónde escribes los correos, etc.).
 
 ### 4.2 Crear el formulario de suscripción y conectarlo al sitio
 1. En Mailchimp, ve a **Audience → Signup forms → Embedded forms**.
