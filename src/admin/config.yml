@@ -62,18 +62,6 @@ collections:
           - "Color Cosmetics"
           - "INCI Decoded"
           - "Actives"
-      - label: "Emoji de la categoría"
-        name: "categoryEmoji"
-        widget: "string"
-        default: "✨"
-        required: false
-        hint: "Un solo emoji para esta categoría (aparece en el filtro de arriba de los posts)"
-      - label: "Emoji de la tarjeta"
-        name: "emoji"
-        widget: "string"
-        default: "🧪"
-        required: false
-        hint: "Un emoji decorativo que aparece sobre la imagen de portada en la tarjeta"
       - label: "Resumen corto"
         name: "excerpt"
         widget: "text"
@@ -178,7 +166,6 @@ collections:
                 widget: "list"
                 required: false
                 fields:
-                  - { label: "Icono / emoji", name: "icon", widget: "string", required: false }
                   - { label: "Etiqueta", name: "tag", widget: "string", required: false }
                   - { label: "Nombre", name: "name", widget: "string", required: false }
                   - { label: "Descripción", name: "desc", widget: "text", required: false }
@@ -213,7 +200,6 @@ collections:
                 required: false
                 fields:
                   - { label: "Foto", name: "src", widget: "image", required: false }
-                  - { label: "Emoji decorativo", name: "emoji", widget: "string", default: "✨", required: false }
 
           - label: "Newsletter"
             name: "newsletter"
@@ -224,11 +210,11 @@ collections:
               - { label: "Título", name: "title", widget: "string", required: false }
               - { label: "Subtítulo", name: "subtitle", widget: "text", required: false }
               - { label: "Nota pequeña abajo", name: "note", widget: "string", required: false }
-              - label: "Enlace del formulario (Mailchimp)"
+              - label: "Enlace del formulario (Brevo)"
                 name: "form_action"
                 widget: "string"
                 required: false
-                hint: "Opcional. Mientras esté vacío, las suscripciones se guardan solas en Netlify (panel de Netlify → Forms → newsletter). Si un día conectas Mailchimp, pega aquí la URL de tu formulario (Audience → Signup forms → Embedded forms → copia la URL que dice action=\"...\") y el botón pasará a mandar los correos directo a tu lista."
+                hint: "Opcional. Mientras esté vacío, las suscripciones se guardan solas en Netlify (panel de Netlify → Forms → newsletter). Si conectas Brevo, pega aquí la URL de tu formulario (Contacts → Forms → integración HTML → copia la URL que dice action=\"...sibforms.com/serve/...\") y el botón pasará a mandar los correos directo a tu lista de Brevo."
 
           - label: "Pie de página"
             name: "footer"
