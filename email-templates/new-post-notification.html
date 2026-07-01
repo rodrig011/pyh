@@ -1,24 +1,29 @@
 <!--
-  Sofisticated — "New post" notification email
-  ================================================
-  Use this as a Mailchimp "Code your own" RSS-Driven Campaign template.
+  Sofisticated — "New post" notification email (Brevo)
+  ====================================================
+  Use this with a Brevo RSS Campaign ("RSS Campaign" app in the Brevo
+  App Store, connected to https://sofisticated.lat/feed.xml).
 
-  How the RSS blocks work:
-  - Everything between *|RSS:ITEMS|* and *|RSS:ITEMS:END|* repeats once for
-    every new post published since the last email went out (usually just one).
-  - *|RSS:ITEM:...|* tags are filled in by Mailchimp from sofisticated.lat/feed.xml.
-  - *|UNSUB|*, *|UPDATE_PROFILE|*, *|LIST:ADDRESS|* are required by Mailchimp/
-    anti-spam law — don't remove them.
+  How the RSS block works:
+  - Everything between {% for item in items %} and {% endfor %} repeats
+    once for every new post published since the last email (usually one).
+  - {{ item.TITLE }}, {{ item.LINK }}, {{ item.DESCRIPTION }} and
+    {{ item.PUBDATE }} are filled in by Brevo from the feed. The key
+    names must match the RSS tags in UPPERCASE.
+  - If you use Brevo's drag-and-drop editor instead of pasting HTML,
+    mark the post section as "Repeatable content" with
+    Repeat for: items · Variable alias: item
+  - {{ unsubscribe }} and {{ mirror }} are Brevo's required links —
+    don't remove them.
 
-  See README.md "Correos automáticos de nuevos posts" for the step-by-step
-  setup guide in Spanish.
+  See README.md section 4 for the step-by-step setup guide in Spanish.
 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>*|RSS:FEED_TITLE|*</title>
+<title>New on Sofisticated</title>
 </head>
 <body style="margin:0;padding:0;background:#F2EBE0;font-family:Helvetica,Arial,sans-serif;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F2EBE0;padding:32px 16px;">
@@ -46,7 +51,7 @@
         <tr>
           <td style="padding:28px 36px 4px;">
             <p style="margin:0;font-size:14px;line-height:1.7;color:#2A1F1A;">
-              Hi *|FNAME|*,
+              Hi {{ contact.FIRSTNAME | default : "there" }},
             </p>
             <p style="margin:8px 0 0;font-size:14px;line-height:1.7;color:#2A1F1A;">
               Sofia just published something new on Sofisticated — here's the science, decoded:
@@ -55,29 +60,24 @@
         </tr>
 
         <!-- RSS repeating block: one card per new post -->
-        *|RSS:ITEMS|*
+        {% for item in items %}
         <tr>
           <td style="padding:24px 36px 8px;">
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid rgba(139,104,88,0.18);">
               <tr>
-                <td>
-                  <img src="*|RSS:ITEM:IMAGEURL|*" width="528" alt="" style="display:block;width:100%;max-width:528px;height:auto;border-bottom:1px solid rgba(139,104,88,0.18);">
-                </td>
-              </tr>
-              <tr>
-                <td style="padding:24px 28px 28px;">
+                <td style="padding:28px 28px 30px;">
                   <div style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#C8856A;margin-bottom:10px;">
-                    *|RSS:ITEM:CATEGORIES|*
+                    {{ item.PUBDATE }}
                   </div>
-                  <a href="*|RSS:ITEM:URL|*" style="text-decoration:none;">
+                  <a href="{{ item.LINK }}" style="text-decoration:none;">
                     <div style="font-family:Georgia,'Times New Roman',serif;font-size:22px;line-height:1.35;color:#2A1F1A;margin-bottom:12px;">
-                      *|RSS:ITEM:TITLE|*
+                      {{ item.TITLE }}
                     </div>
                   </a>
                   <div style="font-size:13.5px;line-height:1.75;color:#8A7468;margin-bottom:20px;">
-                    *|RSS:ITEM:CONTENT|*
+                    {{ item.DESCRIPTION }}
                   </div>
-                  <a href="*|RSS:ITEM:URL|*"
+                  <a href="{{ item.LINK }}"
                      style="display:inline-block;background:#2A1F1A;color:#FAF6F1;text-decoration:none;font-size:11px;font-weight:bold;letter-spacing:.12em;text-transform:uppercase;padding:13px 24px;">
                     Read the full post →
                   </a>
@@ -86,7 +86,7 @@
             </table>
           </td>
         </tr>
-        *|RSS:ITEMS:END|*
+        {% endfor %}
 
         <!-- Sign-off -->
         <tr>
@@ -112,13 +112,10 @@
             <p style="margin:0 0 10px;font-size:11px;line-height:1.7;color:#BBA99E;">
               You're getting this email because you subscribed at sofisticated.lat.
             </p>
-            <p style="margin:0 0 10px;font-size:11px;line-height:1.7;color:#BBA99E;">
-              *|LIST:ADDRESS|*
-            </p>
             <p style="margin:0;font-size:11px;line-height:1.7;">
-              <a href="*|UNSUB|*" style="color:#C8856A;text-decoration:underline;">Unsubscribe</a>
+              <a href="{{ unsubscribe }}" style="color:#C8856A;text-decoration:underline;">Unsubscribe</a>
               &nbsp;·&nbsp;
-              <a href="*|UPDATE_PROFILE|*" style="color:#C8856A;text-decoration:underline;">Update preferences</a>
+              <a href="{{ mirror }}" style="color:#C8856A;text-decoration:underline;">View in browser</a>
             </p>
           </td>
         </tr>

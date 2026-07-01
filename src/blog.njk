@@ -10,9 +10,9 @@ permalink: /blog/
     <a href="/">← Home</a>
   </div>
   <div class="topics-row" style="margin-bottom:2rem">
-    <div class="topic-pill active" data-category="all">✦ All posts</div>
+    <div class="topic-pill active" data-category="all">All posts</div>
     {% for cat in collections.categories %}
-    <div class="topic-pill" data-category="{{ cat.name }}">{{ cat.emoji }} {{ cat.name }}</div>
+    <div class="topic-pill" data-category="{{ cat.name }}">{{ cat.name }}</div>
     {% endfor %}
   </div>
   <div class="posts-grid">
@@ -22,7 +22,7 @@ permalink: /blog/
     <a href="{{ post.url }}" class="post-card" data-category="{{ post.data.category }}">
       <div class="card-img {{ imgClasses[loop.index0 % 6] }}">
         <img class="card-photo {{ tintClasses[loop.index0 % 3] }}" src="{{ post.data.image }}" alt="" loading="lazy" decoding="async" onerror="this.remove()" />
-        <span class="card-emoji">{{ post.data.emoji or "🧪" }}</span>
+        <span class="card-mark">✦</span>
         <div class="card-overlay"></div>
       </div>
       <div class="post-cat">{{ post.data.category }}</div>
