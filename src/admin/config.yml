@@ -102,6 +102,12 @@ collections:
         label: "Contenido general"
         file: "src/_data/site.json"
         fields:
+          - label: "Nombre del sitio"
+            name: "title"
+            widget: "string"
+            required: false
+            hint: "Aparece en la pestaña del navegador y cuando compartes el link"
+
           - label: "Barra de texto que se mueve arriba (ticker)"
             name: "ticker"
             widget: "list"
@@ -222,7 +228,7 @@ collections:
                 name: "form_action"
                 widget: "string"
                 required: false
-                hint: "Pega aquí la URL de tu formulario de Mailchimp (Audience → Signup forms → Embedded forms → copia la URL que dice action=\"...\"). Mientras esté vacío, el botón de suscribirse no hará nada."
+                hint: "Opcional. Mientras esté vacío, las suscripciones se guardan solas en Netlify (panel de Netlify → Forms → newsletter). Si un día conectas Mailchimp, pega aquí la URL de tu formulario (Audience → Signup forms → Embedded forms → copia la URL que dice action=\"...\") y el botón pasará a mandar los correos directo a tu lista."
 
           - label: "Pie de página"
             name: "footer"

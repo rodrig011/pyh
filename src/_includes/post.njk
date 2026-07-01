@@ -25,7 +25,7 @@ layout: base.njk
 {% set olderPost = collections.posts | getNextCollectionItem %}
 {% set newerPost = collections.posts | getPreviousCollectionItem %}
 {% if olderPost or newerPost %}
-<nav class="post-nav" aria-label="More posts">
+<div class="post-nav" role="navigation" aria-label="More posts">
   {% if olderPost %}
   <a href="{{ olderPost.url }}" class="post-nav-link">
     <div class="post-nav-label">← Older post</div>
@@ -38,7 +38,7 @@ layout: base.njk
     <div class="post-nav-title">{{ newerPost.data.title }}</div>
   </a>
   {% endif %}
-</nav>
+</div>
 {% endif %}
 
 {% include "newsletter.njk" %}
