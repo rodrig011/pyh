@@ -12,11 +12,17 @@ module.exports = function (eleventyConfig) {
     "src/favicon/favicon-16x16.png": "favicon-16x16.png",
     "src/favicon/favicon-32x32.png": "favicon-32x32.png",
     "src/favicon/apple-touch-icon.png": "apple-touch-icon.png",
+    "src/favicon/icon-192.png": "icon-192.png",
     "src/favicon/icon-512.png": "icon-512.png",
+    "src/favicon/site.webmanifest": "site.webmanifest",
   });
 
   eleventyConfig.addFilter("postDate", (dateObj) => {
     return DateTime.fromJSDate(dateObj, { zone: "utc" }).toFormat("LLL d");
+  });
+
+  eleventyConfig.addFilter("postDateFull", (dateObj) => {
+    return DateTime.fromJSDate(dateObj, { zone: "utc" }).toFormat("LLL d, yyyy");
   });
 
   eleventyConfig.addFilter("isoDate", (dateObj) => {

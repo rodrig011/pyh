@@ -1,12 +1,19 @@
 ---
 layout: base.njk
 title: All posts
+description: "Every post on ingredients, formulation and skin science — the full Sofiisticated archive."
 permalink: /blog/
 ---
 <div class="posts-wrap" style="padding-top:3rem">
   <div class="section-hdr">
-    <h2>All <em>posts</em></h2>
+    <h1>All <em>posts</em></h1>
     <a href="/">← Home</a>
+  </div>
+  <div class="topics-row" style="margin-bottom:2rem">
+    <div class="topic-pill active" data-category="all">✦ All posts</div>
+    {% for cat in collections.categories %}
+    <div class="topic-pill" data-category="{{ cat.name }}">{{ cat.emoji }} {{ cat.name }}</div>
+    {% endfor %}
   </div>
   <div class="posts-grid">
     {% for post in collections.posts %}
@@ -14,7 +21,7 @@ permalink: /blog/
     {% set tintClasses = ["tint-rose","","tint-sage"] %}
     <a href="{{ post.url }}" class="post-card" data-category="{{ post.data.category }}">
       <div class="card-img {{ imgClasses[loop.index0 % 6] }}">
-        <img class="card-photo {{ tintClasses[loop.index0 % 3] }}" src="{{ post.data.image }}" alt="" onerror="this.remove()" />
+        <img class="card-photo {{ tintClasses[loop.index0 % 3] }}" src="{{ post.data.image }}" alt="" loading="lazy" decoding="async" onerror="this.remove()" />
         <span class="card-emoji">{{ post.data.emoji or "🧪" }}</span>
         <div class="card-overlay"></div>
       </div>

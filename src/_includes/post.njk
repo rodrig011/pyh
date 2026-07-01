@@ -8,16 +8,37 @@ layout: base.njk
     <h1 class="post-hero-title">{{ title }}</h1>
     <div class="post-hero-meta">
       <span>Sofia Panting</span>
-      <span>{{ page.date | postDate }}</span>
+      <span>{{ page.date | postDateFull }}</span>
       <span>{{ content | readTime }}</span>
     </div>
   </div>
   {% if image %}
   <div class="post-hero-img">
-    <img src="{{ image }}" alt="{{ title }}" onerror="this.parentElement.remove()" />
+    <img src="{{ image }}" alt="{{ title }}" decoding="async" onerror="this.parentElement.remove()" />
   </div>
   {% endif %}
   <div class="post-content">
     {{ content | safe }}
   </div>
 </article>
+
+{% set olderPost = collections.posts | getNextCollectionItem %}
+{% set newerPost = collections.posts | getPreviousCollectionItem %}
+{% if olderPost or newerPost %}
+<nav class="post-nav" aria-label="More posts">
+  {% if olderPost %}
+  <a href="{{ olderPost.url }}" class="post-nav-link">
+    <div class="post-nav-label">← Older post</div>
+    <div class="post-nav-title">{{ olderPost.data.title }}</div>
+  </a>
+  {% else %}<span class="post-nav-spacer"></span>{% endif %}
+  {% if newerPost %}
+  <a href="{{ newerPost.url }}" class="post-nav-link next">
+    <div class="post-nav-label">Newer post →</div>
+    <div class="post-nav-title">{{ newerPost.data.title }}</div>
+  </a>
+  {% endif %}
+</nav>
+{% endif %}
+
+{% include "newsletter.njk" %}

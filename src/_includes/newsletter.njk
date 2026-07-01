@@ -1,0 +1,22 @@
+<!-- NEWSLETTER -->
+<div class="nl-section" id="newsletter">
+  <div class="nl-eyebrow">{{ site.newsletter.eyebrow }}</div>
+  <h2 class="nl-title">{{ site.newsletter.title }}</h2>
+  <p class="nl-sub">{{ site.newsletter.subtitle }}</p>
+  {% if site.newsletter.form_action %}
+  <form class="nl-form" action="{{ site.newsletter.form_action }}" method="post" target="_blank" rel="noopener">
+    <input type="email" name="EMAIL" placeholder="your@email.com" aria-label="Email address" required />
+    <button type="submit">Subscribe</button>
+  </form>
+  {% else %}
+  <form class="nl-form" name="newsletter" method="POST" data-netlify="true" netlify-honeypot="bot-field" id="newsletterForm">
+    <input type="hidden" name="form-name" value="newsletter" />
+    <input type="text" name="bot-field" class="nl-hp" tabindex="-1" autocomplete="off" />
+    <input type="email" name="email" placeholder="your@email.com" aria-label="Email address" required />
+    <button type="submit">Subscribe</button>
+  </form>
+  <p class="nl-success" id="newsletterSuccess" aria-live="polite">You're subscribed! 🎉</p>
+  <p class="nl-error" id="newsletterError" aria-live="polite">Something went wrong. Please try again in a moment.</p>
+  {% endif %}
+  <div class="nl-note">{{ site.newsletter.note }}</div>
+</div>
