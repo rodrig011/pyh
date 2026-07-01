@@ -4,11 +4,37 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{{ title or site.title }} — Sofia Panting</title>
+{%- set pageDescription = excerpt or description or site.hero.subtitle %}
+{%- set pageImage = meta.url + "/images/og-default.png" %}
+{%- if image %}{% set pageImage = image if image.startsWith("http") else meta.url + image %}{% endif %}
+<meta name="description" content="{{ pageDescription }}">
+<meta name="author" content="{{ meta.author }}">
+<meta name="theme-color" content="#FAF6F1">
+<link rel="canonical" href="{{ meta.url }}{{ page.url }}">
+<meta property="og:site_name" content="{{ site.title }}">
+<meta property="og:type" content="{% if '/posts/' in page.url %}article{% else %}website{% endif %}">
+<meta property="og:title" content="{{ title or site.title }}">
+<meta property="og:description" content="{{ pageDescription }}">
+<meta property="og:url" content="{{ meta.url }}{{ page.url }}">
+<meta property="og:image" content="{{ pageImage }}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{{ title or site.title }}">
+<meta name="twitter:description" content="{{ pageDescription }}">
+<meta name="twitter:image" content="{{ pageImage }}">
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<link rel="alternate" type="application/rss+xml" title="{{ site.title }}" href="{{ meta.url }}/feed.xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;1,400;1,500&family=Jost:wght@300;400;500&display=swap" rel="stylesheet">
+{%- if '/posts/' in page.url %}
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BlogPosting","headline":{{ title | dump | safe }},"description":{{ pageDescription | dump | safe }},"image":{{ pageImage | dump | safe }},"datePublished":"{{ page.date | isoDate }}","url":"{{ meta.url }}{{ page.url }}","author":{"@type":"Person","name":"{{ meta.author }}"}}</script>
+{%- elif page.url == '/' %}
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebSite","name":"{{ site.title }}","url":"{{ meta.url }}/","description":{{ pageDescription | dump | safe }}}</script>
+{%- endif %}
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 
@@ -169,8 +195,8 @@ nav{background:rgba(250,246,241,.92);backdrop-filter:blur(16px);-webkit-backdrop
 .posts-wrap{padding:2rem 2.5rem 5rem;max-width:1140px;margin:0 auto}
 @media(max-width:768px){.posts-wrap{padding:2rem 1.2rem 4rem}}
 .section-hdr{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:2rem}
-.section-hdr h2{font-family:var(--serif);font-size:1.85rem;font-weight:400}
-.section-hdr h2 em{font-style:italic;color:var(--rose)}
+.section-hdr h1,.section-hdr h2{font-family:var(--serif);font-size:1.85rem;font-weight:400}
+.section-hdr h1 em,.section-hdr h2 em{font-style:italic;color:var(--rose)}
 .section-hdr a{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--rose);text-decoration:none;display:flex;align-items:center;gap:4px;transition:gap .2s;white-space:nowrap}
 .section-hdr a:hover{gap:9px}
 
@@ -346,6 +372,23 @@ footer{background:var(--warm-dark);color:rgba(250,246,241,.45);padding:3.5rem 3r
 .post-content li{margin-bottom:.5rem;font-weight:300}
 .post-content img{width:100%;border-radius:3px;margin:1.6rem 0}
 .post-content code{background:var(--parchment);padding:.15em .4em;border-radius:2px;font-size:.9em}
+
+/* POST PREV/NEXT NAV */
+.post-nav{max-width:760px;margin:0 auto;padding:0 2.5rem 3.5rem;display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+@media(max-width:768px){.post-nav{padding:0 1.2rem 2.5rem;grid-template-columns:1fr}}
+.post-nav-link{border:1px solid var(--border);border-radius:3px;padding:1.2rem 1.4rem;text-decoration:none;display:block;transition:border-color .22s,background .22s}
+.post-nav-link:hover{border-color:rgba(200,133,106,.4);background:rgba(200,133,106,.04)}
+.post-nav-link.next{text-align:right}
+.post-nav-label{font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--rose);font-weight:500;margin-bottom:.4rem}
+.post-nav-title{font-family:var(--serif);font-size:.98rem;color:var(--warm-dark);line-height:1.4}
+.post-nav-spacer{visibility:hidden}
+@media(max-width:768px){.post-nav-spacer{display:none}}
+
+/* 404 */
+.nf-wrap{min-height:60vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:4rem 1.5rem}
+.nf-code{font-family:var(--serif);font-style:italic;font-size:clamp(5rem,14vw,9rem);color:var(--rose);line-height:1;margin-bottom:1rem}
+.nf-title{font-family:var(--serif);font-size:1.6rem;margin-bottom:.7rem}
+.nf-sub{color:var(--muted);font-size:14px;font-weight:300;max-width:380px;margin-bottom:2rem;line-height:1.8}
 </style>
 </head>
 <body>
@@ -362,7 +405,7 @@ footer{background:var(--warm-dark);color:rgba(250,246,241,.45);padding:3.5rem 3r
 <nav>
   <a href="/" class="nav-logo">Sofi<em>i</em>sticated</a>
   <ul class="nav-links">
-    {% for link in site.nav_links %}<li><a href="/#posts">{{ link }}</a></li>{% endfor %}
+    {% for link in site.nav_links %}<li><a href="{% if link == 'About' %}/#about{% else %}/blog/?category={{ link | urlencode }}{% endif %}">{{ link }}</a></li>{% endfor %}
   </ul>
   <div class="nav-socials">
     <a href="{{ site.social.instagram_url }}" target="_blank" class="nav-social">
@@ -401,8 +444,8 @@ footer{background:var(--warm-dark);color:rgba(250,246,241,.45);padding:3.5rem 3r
     <div>
       <div class="footer-col-title">Explore</div>
       <ul class="footer-links">
-        <li><a href="/#posts">All posts</a></li>
-        {% for link in site.nav_links %}<li><a href="/#posts">{{ link }}</a></li>{% endfor %}
+        <li><a href="/blog/">All posts</a></li>
+        {% for link in site.nav_links %}<li><a href="{% if link == 'About' %}/#about{% else %}/blog/?category={{ link | urlencode }}{% endif %}">{{ link }}</a></li>{% endfor %}
       </ul>
     </div>
     <div>
@@ -493,6 +536,14 @@ document.querySelectorAll('.topic-pill').forEach(p=>{
     });
   });
 });
+
+const catParam = new URLSearchParams(location.search).get('category');
+if(catParam){
+  const pill = Array.from(document.querySelectorAll('.topic-pill')).find(
+    p => p.dataset.category && p.dataset.category.toLowerCase() === catParam.toLowerCase()
+  );
+  if(pill) pill.click();
+}
 </script>
 </body>
 </html>

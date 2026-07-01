@@ -79,6 +79,10 @@ netlify.toml            # configuración de build para Netlify
 
 ## 4. Correos automáticos cuando publiques un post nuevo
 
+**El formulario de "Subscribe" del sitio ya funciona solo, sin configurar nada.** Los correos de las personas que se suscriban se guardan automáticamente en Netlify: entra a tu panel de Netlify → **Forms → newsletter** y ahí está la lista completa. Puedes activar una notificación (Forms → Form notifications) para que te llegue un aviso cada vez que alguien se suscribe.
+
+Los pasos de abajo (Mailchimp) son el **siguiente nivel, opcional**: sirven para que el aviso de "hay post nuevo" se les mande solo a todos los suscriptores. Si todavía no configuras Mailchimp, no pasa nada — los suscriptores se van guardando en Netlify Forms y los puedes importar a Mailchimp cuando quieras.
+
 El sitio ya genera un feed en **`tu-sitio.netlify.app/feed.xml`** con todos los posts (esto se actualiza solo, no hay que hacer nada). Ese feed es lo que va a usar el servicio de correos para mandar el aviso automático cada vez que publiques algo nuevo — tú no tienes que avisarle a nadie ni mandar el correo a mano.
 
 Esto se configura **una sola vez**. Después de eso, cada vez que le des **Publish** a un post nuevo en el CMS, el correo se manda solo.
@@ -95,7 +99,7 @@ Esto se configura **una sola vez**. Después de eso, cada vez que le des **Publi
    ```
 3. Copia **solo esa URL** (la que está entre comillas después de `action=`).
 4. Entra al CMS del sitio (`/admin`) → **Configuración del sitio → Newsletter** → pega esa URL en el campo **"Enlace del formulario (Mailchimp)"** → dale **Publish**.
-5. Listo — el botón "Subscribe" de la página principal ya manda los correos directo a tu lista de Mailchimp. Antes de este paso el botón se ve apagado a propósito (para que nadie intente suscribirse a un formulario que no existe todavía).
+5. Listo — el botón "Subscribe" de la página principal ya manda los correos directo a tu lista de Mailchimp. (Mientras este campo esté vacío, las suscripciones se guardan en Netlify Forms, como se explica arriba — el formulario funciona desde el día uno.)
 
 ### 4.3 Conectar el feed del blog para que el correo se mande solo
 1. En Mailchimp, ve a **Automations → Create → Classic Automations → RSS**.

@@ -98,7 +98,7 @@ permalink: /
     {% set tintClasses = ["tint-rose","","tint-sage"] %}
     <a href="{{ post.url }}" class="post-card" data-category="{{ post.data.category }}">
       <div class="card-img {{ imgClasses[loop.index0 % 6] }}">
-        <img class="card-photo {{ tintClasses[loop.index0 % 3] }}" src="{{ post.data.image }}" alt="" onerror="this.remove()" />
+        <img class="card-photo {{ tintClasses[loop.index0 % 3] }}" src="{{ post.data.image }}" alt="" loading="lazy" decoding="async" onerror="this.remove()" />
         <span class="card-emoji">{{ post.data.emoji or "🧪" }}</span>
         <div class="card-overlay"></div>
       </div>
@@ -136,7 +136,7 @@ permalink: /
   <div class="profile-photo-wrap">
     <div class="profile-photo">
       {% if site.profile.photo %}
-      <img src="{{ site.profile.photo }}" alt="Sofia Panting" onerror="this.parentElement.innerHTML='<div class=\'profile-photo-placeholder\'><span>🌿</span><p>Replace with<br>Sofia\'s photo</p></div>'" />
+      <img src="{{ site.profile.photo }}" alt="Sofia Panting" loading="lazy" decoding="async" onerror="this.parentElement.innerHTML='<div class=\'profile-photo-placeholder\'><span>🌿</span><p>Replace with<br>Sofia\'s photo</p></div>'" />
       {% else %}
       <div class="profile-photo-placeholder"><span>🌿</span><p>Replace with<br>Sofia's photo</p></div>
       {% endif %}
@@ -187,32 +187,11 @@ permalink: /
     {% for img in site.instagram.images %}
     {% set imgClasses = ["ia","ib","ic","id","ie","if"] %}
     <div class="ig-tile {{ imgClasses[loop.index0 % 6] }}">
-      <img src="{{ img.src }}" alt="" onerror="this.remove()" style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0" />
+      <img src="{{ img.src }}" alt="" loading="lazy" decoding="async" onerror="this.remove()" style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0" />
       {{ img.emoji }}<div class="ig-tile-ov"><svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="0.01" stroke-width="3"/></svg></div>
     </div>
     {% endfor %}
   </div>
 </div>
 
-<!-- NEWSLETTER -->
-<div class="nl-section">
-  <div class="nl-eyebrow">{{ site.newsletter.eyebrow }}</div>
-  <h2 class="nl-title">{{ site.newsletter.title }}</h2>
-  <p class="nl-sub">{{ site.newsletter.subtitle }}</p>
-  {% if site.newsletter.form_action %}
-  <form class="nl-form" action="{{ site.newsletter.form_action }}" method="post" target="_blank" rel="noopener">
-    <input type="email" name="EMAIL" placeholder="your@email.com" required />
-    <button type="submit">Subscribe</button>
-  </form>
-  {% else %}
-  <form class="nl-form" name="newsletter" method="POST" data-netlify="true" netlify-honeypot="bot-field" id="newsletterForm">
-    <input type="hidden" name="form-name" value="newsletter" />
-    <input type="text" name="bot-field" class="nl-hp" tabindex="-1" autocomplete="off" />
-    <input type="email" name="email" placeholder="your@email.com" required />
-    <button type="submit">Subscribe</button>
-  </form>
-  <p class="nl-success" id="newsletterSuccess">You're subscribed! 🎉</p>
-  <p class="nl-error" id="newsletterError">Something went wrong. Please try again in a moment.</p>
-  {% endif %}
-  <div class="nl-note">{{ site.newsletter.note }}</div>
-</div>
+{% include "newsletter.njk" %}
