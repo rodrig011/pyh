@@ -67,9 +67,9 @@ permalink: /
 <div class="section-wrap">
   <div style="height:2.5rem"></div>
   <div class="topics-row">
-    <div class="topic-pill active" data-category="all">All posts</div>
+    <button type="button" class="topic-pill active" data-category="all">All posts</button>
     {% for cat in collections.categories %}
-    <div class="topic-pill" data-category="{{ cat.name }}">{{ cat.name }}</div>
+    <button type="button" class="topic-pill" data-category="{{ cat.name }}">{{ cat.name }}</button>
     {% endfor %}
   </div>
 </div>
