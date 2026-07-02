@@ -25,6 +25,11 @@
     Cache-Control = "public, max-age=86400"
 
 [[headers]]
+  for = "/images/*.jpg"
+  [headers.values]
+    Cache-Control = "public, max-age=86400"
+
+[[headers]]
   for = "/favicon.ico"
   [headers.values]
     Cache-Control = "public, max-age=86400"
