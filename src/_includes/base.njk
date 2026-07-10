@@ -534,7 +534,8 @@ if(newsletterForm){
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams(data).toString(),
     })
-      .then(() => {
+      .then((res) => {
+        if (!res.ok) throw new Error('form endpoint rejected: ' + res.status);
         newsletterForm.reset();
         newsletterForm.style.display = 'none';
         successEl.classList.add('show');

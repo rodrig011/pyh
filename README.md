@@ -111,3 +111,29 @@ Esto se configura **una sola vez**. Después de eso, cada vez que le des **Publi
 A partir de aquí, cada vez que publiques un post nuevo desde el CMS, las personas suscritas reciben automáticamente un correo con el título, el resumen y un botón para leer el post completo — sin que tengas que hacer nada extra.
 
 > Para ver cómo se ve el correo antes de configurarlo, pídele a quien programó el sitio que te mande una vista previa (`email-templates/new-post-notification.html` abierto en el navegador, con datos de ejemplo).
+
+> **Nota:** la captura automática de suscriptores en Netlify Forms solo funciona mientras el sitio esté hosteado en Netlify. Si el sitio se mueve a Cloudflare Pages (sección 5), configura el formulario de Brevo (paso 4.2) — es gratis y es la solución permanente.
+
+---
+
+## 5. Si Netlify se queda sin créditos: hosting gratis en Cloudflare Pages
+
+El plan gratis de Netlify tiene un límite mensual de "créditos" de build (cada Publish del CMS gasta uno). Si se acaban, los deploys se pausan hasta el próximo mes — los cambios se siguen guardando en GitHub y **no se pierde nada**, solo dejan de aparecer en el sitio hasta que se reinician los créditos.
+
+La alternativa gratis y más holgada es **Cloudflare Pages** (500 builds al mes, tráfico ilimitado). El panel de edición (`/admin`) usa DecapBridge, que **no depende de Netlify**, así que después de la mudanza todo se sigue editando igual.
+
+### 5.1 Conectar el repo a Cloudflare Pages
+1. Crea una cuenta gratis en [dash.cloudflare.com](https://dash.cloudflare.com).
+2. Ve a **Workers & Pages → Create → Pages → Connect to Git** y autoriza GitHub, eligiendo este repositorio.
+3. En la configuración del build pon:
+   - **Build command:** `npm run build`
+   - **Build output directory:** `_site`
+   - En **Environment variables** agrega `NODE_VERSION` = `20`.
+4. Dale **Save and Deploy**. En un minuto tienes el sitio en una URL tipo `nombre.pages.dev`.
+
+### 5.2 Apuntar el dominio (sofisticated.lat)
+1. En el proyecto de Pages, ve a **Custom domains → Set up a custom domain** y escribe `sofisticated.lat`.
+2. Cloudflare te va a pedir cambiar los **nameservers** del dominio a los suyos (te muestra cuáles). Ese cambio se hace donde esté registrado el dominio (si fue comprado vía Netlify: Netlify → Domains → tu dominio → Name servers).
+3. Espera a que propague (minutos a unas horas). Listo — el sitio queda servido gratis por Cloudflare y cada Publish del CMS lo actualiza igual que antes.
+
+> El archivo `src/_headers` del repo ya trae la configuración de caché y seguridad en el formato de Cloudflare, así que no hay que configurar nada más. El `netlify.toml` se queda por si algún día se vuelve a Netlify.
