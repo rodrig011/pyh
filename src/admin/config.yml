@@ -126,7 +126,11 @@ collections:
               - { label: "Texto pequeño de arriba", name: "eyebrow", widget: "string", required: false }
               - { label: "Título — línea 1", name: "title_main", widget: "string", required: false }
               - { label: "Título — línea 2 (en cursiva, color rosa)", name: "title_emphasis", widget: "string", required: false }
-              - { label: "Subtítulo", name: "subtitle", widget: "text", required: false }
+              - label: "Subtítulo"
+                name: "subtitle"
+                widget: "text"
+                required: false
+                hint: "Cada Enter crea un renglón nuevo en el sitio. Enter dos veces = renglones más separados. Puedes usar **texto** para negritas."
               - { label: "Foto principal", name: "photo", widget: "image", required: false }
               - { label: "Fórmula química decorativa", name: "formula_code", widget: "string", required: false }
               - { label: "Texto bajo la fórmula", name: "formula_label", widget: "string", required: false }
@@ -159,7 +163,11 @@ collections:
               - { label: "Etiqueta pequeña", name: "label", widget: "string", required: false }
               - { label: "Título — línea 1", name: "title_main", widget: "string", required: false }
               - { label: "Título — línea 2 (en cursiva)", name: "title_emphasis", widget: "string", required: false }
-              - { label: "Texto", name: "body", widget: "text", required: false }
+              - label: "Texto"
+                name: "body"
+                widget: "text"
+                required: false
+                hint: "Cada Enter crea un renglón nuevo. Puedes usar **texto** para negritas."
               - { label: "Texto del botón", name: "link_text", widget: "string", required: false }
               - label: "Tarjetas (4 datos del ingrediente)"
                 name: "tiles"
@@ -208,7 +216,11 @@ collections:
             fields:
               - { label: "Etiqueta pequeña", name: "eyebrow", widget: "string", required: false }
               - { label: "Título", name: "title", widget: "string", required: false }
-              - { label: "Subtítulo", name: "subtitle", widget: "text", required: false }
+              - label: "Subtítulo"
+                name: "subtitle"
+                widget: "text"
+                required: false
+                hint: "Cada Enter crea un renglón nuevo. Puedes usar **texto** para negritas."
               - { label: "Nota pequeña abajo", name: "note", widget: "string", required: false }
               - label: "Enlace del formulario (Brevo)"
                 name: "form_action"

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{{ title or site.title }} — Sofia Panting</title>
-{%- set pageDescription = excerpt or description or site.hero.subtitle %}
+{%- set pageDescription = (excerpt or description or site.hero.subtitle) | oneLine %}
 {%- set pageImage = meta.url + "/images/og-share.jpg" %}
 {%- if image %}{% set pageImage = image if image.startsWith("http") else meta.url + image %}{% endif %}
 <meta name="description" content="{{ pageDescription }}">
@@ -447,7 +447,7 @@ footer{background:var(--warm-dark);color:rgba(250,246,241,.45);padding:3.5rem 3r
   <div class="footer-grid">
     <div>
       <div class="footer-brand">Sof<em>i</em>sticated</div>
-      <div class="footer-desc">{{ site.footer.description }}</div>
+      <div class="footer-desc">{{ site.footer.description | mdInline | safe }}</div>
       <div class="footer-socials">
         <a href="{{ site.social.instagram_url }}" target="_blank" class="footer-social">
           <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="0.01" stroke-width="3"/></svg>

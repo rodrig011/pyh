@@ -14,7 +14,7 @@ permalink: /
       {{ site.hero.title_main }}<br>
       <em>{{ site.hero.title_emphasis }}</em>
     </h1>
-    <p class="hero-sub">{{ site.hero.subtitle }}</p>
+    <p class="hero-sub">{{ site.hero.subtitle | mdInline | safe }}</p>
     <div class="hero-btns">
       <a href="#posts" class="btn-primary">Read the blog</a>
       {% if collections.posts.length %}<a href="{{ collections.posts[0].url }}" class="btn-ghost">Latest post &nbsp;→</a>{% endif %}
@@ -104,7 +104,7 @@ permalink: /
   <div>
     <div class="fd-label">{{ site.ingredient_spotlight.label }}</div>
     <h2 class="fd-title">{{ site.ingredient_spotlight.title_main }}<br><em>{{ site.ingredient_spotlight.title_emphasis }}</em></h2>
-    <p class="fd-body">{{ site.ingredient_spotlight.body }}</p>
+    <p class="fd-body">{{ site.ingredient_spotlight.body | mdInline | safe }}</p>
     <a href="/blog/" class="btn-primary" style="font-size:11px;padding:11px 20px">{{ site.ingredient_spotlight.link_text }}</a>
   </div>
   <div class="ing-grid">
