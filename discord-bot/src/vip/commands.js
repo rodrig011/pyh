@@ -150,7 +150,7 @@ function statusLabel(status) {
   }[status] ?? status;
 }
 
-function pricesEmbed(config) {
+function pricesEmbed(config, cardEnabled) {
   const sellable = availableTiers(config.tiers);
   return new EmbedBuilder()
     .setColor(COLORS.gold)
@@ -169,7 +169,29 @@ function pricesEmbed(config) {
         };
       }),
     )
-    .setFooter({ text: 'Renew before it runs out and your days stack — you never lose time.' });
+    .setFooter({
+      text: cardEnabled
+        ? 'Pay by card or Zelle · renew before it runs out and your days stack — you never lose time.'
+        : '💳 Card payments coming soon · for now it is Zelle · your days stack when you renew early',
+    });
+}
+
+/**
+ * The card block of the purchase message. Until Stripe is configured there is
+ * no button, so it must not tell anyone to press one — it teases the method
+ * instead and points at Zelle.
+ */
+export function cardSection(cardEnabled, config, amountCents) {
+  if (!cardEnabled) {
+    return [
+      '**💳 Card — coming soon**',
+      'Card payments are on the way. For now use Zelle below.',
+    ];
+  }
+  return [
+    '**💳 Card — pays itself**',
+    `Use the button below. **${formatMoney(amountCents)} every ${config.subscriptionDays} days**, charged automatically until you cancel, so you never lose access by forgetting.`,
+  ];
 }
 
 /**
@@ -231,8 +253,7 @@ async function handleBuy(interaction, { store, config, stripe }) {
       [
         tierPerks(tier, config.tiers),
         '',
-        '**💳 Card — pays itself**',
-        `Use the button below. **${formatMoney(order.amountCents)} every ${config.subscriptionDays} days**, charged automatically until you cancel, so you never lose access by forgetting.`,
+        ...cardSection(Boolean(stripe), config, order.amountCents),
         '',
         '**🏦 Zelle — one payment**',
         `**1.** Send **${formatMoney(order.amountCents)}** to \`${config.zelleRecipient}\`${config.zelleRecipientName ? ` (${config.zelleRecipientName})` : ''}`,
@@ -524,7 +545,10 @@ export async function handleInteraction(interaction, context) {
     if (sub === 'status') return handleStatus(interaction, context);
     if (sub === 'cancel') return handleCancel(interaction, context);
     if (sub === 'prices') {
-      return interaction.reply({ embeds: [pricesEmbed(context.config)], flags: MessageFlags.Ephemeral });
+      return interaction.reply({
+        embeds: [pricesEmbed(context.config, Boolean(context.stripe))],
+        flags: MessageFlags.Ephemeral,
+      });
     }
     return undefined;
   }
