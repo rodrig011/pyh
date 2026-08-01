@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { dirname, resolve } from 'node:path';
 import { subscriptionKey } from './subscriptions.js';
 
-const EMPTY = { version: 1, orders: {}, subscriptions: {}, processedEmails: [], payments: [] };
+const EMPTY = { version: 1, orders: {}, subscriptions: {}, tickets: {}, processedEmails: [], payments: [] };
 
 /**
  * JSON store with atomic writes. Plenty for a single-process bot; if you ever

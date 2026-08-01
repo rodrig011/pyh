@@ -83,6 +83,9 @@ export function loadVipConfig() {
     modRoleIds: list('VIP_MOD_ROLE_IDS', list('VIP_ADMIN_ROLE_IDS')),
     // Mention the mod roles in the log channel whenever money moves.
     pingModsOnPayment: bool('PING_MODS_ON_PAYMENT', true),
+    // Payments carrying no VIP code are assumed to be the owner's personal
+    // transfers and are never posted to Discord. Turn on to see them anyway.
+    logUnmatchedPayments: bool('LOG_UNMATCHED_PAYMENTS', false),
     // How long a paid membership lasts, and when to warn before it runs out.
     subscriptionDays: int('SUBSCRIPTION_DAYS', 30),
     reminderDaysBefore: numberList('SUBSCRIPTION_REMINDER_DAYS', [3, 1]),

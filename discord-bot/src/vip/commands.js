@@ -32,6 +32,7 @@ import {
 } from './subscriptions.js';
 import { sendDm, sendLog } from './notify.js';
 import { computeStats } from './stats.js';
+import { TICKET_CLOSE, TICKET_OPEN, closeTicket, openTicket, panelMessage } from './tickets.js';
 
 const commandLog = createLogger('commands');
 
@@ -120,6 +121,9 @@ export function buildCommands(config) {
     )
     .addSubcommand((sub) =>
       sub.setName('members').setDescription('List active VIP memberships and when they expire'),
+    )
+    .addSubcommand((sub) =>
+      sub.setName('panel').setDescription('Post the ticket panel members click when a payment is missing'),
     )
     .addSubcommand((sub) =>
       sub.setName('stats').setDescription('Members, revenue and who is about to expire'),
@@ -590,6 +594,48 @@ async function handleAdminCancel(interaction, { store, config }) {
   await interaction.editReply(`Order \`${order.code}\` from <@${order.userId}> cancelled.`);
 }
 
+/** Members open tickets from a button; mods close them from another. */
+async function handleButton(interaction, context) {
+  if (interaction.customId === TICKET_OPEN) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    try {
+      const result = await openTicket(interaction, context);
+      await interaction.editReply(
+        result.status === 'already_open'
+          ? `You already have a ticket open: <#${result.threadId}>`
+          : `Ticket opened: <#${result.threadId}> — the team has been notified.`,
+      );
+    } catch (error) {
+      commandLog.error(`Could not open a ticket for ${interaction.user.tag}: ${error.message}`);
+      await interaction.editReply(
+        'Could not open the ticket. Tell a mod — the bot may be missing the permission to create private threads here.',
+      );
+    }
+    return undefined;
+  }
+
+  if (interaction.customId === TICKET_CLOSE) {
+    if (!isMod(interaction, context.config)) {
+      return interaction.reply({
+        content: 'Only the mod team can close a ticket.',
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+    await interaction.reply({ content: `Closed by <@${interaction.user.id}>.` });
+    await closeTicket(interaction, context);
+    return undefined;
+  }
+
+  return undefined;
+}
+
+async function handleAdminPanel(interaction, { config }) {
+  await interaction.channel.send(panelMessage(config));
+  await interaction.editReply(
+    'Panel posted. Pin it so members can find it, and make sure the bot can create private threads in this channel.',
+  );
+}
+
 async function handleAdminStats(interaction, { store, config }) {
   const stats = computeStats(
     {
@@ -940,6 +986,7 @@ async function handleAdminSync(interaction, { watcher }) {
 
 /** Routes every command interaction of the VIP bot. */
 export async function handleInteraction(interaction, context) {
+  if (interaction.isButton()) return handleButton(interaction, context);
   if (!interaction.isChatInputCommand()) return;
   const sub = interaction.options.getSubcommand();
 
@@ -971,6 +1018,7 @@ export async function handleInteraction(interaction, context) {
     if (sub === 'sync') return handleAdminSync(interaction, context);
     if (sub === 'members') return handleAdminMembers(interaction, context);
     if (sub === 'stats') return handleAdminStats(interaction, context);
+    if (sub === 'panel') return handleAdminPanel(interaction, context);
     if (sub === 'grant') return handleAdminGrant(interaction, context);
     if (sub === 'adopt') return handleAdminAdopt(interaction, context);
     if (sub === 'notify') return handleAdminNotify(interaction, context);

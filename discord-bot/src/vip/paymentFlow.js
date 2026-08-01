@@ -20,6 +20,16 @@ export async function processPayment(client, store, config, payment) {
 
   if (match.status !== 'match') {
     log.warn(`Payment not applied (${match.status}): ${match.reason}`);
+
+    // A payment with no code at all is most likely nothing to do with the bot —
+    // the same inbox receives the owner's personal Zelle activity. Posting those
+    // to a mod channel would leak private transfers and drown the entries that
+    // do matter, so they stay out of Discord entirely unless asked for.
+    if (match.status === 'no_code' && !config.logUnmatchedPayments) {
+      log.info(`Ignoring a payment with no code (${payment.amountCents} cents) — assumed personal`);
+      return match;
+    }
+
     await sendLog(
       client,
       config,

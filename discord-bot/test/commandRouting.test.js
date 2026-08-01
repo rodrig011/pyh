@@ -47,6 +47,7 @@ function fakeInteraction(commandName, subcommand, options = {}) {
       user: { id: 'mod1', tag: 'mod#0001' },
       deferred: false,
       replied: false,
+      isButton: () => false,
       isChatInputCommand: () => true,
       memberPermissions: { has: (flag) => flag === PermissionFlagsBits.Administrator },
       options: {
