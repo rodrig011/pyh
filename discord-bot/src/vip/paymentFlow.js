@@ -32,7 +32,9 @@ export async function processPayment(client, store, config, payment) {
           { name: 'Codes', value: (payment.codes ?? []).join(', ') || 'none', inline: true },
           { name: 'Sender', value: payment.senderName ?? 'unknown', inline: true },
         )
+        .setFooter({ text: 'Check who this is and apply it with /vip-admin confirm' })
         .setTimestamp(),
+      { ping: true },
     );
     return match;
   }
@@ -110,6 +112,7 @@ export async function processPayment(client, store, config, payment) {
         { name: renewal ? 'Renewed until' : 'Expires', value: time(expiresAt, 'f'), inline: true },
       )
       .setTimestamp(),
+    { ping: true },
   );
 
   log.info(

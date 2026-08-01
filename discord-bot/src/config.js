@@ -81,6 +81,8 @@ export function loadVipConfig() {
     // Roles allowed to run /vip-admin. Once this is set, ONLY these roles (plus
     // anyone with Administrator) can touch orders, payments and memberships.
     modRoleIds: list('VIP_MOD_ROLE_IDS', list('VIP_ADMIN_ROLE_IDS')),
+    // Mention the mod roles in the log channel whenever money moves.
+    pingModsOnPayment: bool('PING_MODS_ON_PAYMENT', true),
     // How long a paid membership lasts, and when to warn before it runs out.
     subscriptionDays: int('SUBSCRIPTION_DAYS', 30),
     reminderDaysBefore: numberList('SUBSCRIPTION_REMINDER_DAYS', [3, 1]),
