@@ -60,6 +60,10 @@ npm start                 # starts both bots
 
 You can also run them separately: `npm run start:vip` / `npm run start:photo`.
 
+That runs the bots on your own machine, which is fine for testing but stops the moment
+you close the terminal. To keep them online around the clock see [DEPLOY.md](DEPLOY.md)
+— there is a `Dockerfile` ready for Railway, Fly.io or any VPS.
+
 ### 1. Create the applications in Discord
 
 At https://discord.com/developers/applications create **two** applications (one per bot)
