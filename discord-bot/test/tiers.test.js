@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  availableTiers,
   formatMoney,
   highestTierCoveredBy,
   includedTiers,
@@ -65,4 +66,21 @@ test('overpaying upgrades the tier when enabled', () => {
     resolveGrantedTier({ tier: 1 }, 20000, { tiers, upgradeOnOverpay: false }),
     { ok: true, tier: 1 },
   );
+});
+
+test('availableTiers only lists tiers that have a role configured', () => {
+  assert.deepEqual(availableTiers(tiers), [1, 2, 3]);
+  assert.deepEqual(availableTiers({ 1: { priceCents: 5000, roleId: 'role-1' }, 2: { priceCents: 10000 } }), [1]);
+  assert.deepEqual(availableTiers({ 1: { priceCents: 5000 } }), []);
+});
+
+test('overpaying never upgrades into a tier that is still coming soon', () => {
+  // Only tier 1 has a role: paying $200 must not grant a tier the bot cannot deliver.
+  const onlyTier1 = {
+    1: { tier: 1, priceCents: 5000, roleId: 'role-1' },
+    2: { tier: 2, priceCents: 10000 },
+    3: { tier: 3, priceCents: 20000 },
+  };
+  assert.deepEqual(resolveGrantedTier({ tier: 1 }, 20000, { tiers: onlyTier1 }), { ok: true, tier: 1 });
+  assert.deepEqual(resolveGrantedTier({ tier: 1 }, 20000, { tiers }), { ok: true, tier: 3 });
 });

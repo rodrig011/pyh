@@ -31,6 +31,19 @@ export function roleIdsForTier(tier, tiersConfig) {
 }
 
 /**
+ * Tiers that are actually sellable: the ones whose role exists in the config.
+ * A tier with no ROLE_TIER_n is treated as "coming soon" — it is never offered
+ * for sale, so nobody can pay for a role the bot cannot hand out.
+ * @returns {number[]} ascending
+ */
+export function availableTiers(tiersConfig) {
+  return Object.keys(tiersConfig)
+    .map(Number)
+    .sort((a, b) => a - b)
+    .filter((tier) => Boolean(tiersConfig[tier].roleId));
+}
+
+/**
  * Highest tier whose price is covered by the amount paid.
  * @returns {number|null}
  */
@@ -60,5 +73,7 @@ export function resolveGrantedTier(order, amountCents, { tiers, toleranceCents =
   }
   if (!upgradeOnOverpay) return { ok: true, tier: order.tier };
   const covered = highestTierCoveredBy(amountCents, tiers, toleranceCents);
-  return { ok: true, tier: Math.max(order.tier, covered ?? order.tier) };
+  // Never upgrade into a tier that has no role configured yet.
+  const ceiling = availableTiers(tiers).at(-1) ?? order.tier;
+  return { ok: true, tier: Math.min(Math.max(order.tier, covered ?? order.tier), ceiling) };
 }

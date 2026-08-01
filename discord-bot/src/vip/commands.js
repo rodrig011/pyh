@@ -5,14 +5,16 @@ import {
   SlashCommandBuilder,
   time,
 } from 'discord.js';
-import { TIER_NAMES, formatMoney, includedTiers } from '../lib/tiers.js';
+import { TIER_NAMES, availableTiers, formatMoney, includedTiers } from '../lib/tiers.js';
 import { COLORS } from '../lib/brand.js';
 import { normalizeCode } from '../lib/codes.js';
 import { ORDER_STATUS, createOrder, expireStaleOrders } from './orders.js';
 import { processPayment } from './paymentFlow.js';
 
 export function buildCommands(config) {
-  const tierChoices = [1, 2, 3].map((tier) => ({
+  // Only tiers with a role configured can be bought; the rest read as "coming soon".
+  const sellable = availableTiers(config.tiers);
+  const tierChoices = (sellable.length > 0 ? sellable : [1, 2, 3]).map((tier) => ({
     name: `${TIER_NAMES[tier]} — ${formatMoney(config.tiers[tier].priceCents)}`,
     value: tier,
   }));
@@ -106,6 +108,7 @@ function statusLabel(status) {
 }
 
 function pricesEmbed(config) {
+  const sellable = availableTiers(config.tiers);
   return new EmbedBuilder()
     .setColor(COLORS.gold)
     .setTitle('VIP tiers')
@@ -113,13 +116,25 @@ function pricesEmbed(config) {
     .addFields(
       [1, 2, 3].map((tier) => ({
         name: `${TIER_NAMES[tier]} — ${formatMoney(config.tiers[tier].priceCents)}`,
-        value: `Grants: ${includedTiers(tier).map((level) => TIER_NAMES[level]).join(', ')}`,
+        value: sellable.includes(tier)
+          ? `Grants: ${includedTiers(tier).map((level) => TIER_NAMES[level]).join(', ')}`
+          : '🔒 Coming soon',
       })),
     );
 }
 
 async function handleBuy(interaction, { store, config }) {
   const tier = interaction.options.getInteger('tier');
+
+  // Guards against a stale command registration still offering a locked tier.
+  if (!availableTiers(config.tiers).includes(tier)) {
+    await interaction.reply({
+      content: `**${TIER_NAMES[tier]}** is not on sale yet — coming soon. Use \`/vip prices\` to see what is available.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
   expireStaleOrders(store);
 
   const existing = store
