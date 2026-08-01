@@ -8,6 +8,18 @@ export function formatMoney(cents) {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+/** "VIP Tier 2 · VIP" — the tier plus whatever the server calls it. */
+export function tierTitle(tier, tiersConfig) {
+  const label = tiersConfig?.[tier]?.label;
+  return label ? `${TIER_NAMES[tier]} · ${label}` : TIER_NAMES[tier];
+}
+
+/** The selling points of a tier, as a block of text. */
+export function tierPerks(tier, tiersConfig) {
+  const perks = tiersConfig?.[tier]?.perks ?? [];
+  return perks.join('\n');
+}
+
 /**
  * Tiers stack: tier 3 also grants 2 and 1, tier 2 also grants 1.
  * @param {number} tier

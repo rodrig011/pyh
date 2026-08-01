@@ -10,11 +10,15 @@ Two independent bots in one project:
 
 ## VIP tiers
 
-| Tier | Price | Roles granted |
-|-------|--------|------------------|
-| Tier 1 | $50 | Tier 1 |
-| Tier 2 | $100 | Tier 1 + Tier 2 |
-| Tier 3 | $200 | Tier 1 + Tier 2 + Tier 3 |
+| Tier | Price | What it includes | Roles granted |
+|-------|--------|------------------|------------------|
+| Tier 1 · Signals | $50 | Every signal as it drops | Tier 1 |
+| Tier 2 · VIP | $100 | The above + the VIP room with everyone and the elites | Tier 1 + 2 |
+| Tier 3 · Elite | $200 | The above + private lessons and calls with the elites | Tier 1 + 2 + 3 |
+
+The names and the sales copy shown in `/vip prices` and `/vip buy` come from
+`TIER_n_LABEL` and `TIER_n_PERKS`, so they can be reworded from the hosting dashboard
+without touching code — use `|` to separate bullet lines.
 
 Tiers **stack**: tier 3 grants all three roles, tier 2 grants two, tier 1 grants one.
 Prices are set in `.env` (`TIER_1_PRICE`, and so on).

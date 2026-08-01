@@ -5,7 +5,14 @@ import {
   SlashCommandBuilder,
   time,
 } from 'discord.js';
-import { TIER_NAMES, availableTiers, formatMoney, includedTiers } from '../lib/tiers.js';
+import {
+  TIER_NAMES,
+  availableTiers,
+  formatMoney,
+  includedTiers,
+  tierPerks,
+  tierTitle,
+} from '../lib/tiers.js';
 import { COLORS } from '../lib/brand.js';
 import { normalizeCode } from '../lib/codes.js';
 import { SUBSCRIPTION_STATUS, daysLeft } from '../lib/subscriptions.js';
@@ -18,7 +25,7 @@ export function buildCommands(config) {
   // Only tiers with a role configured can be bought; the rest read as "coming soon".
   const sellable = availableTiers(config.tiers);
   const tierChoices = (sellable.length > 0 ? sellable : [1, 2, 3]).map((tier) => ({
-    name: `${TIER_NAMES[tier]} — ${formatMoney(config.tiers[tier].priceCents)}`,
+    name: `${tierTitle(tier, config.tiers)} — ${formatMoney(config.tiers[tier].priceCents)}`,
     value: tier,
   }));
 
@@ -140,19 +147,22 @@ function pricesEmbed(config) {
   const sellable = availableTiers(config.tiers);
   return new EmbedBuilder()
     .setColor(COLORS.gold)
-    .setTitle('VIP tiers')
+    .setTitle('👑 KING T PARLAYS — VIP access')
     .setDescription(
-      `Every tier includes the perks of all the tiers below it.\n` +
-        `Each one is a **${config.subscriptionDays}-day membership** — renew before it ends or the roles come off automatically.`,
+      `Every tier includes everything below it. Each one is a **${config.subscriptionDays}-day membership**.\n` +
+        'Buy with `/vip buy` — you get a private code and the roles land automatically.',
     )
     .addFields(
-      [1, 2, 3].map((tier) => ({
-        name: `${TIER_NAMES[tier]} — ${formatMoney(config.tiers[tier].priceCents)}`,
-        value: sellable.includes(tier)
-          ? `Grants: ${includedTiers(tier).map((level) => TIER_NAMES[level]).join(', ')}`
-          : '🔒 Coming soon',
-      })),
-    );
+      [1, 2, 3].map((tier) => {
+        const open = sellable.includes(tier);
+        const perks = tierPerks(tier, config.tiers);
+        return {
+          name: `${open ? '' : '🔒 '}${tierTitle(tier, config.tiers)} — ${formatMoney(config.tiers[tier].priceCents)} / ${config.subscriptionDays} days`,
+          value: open ? perks : `${perks}\n\n*Coming soon — not on sale yet.*`,
+        };
+      }),
+    )
+    .setFooter({ text: 'Renew before it runs out and your days stack — you never lose time.' });
 }
 
 async function handleBuy(interaction, { store, config }) {
@@ -185,9 +195,11 @@ async function handleBuy(interaction, { store, config }) {
 
   const embed = new EmbedBuilder()
     .setColor(COLORS.gold)
-    .setTitle(`${TIER_NAMES[tier]} — ${formatMoney(order.amountCents)}`)
+    .setTitle(`${tierTitle(tier, config.tiers)} — ${formatMoney(order.amountCents)}`)
     .setDescription(
       [
+        tierPerks(tier, config.tiers),
+        '',
         `**1.** Send **${formatMoney(order.amountCents)}** via Zelle to:`,
         `> \`${config.zelleRecipient}\`${config.zelleRecipientName ? ` (${config.zelleRecipientName})` : ''}`,
         '',

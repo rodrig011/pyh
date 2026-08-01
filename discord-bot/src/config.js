@@ -44,6 +44,20 @@ function list(name, fallback = []) {
     .filter(Boolean);
 }
 
+/**
+ * A block of copy written on one line. Both "|" and a literal \n split it into
+ * bullet lines, so perks can be edited from a hosting dashboard that has no
+ * multi-line inputs.
+ */
+function lines(name, fallback) {
+  const value = str(name);
+  if (value === undefined) return fallback;
+  return value
+    .split(/\||\\n|\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
 /** Comma-separated numbers, biggest first: "3,1" -> [3, 1]. */
 function numberList(name, fallback) {
   const values = list(name);
@@ -82,9 +96,39 @@ export function loadVipConfig() {
     codeLength: int('CODE_LENGTH', 6),
     storePath: str('STORE_PATH', 'data/store.json'),
     tiers: {
-      1: { tier: 1, priceCents: money('TIER_1_PRICE', 5000), roleId: str('ROLE_TIER_1') },
-      2: { tier: 2, priceCents: money('TIER_2_PRICE', 10000), roleId: str('ROLE_TIER_2') },
-      3: { tier: 3, priceCents: money('TIER_3_PRICE', 20000), roleId: str('ROLE_TIER_3') },
+      1: {
+        tier: 1,
+        priceCents: money('TIER_1_PRICE', 5000),
+        roleId: str('ROLE_TIER_1'),
+        label: str('TIER_1_LABEL', 'Signals'),
+        perks: lines('TIER_1_PERKS', [
+          '📈 **Every signal, as it drops** — the plays are posted the moment they are live.',
+          '🔔 Entries, exits and the reasoning behind each one.',
+        ]),
+      },
+      2: {
+        tier: 2,
+        priceCents: money('TIER_2_PRICE', 10000),
+        roleId: str('ROLE_TIER_2'),
+        label: str('TIER_2_LABEL', 'VIP'),
+        perks: lines('TIER_2_PERKS', [
+          '✅ Everything in Signals, plus:',
+          '💬 **The VIP room** — talk with the whole crew and with the elites.',
+          '🤝 Ask questions and compare plays in real time, not after the fact.',
+        ]),
+      },
+      3: {
+        tier: 3,
+        priceCents: money('TIER_3_PRICE', 20000),
+        roleId: str('ROLE_TIER_3'),
+        label: str('TIER_3_LABEL', 'Elite'),
+        perks: lines('TIER_3_PERKS', [
+          '✅ Everything in VIP, plus:',
+          '🎓 **Private lessons** — learn how the plays are built, not just what they are.',
+          '📞 **Calls with the elites** and one-on-one help.',
+          '🎯 Personal guidance on your own bankroll and your own plays.',
+        ]),
+      },
     },
     imap: {
       enabled: bool('IMAP_ENABLED', true),
