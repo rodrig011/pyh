@@ -88,6 +88,13 @@ history.
 ## Things that bite
 
 - **No volume mounted** → every restart forgets the pending orders. Attach it first.
+- **Railway rejects a `VOLUME` instruction** in the Dockerfile ("docker VOLUME at
+  Line N is not supported, use Railway Volumes"). That is why there isn't one here;
+  mounting a volume at `/data` from the platform side is all it takes.
+- **Railway's Root Directory has to be saved, not staged.** If a build's logs mention
+  `railpack` or `RAILPACK_SPA_OUTPUT_DIR`, it never used the Dockerfile — it tried to
+  build the repo root instead. Set Root Directory to `discord-bot`, Builder to
+  `Dockerfile` and Dockerfile Path to `Dockerfile` (relative to the root directory).
 - **Editing variables** requires a restart of the service to take effect.
 - **The bot's role must sit above the three VIP roles** in the server settings. This is
   unrelated to hosting, but it is the most common reason a correctly deployed bot still

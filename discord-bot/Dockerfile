@@ -19,6 +19,8 @@ COPY assets ./assets
 RUN mkdir -p /data && chown -R node:node /data /app
 USER node
 
-VOLUME ["/data"]
+# No VOLUME instruction on purpose: Railway rejects it ("docker VOLUME is not
+# supported, use Railway Volumes") and it buys nothing anywhere else — mounting
+# the volume at /data works the same with `docker run -v` or a Railway volume.
 
 CMD ["node", "src/index.js"]
