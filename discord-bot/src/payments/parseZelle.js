@@ -1,6 +1,7 @@
 import { extractCodes } from '../lib/codes.js';
 
-// Frases con las que los bancos avisan de un Zelle RECIBIDO (ingles y espanol).
+// Wording banks use to announce an INCOMING Zelle payment. Spanish phrasings are
+// kept as well, since some banks send their alerts in Spanish.
 const RECEIVED_PATTERNS = [
   /you\s+received\s+\$?\s?([\d,]+(?:\.\d{2})?)/i,
   /sent\s+you\s+\$?\s?([\d,]+(?:\.\d{2})?)/i,
@@ -10,7 +11,7 @@ const RECEIVED_PATTERNS = [
   /(?:recibiste|has\s+recibido)\s+(?:un\s+pago\s+de\s+)?\$?\s?([\d,]+(?:\.\d{2})?)/i,
 ];
 
-// Si el correo dice que TU enviaste dinero, no es un cobro: hay que ignorarlo.
+// If the email says YOU sent money, it is not an incoming payment: ignore it.
 const OUTGOING_PATTERNS = [
   /you\s+sent\s+\$?\s?[\d,]+/i,
   /your\s+payment\s+to\b/i,
@@ -28,7 +29,7 @@ const MEMO_PATTERNS = [
   /(?:memo|note|nota|concepto|mensaje)\s*[:\-]\s*([^\n<]{1,120})/i,
 ];
 
-/** Convierte "1,234.50" en 123450 centavos. */
+/** Turns "1,234.50" into 123450 cents. */
 export function parseAmountToCents(raw) {
   if (typeof raw !== 'string') return null;
   const cleaned = raw.replace(/[^\d.,]/g, '').replace(/,/g, '');
@@ -38,7 +39,7 @@ export function parseAmountToCents(raw) {
   return Math.round(value * 100);
 }
 
-/** Quita etiquetas HTML dejando el texto legible. */
+/** Strips HTML tags, leaving readable text behind. */
 export function htmlToText(html) {
   if (typeof html !== 'string') return '';
   return html
@@ -63,17 +64,17 @@ function firstMatch(patterns, text) {
 }
 
 /**
- * Analiza un correo de notificacion de Zelle.
+ * Parses a Zelle notification email.
  *
  * @param {object} email
- * @param {string} [email.from] direccion del remitente
+ * @param {string} [email.from] sender address
  * @param {string} [email.subject]
- * @param {string} [email.text] cuerpo en texto plano
- * @param {string} [email.html] cuerpo en HTML (se usa si no hay texto)
+ * @param {string} [email.text] plain text body
+ * @param {string} [email.html] HTML body (used when there is no plain text)
  * @param {string} [email.messageId]
  * @param {Date|number} [email.date]
  * @param {object} [options]
- * @param {string[]} [options.allowedSenders] dominios o direcciones de confianza
+ * @param {string[]} [options.allowedSenders] trusted domains or addresses
  * @param {string} [options.codePrefix='VIP']
  * @param {number} [options.codeLength=6]
  * @param {boolean} [options.requireZelleKeyword=true]
@@ -106,20 +107,20 @@ export function parseZelleEmail(email = {}, options = {}) {
 
   if (allowedSenders.length > 0) {
     const trusted = allowedSenders.some((allowed) => from.includes(allowed.toLowerCase()));
-    if (!trusted) return { ...base, reason: `Remitente no autorizado: ${email.from ?? '(vacio)'}` };
+    if (!trusted) return { ...base, reason: `Untrusted sender: ${email.from ?? '(empty)'}` };
   }
 
   if (requireZelleKeyword && !/zelle/i.test(`${from}\n${haystack}`)) {
-    return { ...base, reason: 'El correo no menciona Zelle' };
+    return { ...base, reason: 'The email does not mention Zelle' };
   }
 
   if (firstMatch(OUTGOING_PATTERNS, haystack) && !firstMatch(RECEIVED_PATTERNS, haystack)) {
-    return { ...base, reason: 'Es un pago enviado, no recibido' };
+    return { ...base, reason: 'This is an outgoing payment, not an incoming one' };
   }
 
   const amountMatch = firstMatch(RECEIVED_PATTERNS, haystack);
   if (!amountMatch) {
-    return { ...base, reason: 'No se encontro ninguna frase de pago recibido' };
+    return { ...base, reason: 'No payment-received wording found' };
   }
 
   const codes = extractCodes(haystack, { prefix: codePrefix, length: codeLength });

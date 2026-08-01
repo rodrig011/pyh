@@ -4,7 +4,7 @@ import { TIER_NAMES, formatMoney, includedTiers } from '../lib/tiers.js';
 import { markOrderPaid, matchPayment } from './orders.js';
 import { grantTierRoles } from './roles.js';
 
-const log = createLogger('pagos');
+const log = createLogger('payments');
 
 async function sendLog(client, config, embed) {
   if (!config.logChannelId) return;
@@ -12,13 +12,13 @@ async function sendLog(client, config, embed) {
     const channel = await client.channels.fetch(config.logChannelId);
     if (channel?.isTextBased()) await channel.send({ embeds: [embed] });
   } catch (error) {
-    log.warn(`No se pudo escribir en el canal de registro: ${error.message}`);
+    log.warn(`Could not write to the log channel: ${error.message}`);
   }
 }
 
 /**
- * Toma un pago detectado (por correo o confirmado a mano), lo empareja con una
- * orden y entrega los roles correspondientes.
+ * Takes a detected payment (from email or confirmed by hand), matches it to an
+ * order and hands out the corresponding roles.
  *
  * @returns {Promise<{status: string, reason?: string, order?: object, tier?: number, roles?: object}>}
  */
@@ -26,18 +26,18 @@ export async function processPayment(client, store, config, payment) {
   const match = matchPayment(store, payment, config);
 
   if (match.status !== 'match') {
-    log.warn(`Pago no aplicado (${match.status}): ${match.reason}`);
+    log.warn(`Payment not applied (${match.status}): ${match.reason}`);
     await sendLog(
       client,
       config,
       new EmbedBuilder()
         .setColor(0xe67e22)
-        .setTitle('Pago recibido sin aplicar')
+        .setTitle('Payment received but not applied')
         .setDescription(match.reason ?? match.status)
         .addFields(
-          { name: 'Monto', value: payment.amountCents ? formatMoney(payment.amountCents) : 'desconocido', inline: true },
-          { name: 'Codigos', value: (payment.codes ?? []).join(', ') || 'ninguno', inline: true },
-          { name: 'Remitente', value: payment.senderName ?? 'desconocido', inline: true },
+          { name: 'Amount', value: payment.amountCents ? formatMoney(payment.amountCents) : 'unknown', inline: true },
+          { name: 'Codes', value: (payment.codes ?? []).join(', ') || 'none', inline: true },
+          { name: 'Sender', value: payment.senderName ?? 'unknown', inline: true },
         )
         .setTimestamp(),
     );
@@ -51,14 +51,14 @@ export async function processPayment(client, store, config, payment) {
   try {
     roles = await grantTierRoles(guild, order.userId, tier, config);
   } catch (error) {
-    log.error(`No se pudo asignar roles a ${order.userId}: ${error.message}`);
+    log.error(`Could not assign roles to ${order.userId}: ${error.message}`);
     await sendLog(
       client,
       config,
       new EmbedBuilder()
         .setColor(0xe74c3c)
-        .setTitle('Pago valido pero fallo la asignacion de roles')
-        .setDescription(`Orden \`${order.code}\` de <@${order.userId}>: ${error.message}`)
+        .setTitle('Valid payment but role assignment failed')
+        .setDescription(`Order \`${order.code}\` from <@${order.userId}>: ${error.message}`)
         .setTimestamp(),
     );
     return { status: 'role_error', order, tier, reason: error.message };
@@ -74,23 +74,23 @@ export async function processPayment(client, store, config, payment) {
     .map((level) => TIER_NAMES[level])
     .join(', ');
 
-  // Aviso al comprador por privado (puede fallar si tiene los DM cerrados).
+  // Let the buyer know by DM (may fail if their DMs are closed).
   try {
     const user = await client.users.fetch(order.userId);
     await user.send({
       embeds: [
         new EmbedBuilder()
           .setColor(0x2ecc71)
-          .setTitle('¡Pago confirmado!')
+          .setTitle('Payment confirmed!')
           .setDescription(
-            `Recibimos tu pago de **${formatMoney(payment.amountCents ?? order.amountCents)}** con el codigo \`${order.code}\`.\n` +
-              `Ya tienes acceso a: **${tierList}**.`,
+            `We received your payment of **${formatMoney(payment.amountCents ?? order.amountCents)}** with code \`${order.code}\`.\n` +
+              `You now have access to: **${tierList}**.`,
           )
           .setTimestamp(),
       ],
     });
   } catch (error) {
-    log.warn(`No se pudo enviar DM a ${order.userId}: ${error.message}`);
+    log.warn(`Could not DM ${order.userId}: ${error.message}`);
   }
 
   await sendLog(
@@ -98,17 +98,17 @@ export async function processPayment(client, store, config, payment) {
     config,
     new EmbedBuilder()
       .setColor(0x2ecc71)
-      .setTitle('Pago aplicado')
-      .setDescription(`<@${order.userId}> recibio **${TIER_NAMES[tier]}**`)
+      .setTitle('Payment applied')
+      .setDescription(`<@${order.userId}> received **${TIER_NAMES[tier]}**`)
       .addFields(
-        { name: 'Codigo', value: `\`${order.code}\``, inline: true },
-        { name: 'Monto', value: formatMoney(payment.amountCents ?? order.amountCents), inline: true },
-        { name: 'Origen', value: payment.source ?? 'manual', inline: true },
-        { name: 'Roles otorgados', value: tierList },
+        { name: 'Code', value: `\`${order.code}\``, inline: true },
+        { name: 'Amount', value: formatMoney(payment.amountCents ?? order.amountCents), inline: true },
+        { name: 'Source', value: payment.source ?? 'manual', inline: true },
+        { name: 'Roles granted', value: tierList },
       )
       .setTimestamp(),
   );
 
-  log.info(`Orden ${order.code} pagada: ${order.userId} -> ${TIER_NAMES[tier]}`);
+  log.info(`Order ${order.code} paid: ${order.userId} -> ${TIER_NAMES[tier]}`);
   return { status: 'granted', order, tier, roles };
 }

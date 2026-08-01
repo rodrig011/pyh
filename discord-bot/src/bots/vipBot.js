@@ -15,7 +15,7 @@ export async function registerCommands(config) {
   await rest.put(Routes.applicationGuildCommands(config.clientId, config.guildId), {
     body: buildCommands(config),
   });
-  log.info('Comandos registrados en el servidor');
+  log.info('Slash commands registered in the guild');
 }
 
 export function createVipBot(config = loadVipConfig()) {
@@ -31,34 +31,34 @@ export function createVipBot(config = loadVipConfig()) {
 
   watcher.on('payment', (payment) => {
     processPayment(client, store, config, payment).catch((error) => {
-      log.error(`Error aplicando el pago: ${error.message}`);
+      log.error(`Error applying the payment: ${error.message}`);
     });
   });
 
-  watcher.on('error', (error) => log.error(`Vigilante de correo: ${error.message}`));
+  watcher.on('error', (error) => log.error(`Mailbox watcher: ${error.message}`));
 
   client.once(Events.ClientReady, async (ready) => {
-    log.info(`Conectado como ${ready.user.tag}`);
+    log.info(`Logged in as ${ready.user.tag}`);
 
     if (config.deployCommandsOnStart) {
       await registerCommands(config).catch((error) =>
-        log.error(`No se pudieron registrar los comandos: ${error.message}`),
+        log.error(`Could not register the commands: ${error.message}`),
       );
     }
 
     const guild = await client.guilds.fetch(config.guildId).catch(() => null);
     if (!guild) {
-      log.error(`El bot no esta en el servidor ${config.guildId}`);
+      log.error(`The bot is not a member of guild ${config.guildId}`);
     } else {
       const problems = await checkRoleSetup(guild, config);
       for (const problem of problems) log.warn(problem);
     }
 
     watcher.start();
-    // Limpieza periodica de ordenes vencidas.
+    // Periodic cleanup of overdue orders.
     setInterval(() => {
       const expired = expireStaleOrders(store);
-      if (expired.length > 0) log.info(`${expired.length} orden(es) vencida(s)`);
+      if (expired.length > 0) log.info(`${expired.length} order(s) expired`);
     }, 15 * 60 * 1000).unref();
   });
 
@@ -66,8 +66,8 @@ export function createVipBot(config = loadVipConfig()) {
     try {
       await handleInteraction(interaction, { store, config, client, watcher });
     } catch (error) {
-      log.error(`Error en la interaccion: ${error.stack ?? error.message}`);
-      const payload = { content: 'Ocurrio un error procesando el comando.' };
+      log.error(`Interaction error: ${error.stack ?? error.message}`);
+      const payload = { content: 'Something went wrong while handling that command.' };
       if (interaction.deferred) await interaction.editReply(payload).catch(() => {});
       else if (!interaction.replied) {
         await interaction.reply({ ...payload, flags: MessageFlags.Ephemeral }).catch(() => {});

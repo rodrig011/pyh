@@ -9,11 +9,11 @@ export const ORDER_STATUS = {
 };
 
 /**
- * Crea una orden pendiente con un codigo aleatorio unico.
+ * Creates a pending order with a unique random code.
  */
 export function createOrder(store, { userId, userTag, guildId, tier, config, now = Date.now() }) {
   const tierConfig = config.tiers[tier];
-  if (!tierConfig) throw new Error(`Tier invalido: ${tier}`);
+  if (!tierConfig) throw new Error(`Invalid tier: ${tier}`);
 
   const code = generateCode({
     prefix: config.codePrefix,
@@ -40,7 +40,7 @@ export function createOrder(store, { userId, userTag, guildId, tier, config, now
   return store.putOrder(order);
 }
 
-/** Marca como expiradas las ordenes pendientes vencidas. Devuelve las afectadas. */
+/** Marks overdue pending orders as expired. Returns the ones it touched. */
 export function expireStaleOrders(store, now = Date.now()) {
   const expired = store.listOrders(
     (order) => order.status === ORDER_STATUS.PENDING && order.expiresAt <= now,
@@ -53,9 +53,9 @@ export function expireStaleOrders(store, now = Date.now()) {
 }
 
 /**
- * Intenta emparejar un pago detectado con una orden pendiente.
- * No toca roles: solo decide. Devuelve un resultado explicito para poder loguear
- * tanto los exitos como los rechazos.
+ * Tries to match a detected payment against a pending order.
+ * It never touches roles: it only decides. The result is explicit so both
+ * successes and rejections can be logged.
  *
  * @param {object} store
  * @param {{codes: string[], amountCents: number|null, senderName?: string, source?: string, reference?: string, receivedAt?: number}} payment
@@ -64,33 +64,33 @@ export function expireStaleOrders(store, now = Date.now()) {
 export function matchPayment(store, payment, config, now = Date.now()) {
   const codes = payment.codes ?? [];
   if (codes.length === 0) {
-    return { status: 'no_code', reason: 'El pago no incluye ningun codigo reconocible' };
+    return { status: 'no_code', reason: 'The payment carries no recognizable code' };
   }
 
   const orders = codes.map((code) => store.getOrder(code)).filter(Boolean);
   if (orders.length === 0) {
-    return { status: 'unknown_code', reason: `Codigo(s) sin orden asociada: ${codes.join(', ')}` };
+    return { status: 'unknown_code', reason: `No order matches code(s): ${codes.join(', ')}` };
   }
 
   const alreadyPaid = orders.find((order) => order.status === ORDER_STATUS.PAID);
   if (alreadyPaid && orders.every((order) => order.status !== ORDER_STATUS.PENDING)) {
-    return { status: 'already_paid', order: alreadyPaid, reason: 'La orden ya estaba pagada' };
+    return { status: 'already_paid', order: alreadyPaid, reason: 'The order was already paid' };
   }
 
   const order = orders.find((candidate) => candidate.status === ORDER_STATUS.PENDING);
   if (!order) {
     const other = orders[0];
-    return { status: 'not_pending', order: other, reason: `La orden esta en estado "${other.status}"` };
+    return { status: 'not_pending', order: other, reason: `The order is "${other.status}"` };
   }
 
   if (order.expiresAt <= now) {
     order.status = ORDER_STATUS.EXPIRED;
     store.putOrder(order);
-    return { status: 'expired', order, reason: 'La orden vencio antes de recibirse el pago' };
+    return { status: 'expired', order, reason: 'The order expired before the payment arrived' };
   }
 
   if (payment.amountCents === null || payment.amountCents === undefined) {
-    return { status: 'no_amount', order, reason: 'No se pudo leer el monto del pago' };
+    return { status: 'no_amount', order, reason: 'Could not read the payment amount' };
   }
 
   const resolved = resolveGrantedTier(order, payment.amountCents, {
@@ -104,7 +104,7 @@ export function matchPayment(store, payment, config, now = Date.now()) {
   return { status: 'match', order, tier: resolved.tier };
 }
 
-/** Marca la orden como pagada y guarda el rastro del pago. */
+/** Marks the order as paid and stores the payment trail. */
 export function markOrderPaid(store, order, { tier, payment, grantedRoleIds = [], now = Date.now() }) {
   order.status = ORDER_STATUS.PAID;
   order.paidAt = now;

@@ -8,30 +8,30 @@ function str(name, fallback = undefined) {
 
 function required(name) {
   const value = str(name);
-  if (value === undefined) throw new Error(`Falta la variable de entorno ${name}`);
+  if (value === undefined) throw new Error(`Missing environment variable ${name}`);
   return value;
 }
 
 function bool(name, fallback) {
   const value = str(name);
   if (value === undefined) return fallback;
-  return ['1', 'true', 'yes', 'si', 'sí', 'on'].includes(value.toLowerCase());
+  return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
 }
 
 function int(name, fallback) {
   const value = str(name);
   if (value === undefined) return fallback;
   const parsed = Number.parseInt(value, 10);
-  if (Number.isNaN(parsed)) throw new Error(`La variable ${name} debe ser un numero entero`);
+  if (Number.isNaN(parsed)) throw new Error(`${name} must be an integer`);
   return parsed;
 }
 
-/** Convierte "50" o "50.00" en centavos (5000). */
+/** Turns "50" or "50.00" into cents (5000). */
 function money(name, fallback) {
   const value = str(name);
   if (value === undefined) return fallback;
   const parsed = Number.parseFloat(value.replace(',', '.'));
-  if (Number.isNaN(parsed)) throw new Error(`La variable ${name} debe ser un monto valido`);
+  if (Number.isNaN(parsed)) throw new Error(`${name} must be a valid amount`);
   return Math.round(parsed * 100);
 }
 
@@ -52,12 +52,12 @@ export function loadVipConfig() {
     deployCommandsOnStart: bool('DEPLOY_COMMANDS_ON_START', true),
     logChannelId: str('VIP_LOG_CHANNEL_ID'),
     adminRoleIds: list('VIP_ADMIN_ROLE_IDS'),
-    zelleRecipient: str('ZELLE_RECIPIENT', '(configura ZELLE_RECIPIENT)'),
+    zelleRecipient: str('ZELLE_RECIPIENT', '(set ZELLE_RECIPIENT)'),
     zelleRecipientName: str('ZELLE_RECIPIENT_NAME'),
     orderTtlHours: int('ORDER_TTL_HOURS', 48),
-    // Cuanto puede faltar (en centavos) para dar el pago por bueno. 0 = monto exacto.
+    // How much the payment may fall short (in cents) and still count. 0 = exact amount.
     amountToleranceCents: money('AMOUNT_TOLERANCE', 0),
-    // Si alguien paga de mas, se le otorga el tier mas alto que cubra el monto.
+    // If someone overpays, grant the highest tier the amount covers.
     upgradeOnOverpay: bool('UPGRADE_ON_OVERPAY', true),
     codePrefix: str('CODE_PREFIX', 'VIP'),
     codeLength: int('CODE_LENGTH', 6),
@@ -78,7 +78,7 @@ export function loadVipConfig() {
       pollSeconds: int('IMAP_POLL_SECONDS', 60),
       sinceDays: int('IMAP_SINCE_DAYS', 3),
       markSeen: bool('IMAP_MARK_SEEN', true),
-      // Solo se confia en correos que vengan de estos remitentes (dominio o direccion).
+      // Only emails coming from these senders are trusted.
       allowedSenders: list('IMAP_ALLOWED_SENDERS'),
     },
   };

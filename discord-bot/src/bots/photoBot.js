@@ -3,26 +3,41 @@ import { loadPhotoConfig } from '../config.js';
 import { createLogger } from '../lib/logger.js';
 import { REASON_MESSAGES, evaluateMessage } from '../photo/photoOnly.js';
 
-const log = createLogger('fotos');
+const log = createLogger('photos');
+
+/** Maps a discord.js message onto the plain object evaluateMessage expects. */
+function toPlainMessage(message) {
+  return {
+    authorIsBot: message.author?.bot ?? false,
+    content: message.content ?? '',
+    attachments: [...message.attachments.values()].map((attachment) => ({
+      contentType: attachment.contentType,
+      name: attachment.name,
+    })),
+    embeds: message.embeds,
+    memberRoleIds: message.member ? [...message.member.roles.cache.keys()] : [],
+    isSystem: message.type !== MessageType.Default && message.type !== MessageType.Reply,
+  };
+}
 
 export function createPhotoBot(config = loadPhotoConfig()) {
   const client = new Client({
     intents: [
       GatewayIntentBits.Guilds,
       GatewayIntentBits.GuildMessages,
-      // Necesario para leer el texto del mensaje: activa "Message Content Intent"
-      // en el portal de desarrolladores de Discord.
+      // Needed to read the message text: turn on "Message Content Intent"
+      // in the Discord developer portal.
       GatewayIntentBits.MessageContent,
     ],
     partials: [Partials.Message, Partials.Channel],
   });
 
   client.once(Events.ClientReady, (ready) => {
-    log.info(`Conectado como ${ready.user.tag}`);
+    log.info(`Logged in as ${ready.user.tag}`);
     if (config.channelIds.length === 0) {
-      log.warn('PHOTO_ONLY_CHANNEL_IDS esta vacio: el bot no vigilara ningun canal');
+      log.warn('PHOTO_ONLY_CHANNEL_IDS is empty: the bot is not watching any channel');
     } else {
-      log.info(`Vigilando ${config.channelIds.length} canal(es) de solo-fotos`);
+      log.info(`Watching ${config.channelIds.length} photos-only channel(s)`);
     }
   });
 
@@ -31,28 +46,14 @@ export function createPhotoBot(config = loadPhotoConfig()) {
       if (!config.channelIds.includes(message.channelId)) return;
       if (message.author?.id === client.user.id) return;
 
-      const verdict = evaluateMessage(
-        {
-          authorIsBot: message.author?.bot ?? false,
-          content: message.content ?? '',
-          attachments: [...message.attachments.values()].map((attachment) => ({
-            contentType: attachment.contentType,
-            name: attachment.name,
-          })),
-          embeds: message.embeds,
-          memberRoleIds: message.member ? [...message.member.roles.cache.keys()] : [],
-          isSystem: message.type !== MessageType.Default && message.type !== MessageType.Reply,
-        },
-        config,
-      );
-
+      const verdict = evaluateMessage(toPlainMessage(message), config);
       if (verdict.allowed) return;
 
       await message.delete();
-      log.info(`Mensaje de ${message.author?.tag ?? 'desconocido'} borrado en #${message.channelId} (${verdict.reason})`);
+      log.info(`Deleted a message from ${message.author?.tag ?? 'unknown'} in #${message.channelId} (${verdict.reason})`);
 
       if (config.warn) {
-        const text = `${message.author ? `<@${message.author.id}> ` : ''}${REASON_MESSAGES[verdict.reason] ?? REASON_MESSAGES.sin_imagen}`;
+        const text = `${message.author ? `<@${message.author.id}> ` : ''}${REASON_MESSAGES[verdict.reason] ?? REASON_MESSAGES.no_image}`;
         const notice = await message.channel.send({ content: text });
         if (config.warnSeconds > 0) {
           setTimeout(() => {
@@ -68,15 +69,12 @@ export function createPhotoBot(config = loadPhotoConfig()) {
             embeds: [
               new EmbedBuilder()
                 .setColor(0xe67e22)
-                .setTitle('Mensaje borrado en canal solo-fotos')
+                .setTitle('Message deleted in photos-only channel')
                 .addFields(
-                  { name: 'Autor', value: `<@${message.author?.id}>`, inline: true },
-                  { name: 'Canal', value: `<#${message.channelId}>`, inline: true },
-                  { name: 'Motivo', value: verdict.reason, inline: true },
-                  {
-                    name: 'Contenido',
-                    value: (message.content || '(sin texto)').slice(0, 1000),
-                  },
+                  { name: 'Author', value: `<@${message.author?.id}>`, inline: true },
+                  { name: 'Channel', value: `<#${message.channelId}>`, inline: true },
+                  { name: 'Reason', value: verdict.reason, inline: true },
+                  { name: 'Content', value: (message.content || '(no text)').slice(0, 1000) },
                 )
                 .setTimestamp(),
             ],
@@ -84,38 +82,24 @@ export function createPhotoBot(config = loadPhotoConfig()) {
         }
       }
     } catch (error) {
-      log.error(`Error procesando el mensaje ${message.id}: ${error.message}`);
+      log.error(`Error handling message ${message.id}: ${error.message}`);
     }
   });
 
-  // Alguien puede editar un mensaje valido y meterle texto despues.
+  // Someone can post a valid photo and then edit text into it.
   client.on(Events.MessageUpdate, async (_oldMessage, newMessage) => {
     try {
       if (!config.channelIds.includes(newMessage.channelId)) return;
       const message = newMessage.partial ? await newMessage.fetch() : newMessage;
       if (message.author?.id === client.user.id) return;
 
-      const verdict = evaluateMessage(
-        {
-          authorIsBot: message.author?.bot ?? false,
-          content: message.content ?? '',
-          attachments: [...message.attachments.values()].map((attachment) => ({
-            contentType: attachment.contentType,
-            name: attachment.name,
-          })),
-          embeds: message.embeds,
-          memberRoleIds: message.member ? [...message.member.roles.cache.keys()] : [],
-          isSystem: message.type !== MessageType.Default && message.type !== MessageType.Reply,
-        },
-        config,
-      );
-
+      const verdict = evaluateMessage(toPlainMessage(message), config);
       if (!verdict.allowed) {
         await message.delete();
-        log.info(`Mensaje editado borrado en #${message.channelId} (${verdict.reason})`);
+        log.info(`Deleted an edited message in #${message.channelId} (${verdict.reason})`);
       }
     } catch (error) {
-      log.debug(`No se pudo revisar la edicion: ${error.message}`);
+      log.debug(`Could not check the edit: ${error.message}`);
     }
   });
 

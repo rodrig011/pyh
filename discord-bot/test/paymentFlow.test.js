@@ -15,13 +15,13 @@ const config = {
   upgradeOnOverpay: true,
   logChannelId: null,
   tiers: {
-    1: { tier: 1, priceCents: 5000, roleId: 'rol-1' },
-    2: { tier: 2, priceCents: 10000, roleId: 'rol-2' },
-    3: { tier: 3, priceCents: 20000, roleId: 'rol-3' },
+    1: { tier: 1, priceCents: 5000, roleId: 'role-1' },
+    2: { tier: 2, priceCents: 10000, roleId: 'role-2' },
+    3: { tier: 3, priceCents: 20000, roleId: 'role-3' },
   },
 };
 
-/** Cliente de Discord de mentira: guarda los roles asignados y los DM enviados. */
+/** Stubbed Discord client: records the roles granted and the DMs sent. */
 function fakeClient() {
   const state = { roles: [], dms: [] };
   const memberRoles = new Set();
@@ -39,8 +39,8 @@ function fakeClient() {
   const guild = {
     id: 'g',
     roles: {
-      cache: { get: (id) => (['rol-1', 'rol-2', 'rol-3'].includes(id) ? { id, name: id } : undefined) },
-      fetch: async (id) => (['rol-1', 'rol-2', 'rol-3'].includes(id) ? { id, name: id } : null),
+      cache: { get: (id) => (['role-1', 'role-2', 'role-3'].includes(id) ? { id, name: id } : undefined) },
+      fetch: async (id) => (['role-1', 'role-2', 'role-3'].includes(id) ? { id, name: id } : null),
     },
     members: { fetch: async () => member },
   };
@@ -61,7 +61,7 @@ function freshStore(t) {
   return createStore(join(dir, 'store.json'));
 }
 
-test('un pago de tier 3 entrega los tres roles', async (t) => {
+test('a tier 3 payment grants all three roles', async (t) => {
   const store = freshStore(t);
   const { client, state } = fakeClient();
   const order = createOrder(store, { userId: 'u1', guildId: 'g', tier: 3, config });
@@ -75,12 +75,12 @@ test('un pago de tier 3 entrega los tres roles', async (t) => {
 
   assert.equal(result.status, 'granted');
   assert.equal(result.tier, 3);
-  assert.deepEqual(state.roles, ['rol-1', 'rol-2', 'rol-3']);
-  assert.equal(state.dms.length, 1, 'se avisa al comprador por DM');
+  assert.deepEqual(state.roles, ['role-1', 'role-2', 'role-3']);
+  assert.equal(state.dms.length, 1, 'the buyer is notified by DM');
   assert.equal(store.getOrder(order.code).status, 'paid');
 });
 
-test('un pago de tier 2 entrega los roles 1 y 2', async (t) => {
+test('a tier 2 payment grants roles 1 and 2', async (t) => {
   const store = freshStore(t);
   const { client, state } = fakeClient();
   const order = createOrder(store, { userId: 'u1', guildId: 'g', tier: 2, config });
@@ -88,10 +88,10 @@ test('un pago de tier 2 entrega los roles 1 y 2', async (t) => {
   const result = await processPayment(client, store, config, { codes: [order.code], amountCents: 10000 });
 
   assert.equal(result.tier, 2);
-  assert.deepEqual(state.roles, ['rol-1', 'rol-2']);
+  assert.deepEqual(state.roles, ['role-1', 'role-2']);
 });
 
-test('un pago de tier 1 entrega solo el rol 1', async (t) => {
+test('a tier 1 payment grants role 1 only', async (t) => {
   const store = freshStore(t);
   const { client, state } = fakeClient();
   const order = createOrder(store, { userId: 'u1', guildId: 'g', tier: 1, config });
@@ -99,10 +99,10 @@ test('un pago de tier 1 entrega solo el rol 1', async (t) => {
   const result = await processPayment(client, store, config, { codes: [order.code], amountCents: 5000 });
 
   assert.equal(result.tier, 1);
-  assert.deepEqual(state.roles, ['rol-1']);
+  assert.deepEqual(state.roles, ['role-1']);
 });
 
-test('un pago insuficiente no entrega ningun rol', async (t) => {
+test('an underpayment grants no roles at all', async (t) => {
   const store = freshStore(t);
   const { client, state } = fakeClient();
   const order = createOrder(store, { userId: 'u1', guildId: 'g', tier: 3, config });
@@ -114,7 +114,7 @@ test('un pago insuficiente no entrega ningun rol', async (t) => {
   assert.equal(store.getOrder(order.code).status, 'pending');
 });
 
-test('un pago con codigo inventado no entrega nada', async (t) => {
+test('a payment with a made-up code grants nothing', async (t) => {
   const store = freshStore(t);
   const { client, state } = fakeClient();
   createOrder(store, { userId: 'u1', guildId: 'g', tier: 3, config });
@@ -125,7 +125,7 @@ test('un pago con codigo inventado no entrega nada', async (t) => {
   assert.deepEqual(state.roles, []);
 });
 
-test('reenviar el mismo pago no vuelve a entregar roles', async (t) => {
+test('replaying the same payment does not grant the roles again', async (t) => {
   const store = freshStore(t);
   const { client, state } = fakeClient();
   const order = createOrder(store, { userId: 'u1', guildId: 'g', tier: 2, config });
@@ -135,5 +135,5 @@ test('reenviar el mismo pago no vuelve a entregar roles', async (t) => {
   const repeat = await processPayment(client, store, config, payment);
 
   assert.equal(repeat.status, 'already_paid');
-  assert.deepEqual(state.roles, ['rol-1', 'rol-2'], 'no se repiten los roles');
+  assert.deepEqual(state.roles, ['role-1', 'role-2'], 'roles are not duplicated');
 });

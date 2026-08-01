@@ -3,4 +3,4 @@ import { registerCommands } from './bots/vipBot.js';
 
 const config = loadVipConfig();
 await registerCommands(config);
-console.log('Comandos /vip y /vip-admin registrados en el servidor', config.guildId);
+console.log('/vip and /vip-admin registered in guild', config.guildId);

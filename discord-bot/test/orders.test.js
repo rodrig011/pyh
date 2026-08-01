@@ -13,9 +13,9 @@ const config = {
   amountToleranceCents: 0,
   upgradeOnOverpay: true,
   tiers: {
-    1: { tier: 1, priceCents: 5000, roleId: 'rol-1' },
-    2: { tier: 2, priceCents: 10000, roleId: 'rol-2' },
-    3: { tier: 3, priceCents: 20000, roleId: 'rol-3' },
+    1: { tier: 1, priceCents: 5000, roleId: 'role-1' },
+    2: { tier: 2, priceCents: 10000, roleId: 'role-2' },
+    3: { tier: 3, priceCents: 20000, roleId: 'role-3' },
   },
 };
 
@@ -25,7 +25,7 @@ function freshStore(t) {
   return createStore(join(dir, 'store.json'));
 }
 
-test('createOrder guarda una orden pendiente con codigo unico', (t) => {
+test('createOrder saves a pending order with a unique code', (t) => {
   const store = freshStore(t);
   const a = createOrder(store, { userId: '1', guildId: 'g', tier: 2, config });
   const b = createOrder(store, { userId: '2', guildId: 'g', tier: 1, config });
@@ -36,7 +36,7 @@ test('createOrder guarda una orden pendiente con codigo unico', (t) => {
   assert.equal(store.getOrder(a.code).userId, '1');
 });
 
-test('el almacen sobrevive a un reinicio', (t) => {
+test('the store survives a restart', (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'vipstore-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const path = join(dir, 'store.json');
@@ -48,7 +48,7 @@ test('el almacen sobrevive a un reinicio', (t) => {
   assert.equal(reloaded.status, ORDER_STATUS.PENDING);
 });
 
-test('un pago con el codigo correcto empareja la orden', (t) => {
+test('a payment carrying the right code matches its order', (t) => {
   const store = freshStore(t);
   const order = createOrder(store, { userId: '1', guildId: 'g', tier: 2, config });
 
@@ -58,7 +58,7 @@ test('un pago con el codigo correcto empareja la orden', (t) => {
   assert.equal(result.order.code, order.code);
 });
 
-test('pagar 200 con una orden de tier 1 otorga el tier 3', (t) => {
+test('paying 200 on a tier 1 order grants tier 3', (t) => {
   const store = freshStore(t);
   const order = createOrder(store, { userId: '1', guildId: 'g', tier: 1, config });
 
@@ -67,7 +67,7 @@ test('pagar 200 con una orden de tier 1 otorga el tier 3', (t) => {
   assert.equal(result.tier, 3);
 });
 
-test('un pago de menos no otorga nada', (t) => {
+test('an underpayment grants nothing', (t) => {
   const store = freshStore(t);
   const order = createOrder(store, { userId: '1', guildId: 'g', tier: 3, config });
 
@@ -76,7 +76,7 @@ test('un pago de menos no otorga nada', (t) => {
   assert.equal(store.getOrder(order.code).status, ORDER_STATUS.PENDING);
 });
 
-test('un pago sin codigo o con codigo desconocido no aplica', (t) => {
+test('a payment with no code or an unknown code does not apply', (t) => {
   const store = freshStore(t);
   assert.equal(matchPayment(store, { codes: [], amountCents: 5000 }, config).status, 'no_code');
   assert.equal(
@@ -85,7 +85,7 @@ test('un pago sin codigo o con codigo desconocido no aplica', (t) => {
   );
 });
 
-test('una orden vencida no se puede pagar', (t) => {
+test('an expired order cannot be paid', (t) => {
   const store = freshStore(t);
   const order = createOrder(store, {
     userId: '1',
@@ -100,47 +100,47 @@ test('una orden vencida no se puede pagar', (t) => {
   assert.equal(store.getOrder(order.code).status, ORDER_STATUS.EXPIRED);
 });
 
-test('el mismo correo no se puede cobrar dos veces', (t) => {
+test('the same payment cannot be redeemed twice', (t) => {
   const store = freshStore(t);
   const order = createOrder(store, { userId: '1', guildId: 'g', tier: 1, config });
   const payment = { codes: [order.code], amountCents: 5000, source: 'zelle-email' };
 
   const first = matchPayment(store, payment, config);
   assert.equal(first.status, 'match');
-  markOrderPaid(store, first.order, { tier: first.tier, payment, grantedRoleIds: ['rol-1'] });
+  markOrderPaid(store, first.order, { tier: first.tier, payment, grantedRoleIds: ['role-1'] });
 
   const second = matchPayment(store, payment, config);
   assert.equal(second.status, 'already_paid');
 });
 
-test('markOrderPaid deja el rastro del pago', (t) => {
+test('markOrderPaid keeps the payment trail', (t) => {
   const store = freshStore(t);
   const order = createOrder(store, { userId: '7', guildId: 'g', tier: 3, config });
   markOrderPaid(store, order, {
     tier: 3,
     payment: { source: 'zelle-email', senderName: 'JUAN PEREZ', amountCents: 20000, reference: '<x@y>' },
-    grantedRoleIds: ['rol-1', 'rol-2', 'rol-3'],
+    grantedRoleIds: ['role-1', 'role-2', 'role-3'],
   });
 
   const saved = store.getOrder(order.code);
   assert.equal(saved.status, ORDER_STATUS.PAID);
   assert.equal(saved.grantedTier, 3);
-  assert.deepEqual(saved.grantedRoleIds, ['rol-1', 'rol-2', 'rol-3']);
+  assert.deepEqual(saved.grantedRoleIds, ['role-1', 'role-2', 'role-3']);
   assert.equal(saved.payment.senderName, 'JUAN PEREZ');
   assert.equal(store.data.payments.length, 1);
 });
 
-test('expireStaleOrders solo toca las pendientes vencidas', (t) => {
+test('expireStaleOrders only touches overdue pending orders', (t) => {
   const store = freshStore(t);
-  const vieja = createOrder(store, { userId: '1', guildId: 'g', tier: 1, config, now: Date.now() - 1e10 });
-  const nueva = createOrder(store, { userId: '2', guildId: 'g', tier: 1, config });
+  const old = createOrder(store, { userId: '1', guildId: 'g', tier: 1, config, now: Date.now() - 1e10 });
+  const recent = createOrder(store, { userId: '2', guildId: 'g', tier: 1, config });
 
   const expired = expireStaleOrders(store);
-  assert.deepEqual(expired.map((order) => order.code), [vieja.code]);
-  assert.equal(store.getOrder(nueva.code).status, ORDER_STATUS.PENDING);
+  assert.deepEqual(expired.map((order) => order.code), [old.code]);
+  assert.equal(store.getOrder(recent.code).status, ORDER_STATUS.PENDING);
 });
 
-test('el correo procesado se marca una sola vez', (t) => {
+test('a processed email is only recorded once', (t) => {
   const store = freshStore(t);
   assert.equal(store.isEmailProcessed('<a@b>'), false);
   store.markEmailProcessed('<a@b>');

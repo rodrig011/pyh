@@ -2,64 +2,64 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { evaluateMessage, isImageAttachment } from '../src/photo/photoOnly.js';
 
-const foto = { contentType: 'image/png', name: 'foto.png' };
+const photo = { contentType: 'image/png', name: 'photo.png' };
 
-test('reconoce imagenes por tipo y por extension', () => {
-  assert.equal(isImageAttachment(foto), true);
-  assert.equal(isImageAttachment({ name: 'foto.JPG' }), true);
-  assert.equal(isImageAttachment({ name: 'documento.pdf' }), false);
+test('recognizes images by content type and by extension', () => {
+  assert.equal(isImageAttachment(photo), true);
+  assert.equal(isImageAttachment({ name: 'photo.JPG' }), true);
+  assert.equal(isImageAttachment({ name: 'document.pdf' }), false);
   assert.equal(isImageAttachment({}), false);
 });
 
-test('una foto sola se permite', () => {
-  assert.equal(evaluateMessage({ attachments: [foto] }).allowed, true);
+test('a photo on its own is allowed', () => {
+  assert.equal(evaluateMessage({ attachments: [photo] }).allowed, true);
 });
 
-test('el texto solo se borra', () => {
-  const verdict = evaluateMessage({ content: 'hola a todos' });
+test('text on its own is deleted', () => {
+  const verdict = evaluateMessage({ content: 'hi everyone' });
   assert.equal(verdict.allowed, false);
-  assert.equal(verdict.reason, 'sin_imagen');
+  assert.equal(verdict.reason, 'no_image');
 });
 
-test('un mensaje vacio sin adjuntos se borra', () => {
+test('an empty message with no attachments is deleted', () => {
   assert.equal(evaluateMessage({ content: '   ' }).allowed, false);
 });
 
-test('foto con texto se borra por defecto y se permite con captions', () => {
-  const message = { content: 'miren esto', attachments: [foto] };
-  const estricto = evaluateMessage(message);
-  assert.equal(estricto.allowed, false);
-  assert.equal(estricto.reason, 'texto_no_permitido');
+test('a photo with text is deleted by default and allowed with captions on', () => {
+  const message = { content: 'look at this', attachments: [photo] };
+  const strict = evaluateMessage(message);
+  assert.equal(strict.allowed, false);
+  assert.equal(strict.reason, 'text_not_allowed');
   assert.equal(evaluateMessage(message, { allowCaptions: true }).allowed, true);
 });
 
-test('un archivo que no es imagen se borra', () => {
+test('a file that is not an image is deleted', () => {
   const verdict = evaluateMessage({ attachments: [{ contentType: 'application/pdf', name: 'x.pdf' }] });
   assert.equal(verdict.allowed, false);
-  assert.equal(verdict.reason, 'adjunto_no_es_imagen');
+  assert.equal(verdict.reason, 'attachment_not_an_image');
 });
 
-test('los videos solo pasan si se habilitan', () => {
+test('videos only pass when explicitly enabled', () => {
   const message = { attachments: [{ contentType: 'video/mp4', name: 'clip.mp4' }] };
   assert.equal(evaluateMessage(message).allowed, false);
   assert.equal(evaluateMessage(message, { allowVideos: true }).allowed, true);
 });
 
-test('los enlaces a imagenes solo pasan si se habilitan', () => {
-  const message = { content: 'https://ejemplo.com/foto.png', embeds: [{ type: 'image' }] };
+test('image links only pass when explicitly enabled', () => {
+  const message = { content: 'https://example.com/photo.png', embeds: [{ type: 'image' }] };
   assert.equal(evaluateMessage(message).allowed, false);
   assert.equal(evaluateMessage(message, { allowLinks: true, allowCaptions: true }).allowed, true);
 });
 
-test('los bots y los mensajes del sistema se ignoran', () => {
-  assert.equal(evaluateMessage({ authorIsBot: true, content: 'aviso' }).allowed, true);
-  assert.equal(evaluateMessage({ authorIsBot: true, content: 'aviso' }, { ignoreBots: false }).allowed, false);
-  assert.equal(evaluateMessage({ isSystem: true, content: 'se unio al servidor' }).allowed, true);
+test('bots and system messages are left alone', () => {
+  assert.equal(evaluateMessage({ authorIsBot: true, content: 'notice' }).allowed, true);
+  assert.equal(evaluateMessage({ authorIsBot: true, content: 'notice' }, { ignoreBots: false }).allowed, false);
+  assert.equal(evaluateMessage({ isSystem: true, content: 'joined the server' }).allowed, true);
 });
 
-test('los roles exentos pueden escribir texto', () => {
-  const message = { content: 'moderando', memberRoleIds: ['mod'] };
+test('bypass roles may post text', () => {
+  const message = { content: 'moderating', memberRoleIds: ['mod'] };
   assert.equal(evaluateMessage(message).allowed, false);
   assert.equal(evaluateMessage(message, { bypassRoleIds: ['mod'] }).allowed, true);
-  assert.equal(evaluateMessage(message, { bypassRoleIds: ['otro'] }).allowed, false);
+  assert.equal(evaluateMessage(message, { bypassRoleIds: ['other'] }).allowed, false);
 });

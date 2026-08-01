@@ -7,12 +7,12 @@ import { parseZelleEmail } from './parseZelle.js';
 const log = createLogger('zelle');
 
 /**
- * Revisa cada cierto tiempo el buzon donde el banco deja las notificaciones de
- * Zelle y emite un evento por cada pago recibido.
+ * Polls the mailbox where the bank drops its Zelle notifications and emits an
+ * event for every incoming payment.
  *
- * Eventos:
- *   'payment'  -> (payment, email)   pago valido detectado
- *   'skipped'  -> (parsed, email)    correo descartado (con el motivo)
+ * Events:
+ *   'payment'  -> (payment, email)   valid payment detected
+ *   'skipped'  -> (parsed, email)    email discarded (with the reason)
  *   'error'    -> (error)
  */
 export class ZelleWatcher extends EventEmitter {
@@ -29,23 +29,23 @@ export class ZelleWatcher extends EventEmitter {
 
   start() {
     if (!this.imap.enabled) {
-      log.warn('IMAP deshabilitado (IMAP_ENABLED=false): los pagos solo se podran confirmar a mano');
+      log.warn('IMAP disabled (IMAP_ENABLED=false): payments can only be confirmed manually');
       return;
     }
     if (!this.imap.host || !this.imap.user || !this.imap.password) {
-      log.warn('Faltan IMAP_HOST/IMAP_USER/IMAP_PASSWORD: no se revisara el correo');
+      log.warn('IMAP_HOST/IMAP_USER/IMAP_PASSWORD missing: the mailbox will not be checked');
       return;
     }
     this.stopped = false;
     const tick = () => {
       this.poll().catch((error) => {
-        log.error(`Fallo la revision del correo: ${error.message}`);
+        log.error(`Mailbox check failed: ${error.message}`);
         this.emit('error', error);
       });
     };
     tick();
     this.timer = setInterval(tick, Math.max(15, this.imap.pollSeconds) * 1000);
-    log.info(`Vigilando ${this.imap.user} cada ${this.imap.pollSeconds}s`);
+    log.info(`Watching ${this.imap.user} every ${this.imap.pollSeconds}s`);
   }
 
   stop() {
@@ -54,7 +54,7 @@ export class ZelleWatcher extends EventEmitter {
     this.timer = null;
   }
 
-  /** Una pasada por el buzon. Se puede llamar a mano (comando /vip-admin sincronizar). */
+  /** One pass over the mailbox. Can be triggered by hand (/vip-admin sync). */
   async poll() {
     if (this.running || this.stopped) return { checked: 0, payments: 0 };
     this.running = true;
@@ -108,10 +108,10 @@ export class ZelleWatcher extends EventEmitter {
 
           if (parsed.isPayment) {
             payments += 1;
-            log.info(`Pago detectado: ${parsed.amountCents} centavos, codigos=${parsed.codes.join(',') || 'ninguno'}`);
+            log.info(`Payment detected: ${parsed.amountCents} cents, codes=${parsed.codes.join(',') || 'none'}`);
             this.emit('payment', parsed, email);
           } else {
-            log.debug(`Correo ignorado (${parsed.reason}): ${email.subject}`);
+            log.debug(`Email skipped (${parsed.reason}): ${email.subject}`);
             this.emit('skipped', parsed, email);
           }
         }

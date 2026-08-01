@@ -1,177 +1,175 @@
-# Bots de Discord: VIP con pagos Zelle + canal solo-fotos
+# Discord bots: VIP memberships paid with Zelle + photos-only channel
 
-Dos bots independientes en un mismo proyecto:
+Two independent bots in one project:
 
-1. **Bot VIP** — vende tres niveles de membresia que se pagan por Zelle. Cada compra
-   genera un **codigo aleatorio** que el comprador escribe en la nota del Zelle; el bot
-   lee el correo del banco, encuentra el codigo, y entrega los roles automaticamente.
-2. **Bot solo-fotos** — en los canales que le indiques borra todo lo que no sea una
-   fotografia (texto suelto, archivos que no son imagenes y, si quieres, tambien las
-   fotos que vengan con texto).
+1. **VIP bot** — sells three membership tiers paid via Zelle. Every purchase generates a
+   **random code** that the buyer writes in the Zelle memo; the bot reads the bank's
+   notification email, finds the code, and grants the roles automatically.
+2. **Photos-only bot** — in the channels you point it at, it deletes anything that is not
+   a photograph (plain text, non-image files and, if you want, photos that come with text).
 
-## Niveles VIP
+## VIP tiers
 
-| Nivel | Precio | Roles que otorga |
+| Tier | Price | Roles granted |
 |-------|--------|------------------|
 | Tier 1 | $50 | Tier 1 |
 | Tier 2 | $100 | Tier 1 + Tier 2 |
 | Tier 3 | $200 | Tier 1 + Tier 2 + Tier 3 |
 
-Los niveles son **acumulativos**: el tier 3 da los tres roles, el tier 2 da dos y el
-tier 1 da uno. Los precios se cambian en el `.env` (`TIER_1_PRICE`, etc.).
+Tiers **stack**: tier 3 grants all three roles, tier 2 grants two, tier 1 grants one.
+Prices are set in `.env` (`TIER_1_PRICE`, and so on).
 
-## Como funciona el cobro
+## How the payment flow works
 
 ```
-/vip comprar tier:2
-   -> el bot crea la orden y responde en privado:
-      "Envia $100.00 por Zelle a pagos@tudominio.com
-       y escribe VIP-7K3QDM en la nota"
+/vip buy tier:2
+   -> the bot creates the order and replies privately:
+      "Send $100.00 via Zelle to payments@yourdomain.com
+       and put VIP-7K3QDM in the memo"
 
-El comprador paga por Zelle con ese codigo en el memo
-   -> el banco manda el correo "Fulano sent you $100.00 with Zelle"
-   -> el bot revisa el buzon cada 60s, encuentra VIP-7K3QDM,
-      comprueba el monto y entrega los roles Tier 1 y Tier 2
-   -> le avisa por DM y deja el registro en el canal de logs
+The buyer pays through Zelle with that code in the memo
+   -> the bank sends the "Someone sent you $100.00 with Zelle" email
+   -> the bot checks the mailbox every 60s, finds VIP-7K3QDM,
+      verifies the amount and grants the Tier 1 and Tier 2 roles
+   -> it DMs the buyer and writes the record to the log channel
 ```
 
-Zelle **no tiene API publica**, asi que la deteccion se hace leyendo por IMAP el
-correo de aviso que manda tu banco. Si prefieres no conectar el correo, pon
-`IMAP_ENABLED=false` y confirma los pagos a mano con `/vip-admin confirmar`.
+Zelle has **no public API**, so detection works by reading the alert email your bank
+sends, over IMAP. If you would rather not connect a mailbox, set `IMAP_ENABLED=false`
+and confirm payments by hand with `/vip-admin confirm`.
 
-### Reglas de seguridad que aplica el bot
+### Safeguards the bot applies
 
-- Solo se leen correos de los remitentes de `IMAP_ALLOWED_SENDERS` (los del banco).
-  Sin esa lista, cualquiera que te escriba un correo con el texto correcto podria
-  activar un pago falso: **configurala siempre**.
-- El monto tiene que cubrir el precio del nivel (`AMOUNT_TOLERANCE` permite un margen).
-- Cada correo se procesa una sola vez y cada orden se paga una sola vez.
-- Los codigos vencen a las `ORDER_TTL_HOURS` horas.
-- Si alguien paga de mas, recibe el nivel mas alto que cubra el monto
-  (`UPGRADE_ON_OVERPAY=false` lo desactiva).
+- Only emails from the senders in `IMAP_ALLOWED_SENDERS` (your bank) are read. Without
+  that allowlist, anyone who emails you the right wording could trigger a fake payment:
+  **always configure it**.
+- The amount has to cover the tier price (`AMOUNT_TOLERANCE` allows a margin).
+- Each email is processed once and each order is paid once.
+- Codes expire after `ORDER_TTL_HOURS` hours.
+- If someone overpays they get the highest tier the amount covers
+  (`UPGRADE_ON_OVERPAY=false` turns this off).
 
-## Instalacion
+## Setup
 
 ```bash
 cd discord-bot
 npm install
-cp .env.example .env      # y rellenar
-npm start                 # arranca los dos bots
+cp .env.example .env      # then fill it in
+npm start                 # starts both bots
 ```
 
-Tambien puedes arrancarlos por separado: `npm run start:vip` / `npm run start:photo`.
+You can also run them separately: `npm run start:vip` / `npm run start:photo`.
 
-### 1. Crear las aplicaciones en Discord
+### 1. Create the applications in Discord
 
-En https://discord.com/developers/applications crea **dos** aplicaciones (una por bot)
-y en la pestana *Bot* copia el token de cada una:
+At https://discord.com/developers/applications create **two** applications (one per bot)
+and copy each token from the *Bot* tab:
 
-- Bot VIP → `VIP_BOT_TOKEN`, y el *Application ID* → `VIP_CLIENT_ID`.
-  Activa el intent **Server Members Intent** (lo necesita para asignar roles).
-- Bot fotos → `PHOTO_BOT_TOKEN`. Activa el intent **Message Content Intent**
-  (sin el no puede ver si el mensaje trae texto).
+- VIP bot → `VIP_BOT_TOKEN`, and the *Application ID* → `VIP_CLIENT_ID`.
+  Enable the **Server Members Intent** (it needs it to assign roles).
+- Photos bot → `PHOTO_BOT_TOKEN`. Enable the **Message Content Intent**
+  (without it, it cannot tell whether a message contains text).
 
-Invitalos al servidor con el scope `bot applications.commands` y los permisos:
+Invite them with the `bot applications.commands` scope and these permissions:
 
-- Bot VIP: *Manage Roles*, *Send Messages*, *Use Application Commands*.
-- Bot fotos: *Manage Messages*, *Read Message History*, *Send Messages*.
+- VIP bot: *Manage Roles*, *Send Messages*, *Use Application Commands*.
+- Photos bot: *Manage Messages*, *Read Message History*, *Send Messages*.
 
-**Importante:** en *Configuracion del servidor → Roles*, arrastra el rol del bot VIP
-**por encima** de los tres roles VIP, o Discord no le dejara asignarlos. El bot avisa
-en consola al arrancar si detecta este problema.
+**Important:** in *Server Settings → Roles*, drag the VIP bot's role **above** the three
+VIP roles, or Discord will not let it assign them. The bot warns you in the console at
+startup if it detects this problem.
 
-### 2. Copiar IDs
+### 2. Copy the IDs
 
-Activa *Ajustes de usuario → Avanzado → Modo desarrollador* y usa click derecho →
-*Copiar ID* sobre el servidor, los roles y los canales.
+Turn on *User Settings → Advanced → Developer Mode*, then right click → *Copy ID* on the
+server, the roles and the channels.
 
-### 3. Conectar el correo del banco
+### 3. Connect the bank mailbox
 
-Con Gmail: activa la verificacion en dos pasos y crea una
-[contrasena de aplicacion](https://myaccount.google.com/apppasswords); esa es la que va
-en `IMAP_PASSWORD` (nunca la contrasena normal de la cuenta).
+With Gmail: turn on two-step verification and create an
+[app password](https://myaccount.google.com/apppasswords); that is what goes into
+`IMAP_PASSWORD` (never the account's normal password).
 
-Pon en `IMAP_ALLOWED_SENDERS` la direccion desde la que tu banco manda los avisos de
-Zelle (mira un correo real y copia el remitente). Ejemplos comunes:
+Put the address your bank sends Zelle alerts from into `IMAP_ALLOWED_SENDERS` (open a
+real alert email and copy the sender). Common examples:
 
 ```
 IMAP_ALLOWED_SENDERS=alerts@notify.wellsfargo.com,no.reply.alerts@chase.com,email.zellepay.com
 ```
 
-Si tu banco escribe el aviso con otras palabras, ajusta los patrones de
-`src/payments/parseZelle.js` (`RECEIVED_PATTERNS`) y anade un caso en
-`test/parseZelle.test.js` con el texto real del correo.
+If your bank words its alerts differently, adjust the patterns in
+`src/payments/parseZelle.js` (`RECEIVED_PATTERNS`) and add a case to
+`test/parseZelle.test.js` using the real email text.
 
-## Comandos
+## Commands
 
-**Para todos**
+**For everyone**
 
-| Comando | Que hace |
+| Command | What it does |
 |---------|----------|
-| `/vip precios` | Muestra los tres niveles y que incluye cada uno |
-| `/vip comprar tier:<1-3>` | Genera el codigo y las instrucciones de pago |
-| `/vip estado` | Muestra tus ordenes y su estado |
-| `/vip cancelar [codigo]` | Cancela una orden pendiente tuya |
+| `/vip prices` | Shows the three tiers and what each one includes |
+| `/vip buy tier:<1-3>` | Generates the code and the payment instructions |
+| `/vip status` | Shows your orders and their status |
+| `/vip cancel [code]` | Cancels one of your pending orders |
 
-**Para staff** (requiere el permiso *Gestionar roles* o un rol de `VIP_ADMIN_ROLE_IDS`)
+**For staff** (needs the *Manage Roles* permission or a role from `VIP_ADMIN_ROLE_IDS`)
 
-| Comando | Que hace |
+| Command | What it does |
 |---------|----------|
-| `/vip-admin confirmar codigo:<> [monto] [nota]` | Aplica un pago a mano y entrega los roles |
-| `/vip-admin buscar codigo:<>` | Ficha completa de una orden |
-| `/vip-admin pendientes` | Ordenes pendientes de pago |
-| `/vip-admin cancelar codigo:<>` | Cancela la orden de cualquiera |
-| `/vip-admin sincronizar` | Revisa el correo ahora mismo sin esperar al ciclo |
+| `/vip-admin confirm code:<> [amount] [note]` | Applies a payment by hand and grants the roles |
+| `/vip-admin lookup code:<>` | Full record of an order |
+| `/vip-admin pending` | Orders still awaiting payment |
+| `/vip-admin cancel code:<>` | Cancels anyone's order |
+| `/vip-admin sync` | Checks the mailbox right now instead of waiting for the next poll |
 
-## Canal de solo fotos
+## Photos-only channel
 
-Pon los IDs de canal en `PHOTO_ONLY_CHANNEL_IDS` (separados por coma). Todo mensaje
-que no cumpla se borra y el bot deja un aviso que se autodestruye a los
-`PHOTO_ONLY_WARN_SECONDS` segundos.
+Put the channel IDs in `PHOTO_ONLY_CHANNEL_IDS` (comma-separated). Any message that does
+not comply is deleted, and the bot leaves a notice that self-destructs after
+`PHOTO_ONLY_WARN_SECONDS` seconds.
 
-| Variable | Por defecto | Efecto |
+| Variable | Default | Effect |
 |----------|-------------|--------|
-| `PHOTO_ONLY_ALLOW_CAPTIONS` | `false` | En `false`, ni siquiera se permite texto junto a la foto |
-| `PHOTO_ONLY_ALLOW_VIDEOS` | `false` | Permitir tambien videos |
-| `PHOTO_ONLY_ALLOW_LINKS` | `false` | Permitir enlaces a imagenes sin adjunto |
-| `PHOTO_ONLY_BYPASS_ROLE_IDS` | vacio | Roles que si pueden escribir (moderadores) |
-| `PHOTO_ONLY_LOG_CHANNEL_ID` | vacio | Canal donde registrar lo borrado |
+| `PHOTO_ONLY_ALLOW_CAPTIONS` | `false` | When `false`, not even text next to the photo is allowed |
+| `PHOTO_ONLY_ALLOW_VIDEOS` | `false` | Also allow videos |
+| `PHOTO_ONLY_ALLOW_LINKS` | `false` | Allow image links with no attachment |
+| `PHOTO_ONLY_BYPASS_ROLE_IDS` | empty | Roles that may post text (moderators) |
+| `PHOTO_ONLY_LOG_CHANNEL_ID` | empty | Channel to log what was deleted |
 
-Tambien vigila las **ediciones**: si alguien sube una foto valida y luego le agrega
-texto, el mensaje se borra igual.
+It also watches **edits**: if someone posts a valid photo and then edits text into it,
+the message is deleted all the same.
 
-## Estructura
+## Layout
 
 ```
 src/
-  config.js              lectura y validacion del .env
-  index.js               arranca los dos bots
-  deployCommands.js      registra los comandos slash sin arrancar el bot
-  bots/vipBot.js         cliente del bot VIP
-  bots/photoBot.js       cliente del bot de solo-fotos
-  lib/codes.js           generacion y deteccion de los codigos aleatorios
-  lib/tiers.js           precios y regla acumulativa de niveles
-  lib/store.js           persistencia JSON (data/store.json)
-  payments/parseZelle.js lectura del correo del banco
-  payments/zelleWatcher.js  revision periodica del buzon por IMAP
-  vip/orders.js          ciclo de vida de las ordenes
-  vip/roles.js           asignacion de roles
-  vip/paymentFlow.js     pago -> orden -> roles -> avisos
-  vip/commands.js        comandos slash
-  photo/photoOnly.js     regla de que se permite en el canal de fotos
-test/                    pruebas (node --test)
+  config.js              reads and validates .env
+  index.js               starts both bots
+  deployCommands.js      registers the slash commands without starting the bot
+  bots/vipBot.js         VIP bot client
+  bots/photoBot.js       photos-only bot client
+  lib/codes.js           random code generation and detection
+  lib/tiers.js           prices and the stacking tier rule
+  lib/store.js           JSON persistence (data/store.json)
+  payments/parseZelle.js reading the bank's email
+  payments/zelleWatcher.js  periodic IMAP mailbox polling
+  vip/orders.js          order lifecycle
+  vip/roles.js           role assignment
+  vip/paymentFlow.js     payment -> order -> roles -> notifications
+  vip/commands.js        slash commands
+  photo/photoOnly.js     the rule for what a photos channel accepts
+test/                    tests (node --test)
 ```
 
-Los datos viven en `data/store.json` (ordenes, pagos y correos ya procesados).
-Ese archivo esta en `.gitignore`: **haz respaldo** si te importa el historial.
+Data lives in `data/store.json` (orders, payments and already-processed emails).
+That file is in `.gitignore`: **back it up** if the history matters to you.
 
-## Pruebas
+## Tests
 
 ```bash
 npm test
 ```
 
-Cubren la generacion y deteccion de codigos, la regla acumulativa de niveles, el
-analisis de los correos de Zelle (incluidos los intentos de suplantacion y los pagos
-enviados), el ciclo de vida de las ordenes y el flujo completo de pago con un cliente
-de Discord simulado.
+They cover code generation and detection, the stacking tier rule, Zelle email parsing
+(including spoofing attempts and outgoing-payment alerts), the order lifecycle, and the
+full payment flow against a stubbed Discord client.

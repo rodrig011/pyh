@@ -18,72 +18,72 @@ export function buildCommands(config) {
 
   const vip = new SlashCommandBuilder()
     .setName('vip')
-    .setDescription('Compra y consulta tu membresia VIP')
+    .setDescription('Buy and check your VIP membership')
     .setDMPermission(false)
     .addSubcommand((sub) =>
       sub
-        .setName('comprar')
-        .setDescription('Genera tu codigo de pago para Zelle')
+        .setName('buy')
+        .setDescription('Get your Zelle payment code')
         .addIntegerOption((option) =>
           option
             .setName('tier')
-            .setDescription('Nivel VIP que quieres comprar')
+            .setDescription('VIP tier you want to buy')
             .setRequired(true)
             .addChoices(...tierChoices),
         ),
     )
-    .addSubcommand((sub) => sub.setName('estado').setDescription('Consulta tus ordenes'))
-    .addSubcommand((sub) => sub.setName('precios').setDescription('Muestra los niveles y sus precios'))
+    .addSubcommand((sub) => sub.setName('status').setDescription('Check your orders'))
+    .addSubcommand((sub) => sub.setName('prices').setDescription('Show every tier and its price'))
     .addSubcommand((sub) =>
       sub
-        .setName('cancelar')
-        .setDescription('Cancela una orden pendiente')
+        .setName('cancel')
+        .setDescription('Cancel a pending order')
         .addStringOption((option) =>
-          option.setName('codigo').setDescription('Codigo a cancelar (si tienes varios)').setRequired(false),
+          option.setName('code').setDescription('Code to cancel (if you have several)').setRequired(false),
         ),
     );
 
   const admin = new SlashCommandBuilder()
     .setName('vip-admin')
-    .setDescription('Administracion de pagos VIP')
+    .setDescription('VIP payment administration')
     .setDMPermission(false)
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
     .addSubcommand((sub) =>
       sub
-        .setName('confirmar')
-        .setDescription('Confirma un pago a mano y entrega los roles')
+        .setName('confirm')
+        .setDescription('Confirm a payment by hand and hand out the roles')
         .addStringOption((option) =>
-          option.setName('codigo').setDescription('Codigo de la orden').setRequired(true),
+          option.setName('code').setDescription('Order code').setRequired(true),
         )
         .addNumberOption((option) =>
           option
-            .setName('monto')
-            .setDescription('Monto recibido en dolares (por defecto, el precio del tier)')
+            .setName('amount')
+            .setDescription('Amount received in dollars (defaults to the tier price)')
             .setRequired(false),
         )
         .addStringOption((option) =>
-          option.setName('nota').setDescription('Referencia o nombre de quien pago').setRequired(false),
+          option.setName('note').setDescription('Reference or name of who paid').setRequired(false),
         ),
     )
     .addSubcommand((sub) =>
       sub
-        .setName('buscar')
-        .setDescription('Consulta una orden por codigo')
+        .setName('lookup')
+        .setDescription('Look up an order by code')
         .addStringOption((option) =>
-          option.setName('codigo').setDescription('Codigo de la orden').setRequired(true),
+          option.setName('code').setDescription('Order code').setRequired(true),
         ),
     )
-    .addSubcommand((sub) => sub.setName('pendientes').setDescription('Lista las ordenes pendientes'))
+    .addSubcommand((sub) => sub.setName('pending').setDescription('List the orders awaiting payment'))
     .addSubcommand((sub) =>
       sub
-        .setName('cancelar')
-        .setDescription('Cancela la orden de cualquier usuario')
+        .setName('cancel')
+        .setDescription("Cancel any user's order")
         .addStringOption((option) =>
-          option.setName('codigo').setDescription('Codigo de la orden').setRequired(true),
+          option.setName('code').setDescription('Order code').setRequired(true),
         ),
     )
     .addSubcommand((sub) =>
-      sub.setName('sincronizar').setDescription('Revisa el correo de Zelle ahora mismo'),
+      sub.setName('sync').setDescription('Check the Zelle mailbox right now'),
     );
 
   return [vip.toJSON(), admin.toJSON()];
@@ -97,27 +97,27 @@ function isAdmin(interaction, config) {
 
 function statusLabel(status) {
   return {
-    [ORDER_STATUS.PENDING]: '⏳ pendiente',
-    [ORDER_STATUS.PAID]: '✅ pagada',
-    [ORDER_STATUS.CANCELLED]: '🚫 cancelada',
-    [ORDER_STATUS.EXPIRED]: '⌛ vencida',
+    [ORDER_STATUS.PENDING]: '⏳ pending',
+    [ORDER_STATUS.PAID]: '✅ paid',
+    [ORDER_STATUS.CANCELLED]: '🚫 cancelled',
+    [ORDER_STATUS.EXPIRED]: '⌛ expired',
   }[status] ?? status;
 }
 
 function pricesEmbed(config) {
   return new EmbedBuilder()
     .setColor(0x9b59b6)
-    .setTitle('Niveles VIP')
-    .setDescription('Cada nivel incluye todos los beneficios de los niveles inferiores.')
+    .setTitle('VIP tiers')
+    .setDescription('Every tier includes the perks of all the tiers below it.')
     .addFields(
       [1, 2, 3].map((tier) => ({
         name: `${TIER_NAMES[tier]} — ${formatMoney(config.tiers[tier].priceCents)}`,
-        value: `Otorga: ${includedTiers(tier).map((level) => TIER_NAMES[level]).join(', ')}`,
+        value: `Grants: ${includedTiers(tier).map((level) => TIER_NAMES[level]).join(', ')}`,
       })),
     );
 }
 
-async function handleComprar(interaction, { store, config }) {
+async function handleBuy(interaction, { store, config }) {
   const tier = interaction.options.getInteger('tier');
   expireStaleOrders(store);
 
@@ -140,28 +140,28 @@ async function handleComprar(interaction, { store, config }) {
     .setTitle(`${TIER_NAMES[tier]} — ${formatMoney(order.amountCents)}`)
     .setDescription(
       [
-        `**1.** Envia **${formatMoney(order.amountCents)}** por Zelle a:`,
+        `**1.** Send **${formatMoney(order.amountCents)}** via Zelle to:`,
         `> \`${config.zelleRecipient}\`${config.zelleRecipientName ? ` (${config.zelleRecipientName})` : ''}`,
         '',
-        '**2.** Escribe **exactamente** este codigo en la nota / memo del envio:',
+        '**2.** Put **exactly** this code in the memo / note of the payment:',
         `> # ${order.code}`,
         '',
-        '**3.** Listo. En cuanto llegue el pago el bot te entrega los roles automaticamente.',
+        '**3.** That is it. As soon as the payment lands the bot hands you the roles automatically.',
         '',
-        `Incluye: ${includedTiers(tier).map((level) => TIER_NAMES[level]).join(', ')}`,
-        `El codigo vence ${time(Math.floor(order.expiresAt / 1000), 'R')}.`,
+        `Includes: ${includedTiers(tier).map((level) => TIER_NAMES[level]).join(', ')}`,
+        `This code expires ${time(Math.floor(order.expiresAt / 1000), 'R')}.`,
       ].join('\n'),
     )
-    .setFooter({ text: 'Sin el codigo en la nota el pago no se puede identificar automaticamente.' });
+    .setFooter({ text: 'Without the code in the memo the payment cannot be matched automatically.' });
 
   await interaction.reply({
     embeds: [embed],
     flags: MessageFlags.Ephemeral,
-    content: existing ? 'Ya tenias una orden abierta para este nivel, reutilizo su codigo:' : undefined,
+    content: existing ? 'You already had an open order for this tier, so here is its code again:' : undefined,
   });
 }
 
-async function handleEstado(interaction, { store }) {
+async function handleStatus(interaction, { store }) {
   expireStaleOrders(store);
   const orders = store
     .listOrders((order) => order.userId === interaction.user.id)
@@ -170,7 +170,7 @@ async function handleEstado(interaction, { store }) {
 
   if (orders.length === 0) {
     await interaction.reply({
-      content: 'No tienes ninguna orden. Usa `/vip comprar` para empezar.',
+      content: 'You have no orders yet. Use `/vip buy` to get started.',
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -178,19 +178,19 @@ async function handleEstado(interaction, { store }) {
 
   const embed = new EmbedBuilder()
     .setColor(0x3498db)
-    .setTitle('Tus ordenes')
+    .setTitle('Your orders')
     .addFields(
       orders.map((order) => ({
         name: `${order.code} — ${TIER_NAMES[order.tier]}`,
-        value: `${statusLabel(order.status)} · ${formatMoney(order.amountCents)} · creada ${time(Math.floor(order.createdAt / 1000), 'R')}`,
+        value: `${statusLabel(order.status)} · ${formatMoney(order.amountCents)} · created ${time(Math.floor(order.createdAt / 1000), 'R')}`,
       })),
     );
 
   await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
 }
 
-async function handleCancelar(interaction, { store, config }) {
-  const raw = interaction.options.getString('codigo');
+async function handleCancel(interaction, { store, config }) {
+  const raw = interaction.options.getString('code');
   const pending = store.pendingOrdersFor(interaction.user.id);
 
   let order;
@@ -205,8 +205,8 @@ async function handleCancelar(interaction, { store, config }) {
     await interaction.reply({
       content:
         pending.length > 1
-          ? `Tienes varias ordenes pendientes, indica cual: ${pending.map((item) => `\`${item.code}\``).join(', ')}`
-          : 'No encontre ninguna orden pendiente tuya con ese codigo.',
+          ? `You have several pending orders, tell me which one: ${pending.map((item) => `\`${item.code}\``).join(', ')}`
+          : 'I could not find a pending order of yours with that code.',
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -214,32 +214,32 @@ async function handleCancelar(interaction, { store, config }) {
 
   order.status = ORDER_STATUS.CANCELLED;
   store.putOrder(order);
-  await interaction.reply({ content: `Orden \`${order.code}\` cancelada.`, flags: MessageFlags.Ephemeral });
+  await interaction.reply({ content: `Order \`${order.code}\` cancelled.`, flags: MessageFlags.Ephemeral });
 }
 
-async function handleAdminConfirmar(interaction, { store, config, client }) {
-  const code = normalizeCode(interaction.options.getString('codigo'), {
+async function handleAdminConfirm(interaction, { store, config, client }) {
+  const code = normalizeCode(interaction.options.getString('code'), {
     prefix: config.codePrefix,
     length: config.codeLength,
   });
   if (!code) {
-    await interaction.editReply('Ese codigo no tiene un formato valido.');
+    await interaction.editReply('That code is not in a valid format.');
     return;
   }
 
   const order = store.getOrder(code);
   if (!order) {
-    await interaction.editReply(`No existe ninguna orden con el codigo \`${code}\`.`);
+    await interaction.editReply(`There is no order with code \`${code}\`.`);
     return;
   }
 
-  const montoOption = interaction.options.getNumber('monto');
-  const amountCents = montoOption === null ? order.amountCents : Math.round(montoOption * 100);
+  const amountOption = interaction.options.getNumber('amount');
+  const amountCents = amountOption === null ? order.amountCents : Math.round(amountOption * 100);
 
   const result = await processPayment(client, store, config, {
     codes: [code],
     amountCents,
-    senderName: interaction.options.getString('nota') ?? `Confirmado por ${interaction.user.tag}`,
+    senderName: interaction.options.getString('note') ?? `Confirmed by ${interaction.user.tag}`,
     source: 'manual',
     reference: `manual:${interaction.user.id}`,
     receivedAt: Date.now(),
@@ -247,44 +247,44 @@ async function handleAdminConfirmar(interaction, { store, config, client }) {
 
   if (result.status === 'granted') {
     await interaction.editReply(
-      `Listo: <@${order.userId}> recibio **${TIER_NAMES[result.tier]}** (roles: ${includedTiers(result.tier).map((level) => TIER_NAMES[level]).join(', ')}).`,
+      `Done: <@${order.userId}> received **${TIER_NAMES[result.tier]}** (roles: ${includedTiers(result.tier).map((level) => TIER_NAMES[level]).join(', ')}).`,
     );
   } else {
-    await interaction.editReply(`No se pudo aplicar: ${result.reason ?? result.status}`);
+    await interaction.editReply(`Could not apply it: ${result.reason ?? result.status}`);
   }
 }
 
-async function handleAdminBuscar(interaction, { store, config }) {
-  const code = normalizeCode(interaction.options.getString('codigo'), {
+async function handleAdminLookup(interaction, { store, config }) {
+  const code = normalizeCode(interaction.options.getString('code'), {
     prefix: config.codePrefix,
     length: config.codeLength,
   });
   const order = code ? store.getOrder(code) : null;
   if (!order) {
-    await interaction.editReply('No encontre esa orden.');
+    await interaction.editReply('I could not find that order.');
     return;
   }
 
   const embed = new EmbedBuilder()
     .setColor(0x3498db)
-    .setTitle(`Orden ${order.code}`)
+    .setTitle(`Order ${order.code}`)
     .addFields(
-      { name: 'Usuario', value: `<@${order.userId}>`, inline: true },
-      { name: 'Nivel', value: TIER_NAMES[order.tier], inline: true },
-      { name: 'Estado', value: statusLabel(order.status), inline: true },
-      { name: 'Precio', value: formatMoney(order.amountCents), inline: true },
-      { name: 'Creada', value: time(Math.floor(order.createdAt / 1000), 'f'), inline: true },
-      { name: 'Vence', value: time(Math.floor(order.expiresAt / 1000), 'f'), inline: true },
+      { name: 'User', value: `<@${order.userId}>`, inline: true },
+      { name: 'Tier', value: TIER_NAMES[order.tier], inline: true },
+      { name: 'Status', value: statusLabel(order.status), inline: true },
+      { name: 'Price', value: formatMoney(order.amountCents), inline: true },
+      { name: 'Created', value: time(Math.floor(order.createdAt / 1000), 'f'), inline: true },
+      { name: 'Expires', value: time(Math.floor(order.expiresAt / 1000), 'f'), inline: true },
     );
 
   if (order.payment) {
     embed.addFields({
-      name: 'Pago',
+      name: 'Payment',
       value: [
-        `Origen: ${order.payment.source}`,
-        `Monto: ${order.payment.amountCents ? formatMoney(order.payment.amountCents) : 'n/d'}`,
-        `Remitente: ${order.payment.senderName ?? 'n/d'}`,
-        `Referencia: ${order.payment.reference ?? 'n/d'}`,
+        `Source: ${order.payment.source}`,
+        `Amount: ${order.payment.amountCents ? formatMoney(order.payment.amountCents) : 'n/a'}`,
+        `Sender: ${order.payment.senderName ?? 'n/a'}`,
+        `Reference: ${order.payment.reference ?? 'n/a'}`,
       ].join('\n'),
     });
   }
@@ -292,7 +292,7 @@ async function handleAdminBuscar(interaction, { store, config }) {
   await interaction.editReply({ embeds: [embed] });
 }
 
-async function handleAdminPendientes(interaction, { store }) {
+async function handleAdminPending(interaction, { store }) {
   expireStaleOrders(store);
   const pending = store
     .listOrders((order) => order.status === ORDER_STATUS.PENDING)
@@ -300,7 +300,7 @@ async function handleAdminPendientes(interaction, { store }) {
     .slice(0, 20);
 
   if (pending.length === 0) {
-    await interaction.editReply('No hay ordenes pendientes.');
+    await interaction.editReply('There are no pending orders.');
     return;
   }
 
@@ -308,12 +308,12 @@ async function handleAdminPendientes(interaction, { store }) {
     embeds: [
       new EmbedBuilder()
         .setColor(0xf1c40f)
-        .setTitle(`Ordenes pendientes (${pending.length})`)
+        .setTitle(`Pending orders (${pending.length})`)
         .setDescription(
           pending
             .map(
               (order) =>
-                `\`${order.code}\` · <@${order.userId}> · ${TIER_NAMES[order.tier]} · ${formatMoney(order.amountCents)} · vence ${time(Math.floor(order.expiresAt / 1000), 'R')}`,
+                `\`${order.code}\` · <@${order.userId}> · ${TIER_NAMES[order.tier]} · ${formatMoney(order.amountCents)} · expires ${time(Math.floor(order.expiresAt / 1000), 'R')}`,
             )
             .join('\n'),
         ),
@@ -321,46 +321,46 @@ async function handleAdminPendientes(interaction, { store }) {
   });
 }
 
-async function handleAdminCancelar(interaction, { store, config }) {
-  const code = normalizeCode(interaction.options.getString('codigo'), {
+async function handleAdminCancel(interaction, { store, config }) {
+  const code = normalizeCode(interaction.options.getString('code'), {
     prefix: config.codePrefix,
     length: config.codeLength,
   });
   const order = code ? store.getOrder(code) : null;
   if (!order) {
-    await interaction.editReply('No encontre esa orden.');
+    await interaction.editReply('I could not find that order.');
     return;
   }
   order.status = ORDER_STATUS.CANCELLED;
   store.putOrder(order);
-  await interaction.editReply(`Orden \`${order.code}\` de <@${order.userId}> cancelada.`);
+  await interaction.editReply(`Order \`${order.code}\` from <@${order.userId}> cancelled.`);
 }
 
-async function handleAdminSincronizar(interaction, { watcher }) {
+async function handleAdminSync(interaction, { watcher }) {
   if (!watcher) {
-    await interaction.editReply('El vigilante de correo no esta activo (revisa la configuracion IMAP).');
+    await interaction.editReply('The mailbox watcher is not running (check your IMAP settings).');
     return;
   }
   try {
     const result = await watcher.poll();
     await interaction.editReply(
-      `Revision terminada: ${result.checked} correo(s) nuevo(s), ${result.payments} pago(s) detectado(s).`,
+      `Check finished: ${result.checked} new email(s), ${result.payments} payment(s) detected.`,
     );
   } catch (error) {
-    await interaction.editReply(`Fallo la revision del correo: ${error.message}`);
+    await interaction.editReply(`The mailbox check failed: ${error.message}`);
   }
 }
 
-/** Enruta cualquier interaccion de comando del bot VIP. */
+/** Routes every command interaction of the VIP bot. */
 export async function handleInteraction(interaction, context) {
   if (!interaction.isChatInputCommand()) return;
   const sub = interaction.options.getSubcommand();
 
   if (interaction.commandName === 'vip') {
-    if (sub === 'comprar') return handleComprar(interaction, context);
-    if (sub === 'estado') return handleEstado(interaction, context);
-    if (sub === 'cancelar') return handleCancelar(interaction, context);
-    if (sub === 'precios') {
+    if (sub === 'buy') return handleBuy(interaction, context);
+    if (sub === 'status') return handleStatus(interaction, context);
+    if (sub === 'cancel') return handleCancel(interaction, context);
+    if (sub === 'prices') {
       return interaction.reply({ embeds: [pricesEmbed(context.config)], flags: MessageFlags.Ephemeral });
     }
     return undefined;
@@ -369,16 +369,16 @@ export async function handleInteraction(interaction, context) {
   if (interaction.commandName === 'vip-admin') {
     if (!isAdmin(interaction, context.config)) {
       return interaction.reply({
-        content: 'No tienes permiso para usar este comando.',
+        content: 'You do not have permission to use this command.',
         flags: MessageFlags.Ephemeral,
       });
     }
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    if (sub === 'confirmar') return handleAdminConfirmar(interaction, context);
-    if (sub === 'buscar') return handleAdminBuscar(interaction, context);
-    if (sub === 'pendientes') return handleAdminPendientes(interaction, context);
-    if (sub === 'cancelar') return handleAdminCancelar(interaction, context);
-    if (sub === 'sincronizar') return handleAdminSincronizar(interaction, context);
+    if (sub === 'confirm') return handleAdminConfirm(interaction, context);
+    if (sub === 'lookup') return handleAdminLookup(interaction, context);
+    if (sub === 'pending') return handleAdminPending(interaction, context);
+    if (sub === 'cancel') return handleAdminCancel(interaction, context);
+    if (sub === 'sync') return handleAdminSync(interaction, context);
     return undefined;
   }
 

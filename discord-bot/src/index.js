@@ -6,8 +6,8 @@ import { createVipBot } from './bots/vipBot.js';
 
 const log = createLogger('main');
 
-// Arranca los dos bots en un solo proceso. Son aplicaciones de Discord distintas,
-// asi que cada una usa su propio token; si solo defines uno, solo arranca ese.
+// Starts both bots in a single process. They are separate Discord applications,
+// so each one uses its own token; if only one token is set, only that one starts.
 const started = [];
 
 if (process.env.VIP_BOT_TOKEN) {
@@ -16,20 +16,20 @@ if (process.env.VIP_BOT_TOKEN) {
   started.push({ name: 'vip', client, stop: () => watcher.stop() });
   await client.login(config.token);
 } else {
-  log.warn('VIP_BOT_TOKEN no definido: el bot VIP no arranca');
+  log.warn('VIP_BOT_TOKEN is not set: the VIP bot will not start');
 }
 
 if (process.env.PHOTO_BOT_TOKEN) {
   const config = loadPhotoConfig();
   const client = createPhotoBot(config);
-  started.push({ name: 'fotos', client, stop: () => {} });
+  started.push({ name: 'photos', client, stop: () => {} });
   await client.login(config.token);
 } else {
-  log.warn('PHOTO_BOT_TOKEN no definido: el bot de solo-fotos no arranca');
+  log.warn('PHOTO_BOT_TOKEN is not set: the photos-only bot will not start');
 }
 
 if (started.length === 0) {
-  log.error('No hay ningun token configurado. Copia .env.example a .env y rellenalo.');
+  log.error('No token configured. Copy .env.example to .env and fill it in.');
   process.exit(1);
 }
 

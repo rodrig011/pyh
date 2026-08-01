@@ -4,8 +4,8 @@ import { dirname, resolve } from 'node:path';
 const EMPTY = { version: 1, orders: {}, processedEmails: [], payments: [] };
 
 /**
- * Almacen JSON con escritura atomica. Suficiente para un bot de un solo proceso;
- * si algun dia necesitas mas, este modulo es lo unico que hay que reemplazar.
+ * JSON store with atomic writes. Plenty for a single-process bot; if you ever
+ * outgrow it, this module is the only thing that needs replacing.
  */
 export function createStore(filePath) {
   const path = resolve(filePath);
@@ -15,7 +15,7 @@ export function createStore(filePath) {
     try {
       data = { ...structuredClone(EMPTY), ...JSON.parse(readFileSync(path, 'utf8')) };
     } catch (error) {
-      throw new Error(`No se pudo leer el almacen ${path}: ${error.message}`);
+      throw new Error(`Could not read the store at ${path}: ${error.message}`);
     }
   }
 
@@ -47,7 +47,7 @@ export function createStore(filePath) {
       return Object.values(data.orders).filter(filter);
     },
 
-    /** Ordenes pendientes de un usuario (las mas nuevas primero). */
+    /** A user's pending orders, newest first. */
     pendingOrdersFor(userId) {
       return Object.values(data.orders)
         .filter((order) => order.userId === userId && order.status === 'pending')

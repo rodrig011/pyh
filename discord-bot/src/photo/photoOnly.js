@@ -19,8 +19,8 @@ export function isVideoAttachment(attachment = {}) {
 }
 
 /**
- * Decide si un mensaje puede quedarse en un canal de solo-fotos.
- * Es una funcion pura para poder probarla sin Discord.
+ * Decides whether a message may stay in a photos-only channel.
+ * Pure function, so it can be tested without Discord.
  *
  * @param {object} message
  * @param {boolean} [message.authorIsBot]
@@ -30,9 +30,9 @@ export function isVideoAttachment(attachment = {}) {
  * @param {string[]} [message.memberRoleIds]
  * @param {boolean} [message.isSystem]
  * @param {object} options
- * @param {boolean} [options.allowCaptions=false] permitir texto junto a la foto
+ * @param {boolean} [options.allowCaptions=false] allow text alongside the photo
  * @param {boolean} [options.allowVideos=false]
- * @param {boolean} [options.allowLinks=false] permitir enlaces a imagenes sin adjunto
+ * @param {boolean} [options.allowLinks=false] allow image links without an attachment
  * @param {boolean} [options.ignoreBots=true]
  * @param {string[]} [options.bypassRoleIds=[]]
  * @returns {{allowed: boolean, reason: string}}
@@ -46,12 +46,12 @@ export function evaluateMessage(message = {}, options = {}) {
     bypassRoleIds = [],
   } = options;
 
-  if (message.isSystem) return { allowed: true, reason: 'mensaje del sistema' };
-  if (ignoreBots && message.authorIsBot) return { allowed: true, reason: 'mensaje de bot' };
+  if (message.isSystem) return { allowed: true, reason: 'system message' };
+  if (ignoreBots && message.authorIsBot) return { allowed: true, reason: 'bot message' };
 
   const roles = message.memberRoleIds ?? [];
   if (bypassRoleIds.length > 0 && roles.some((roleId) => bypassRoleIds.includes(roleId))) {
-    return { allowed: true, reason: 'rol exento' };
+    return { allowed: true, reason: 'bypass role' };
   }
 
   const attachments = message.attachments ?? [];
@@ -70,21 +70,22 @@ export function evaluateMessage(message = {}, options = {}) {
 
   if (!hasMedia) {
     if (attachments.length > 0) {
-      return { allowed: false, reason: 'adjunto_no_es_imagen' };
+      return { allowed: false, reason: 'attachment_not_an_image' };
     }
-    return { allowed: false, reason: 'sin_imagen' };
+    return { allowed: false, reason: 'no_image' };
   }
 
   if (!allowCaptions && content !== '') {
-    return { allowed: false, reason: 'texto_no_permitido' };
+    return { allowed: false, reason: 'text_not_allowed' };
   }
 
   return { allowed: true, reason: 'ok' };
 }
 
 export const REASON_MESSAGES = {
-  sin_imagen: 'En este canal solo se pueden publicar **fotos**. Tu mensaje fue borrado porque no traia ninguna imagen.',
-  adjunto_no_es_imagen: 'En este canal solo se aceptan **imagenes**. El archivo que subiste no es una foto, asi que se borro.',
-  texto_no_permitido:
-    'En este canal solo se aceptan **fotos sin texto**. Vuelve a subir la imagen, pero sin escribir nada en el mensaje.',
+  no_image: 'This channel is for **photos only**. Your message was removed because it had no image.',
+  attachment_not_an_image:
+    'This channel only accepts **images**. The file you uploaded is not a photo, so it was removed.',
+  text_not_allowed:
+    'This channel only accepts **photos with no text**. Post the image again, but without writing anything in the message.',
 };
