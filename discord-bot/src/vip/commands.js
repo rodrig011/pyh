@@ -213,26 +213,73 @@ function pricesEmbed(config, cardEnabled) {
     )
     .setFooter({
       text: cardEnabled
-        ? 'Pay by card or Zelle · renew before it runs out and your days stack — you never lose time.'
-        : '💳 Card payments coming soon · for now it is Zelle · your days stack when you renew early',
+        ? 'Card or Zelle · renew before it runs out and your days stack — you never lose time'
+        : '💳 Card and 💸 Venmo coming soon · for now it is Zelle · your days stack when you renew early',
     });
 }
 
 /**
- * The card block of the purchase message. Until Stripe is configured there is
- * no button, so it must not tell anyone to press one — it teases the method
- * instead and points at Zelle.
+ * The card block, shown only once Stripe can actually take a payment. While it
+ * is off the method is advertised by comingSoonSection instead — a block that
+ * told people to press a button that is not rendered would just confuse them.
  */
 export function cardSection(cardEnabled, config, amountCents) {
-  if (!cardEnabled) {
-    return [
-      '**💳 Card — coming soon**',
-      'Card payments are on the way. For now use Zelle below.',
-    ];
-  }
+  if (!cardEnabled) return [];
   return [
     '**💳 Card — pays itself**',
     `Use the button below. **${formatMoney(amountCents)} every ${config.subscriptionDays} days**, charged automatically until you cancel, so you never lose access by forgetting.`,
+    '',
+  ];
+}
+
+/**
+ * Teases the payment methods that are not live yet, so members know they are
+ * coming instead of wondering why everyone else mentions them. Each line
+ * disappears by itself the moment that method is configured.
+ */
+export function comingSoonSection(config, cardEnabled) {
+  const soon = [];
+  if (!cardEnabled) soon.push('💳 **Card** — charged automatically, nothing to remember');
+  if (!config.venmoRecipient) soon.push('💸 **Venmo**');
+  if (soon.length === 0) return [];
+  return ['', '**⏭️ Coming soon**', ...soon.map((line) => `> ${line}`)];
+}
+
+/**
+ * The manual payment methods on offer. Zelle and Venmo behave identically —
+ * one payment, identified by the code in the note — so they share one block of
+ * instructions. A method with no handle configured is simply not shown.
+ */
+export function manualMethods(config) {
+  const methods = [];
+  if (config.zelleRecipient && !config.zelleRecipient.startsWith('(set ')) {
+    methods.push({ emoji: '🏦', label: 'Zelle', handle: config.zelleRecipient, name: config.zelleRecipientName });
+  }
+  if (config.venmoRecipient) {
+    methods.push({ emoji: '💸', label: 'Venmo', handle: config.venmoRecipient, name: config.venmoRecipientName });
+  }
+  return methods;
+}
+
+/** The instruction block shared by every manual method. */
+export function manualSection(config, order) {
+  const methods = manualMethods(config);
+  if (methods.length === 0) return [];
+
+  const heading =
+    methods.length === 1
+      ? `**${methods[0].emoji} ${methods[0].label} — one payment**`
+      : `**${methods.map((method) => `${method.emoji} ${method.label}`).join(' or ')} — one payment**`;
+
+  return [
+    heading,
+    `**1.** Send **${formatMoney(order.amountCents)}** to:`,
+    ...methods.map(
+      (method) => `> ${method.emoji} **${method.label}:** \`${method.handle}\`${method.name ? ` (${method.name})` : ''}`,
+    ),
+    '**2.** Put **exactly** this code in the memo / note:',
+    `> # ${order.code}`,
+    `**3.** Done — the roles land by themselves. Covers **${config.subscriptionDays} days**, then you renew by hand.`,
   ];
 }
 
@@ -296,18 +343,16 @@ async function handleBuy(interaction, { store, config, stripe }) {
         tierPerks(tier, config.tiers),
         '',
         ...cardSection(Boolean(stripe), config, order.amountCents),
-        '',
-        '**🏦 Zelle — one payment**',
-        `**1.** Send **${formatMoney(order.amountCents)}** to \`${config.zelleRecipient}\`${config.zelleRecipientName ? ` (${config.zelleRecipientName})` : ''}`,
-        '**2.** Put **exactly** this code in the memo / note:',
-        `> # ${order.code}`,
-        `**3.** Done — the roles land by themselves. Covers **${config.subscriptionDays} days**, then you renew by hand.`,
+        ...manualSection(config, order),
+        ...comingSoonSection(config, Boolean(stripe)),
         '',
         `Includes: ${includedTiers(tier).map((level) => TIER_NAMES[level]).join(', ')}`,
         `This code expires ${time(Math.floor(order.expiresAt / 1000), 'R')}.`,
       ].join('\n'),
     )
-    .setFooter({ text: 'Paying by Zelle without the code in the memo means it cannot be matched automatically.' });
+    .setFooter({
+      text: 'Without the code in the memo the payment cannot be matched automatically.',
+    });
 
   const cardRow = await cardCheckoutRow(stripe, config, order);
 

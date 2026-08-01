@@ -27,17 +27,26 @@ A tier with no `ROLE_TIER_n` configured is treated as **coming soon**: it never 
 up in `/vip buy` and is listed as locked in `/vip prices`, so nobody can pay for a role
 the bot cannot hand out. Add the role ID later and it goes on sale by itself.
 
-## Two ways to pay
+## Ways to pay
 
 `/vip buy` offers both in the same private reply:
 
-| | **💳 Card (Stripe)** | **🏦 Zelle** |
+| | **💳 Card (Stripe)** | **🏦 Zelle / 💸 Venmo** |
 |---|---|---|
 | How it renews | Charges the card automatically every period until cancelled | One payment, renewed by hand |
 | Reminders | None needed — it pays itself | DM 3 days and 1 day before it ends |
 | If it lapses | Stripe reports the cancellation, the bot removes the roles | The roles come off when the time runs out |
 | Fees | ~2.9% + $0.30 per charge | none |
-| Setup | Stripe key + webhook (see [DEPLOY.md](DEPLOY.md)) | just an email or phone |
+| Setup | Stripe key + webhook (see [DEPLOY.md](DEPLOY.md)) | just an email, phone or handle |
+
+Zelle and Venmo are detected identically: neither has a public API for personal
+accounts, so the bot reads the notification email and matches the code in the note.
+Venmo only needs `VENMO_RECIPIENT`; its sender allowlist already defaults to
+`venmo@venmo.com`.
+
+**Anything not configured shows up as "coming soon"** in `/vip buy` and `/vip prices`
+rather than being silently missing, and the tease disappears on its own the moment that
+method is set up.
 
 The card plan is built from `TIER_n_PRICE` and `SUBSCRIPTION_DAYS` at checkout time, so
 nothing has to be created in the Stripe dashboard and the two payment methods can never

@@ -88,6 +88,10 @@ export function loadVipConfig() {
     sweepIntervalMinutes: int('SWEEP_INTERVAL_MINUTES', 15),
     zelleRecipient: str('ZELLE_RECIPIENT', '(set ZELLE_RECIPIENT)'),
     zelleRecipientName: str('ZELLE_RECIPIENT_NAME'),
+    // Venmo works exactly like Zelle: a one-off payment identified by the code
+    // in the note. Leave the handle empty and it is simply not offered.
+    venmoRecipient: str('VENMO_RECIPIENT'),
+    venmoRecipientName: str('VENMO_RECIPIENT_NAME'),
     orderTtlHours: int('ORDER_TTL_HOURS', 48),
     // How much the payment may fall short (in cents) and still count. 0 = exact amount.
     amountToleranceCents: money('AMOUNT_TOLERANCE', 0),
@@ -156,6 +160,12 @@ export function loadVipConfig() {
       markSeen: bool('IMAP_MARK_SEEN', true),
       // Only emails coming from these senders are trusted.
       allowedSenders: list('IMAP_ALLOWED_SENDERS'),
+      // Which notification emails to read, and whose senders to trust for each.
+      // Zelle has no safe default (every bank differs), Venmo does.
+      providers: [
+        { provider: 'zelle', allowedSenders: list('ZELLE_ALLOWED_SENDERS', list('IMAP_ALLOWED_SENDERS')) },
+        { provider: 'venmo', allowedSenders: list('VENMO_ALLOWED_SENDERS') },
+      ].filter((entry) => list('PAYMENT_PROVIDERS', ['zelle', 'venmo']).includes(entry.provider)),
     },
   };
 }

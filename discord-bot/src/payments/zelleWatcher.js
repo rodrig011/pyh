@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import { createLogger } from '../lib/logger.js';
-import { parseZelleEmail } from './parseZelle.js';
+import { parsePaymentEmail } from './parseZelle.js';
 
 const log = createLogger('zelle');
 
@@ -95,8 +95,8 @@ export class ZelleWatcher extends EventEmitter {
             date: parsedMail.date ?? new Date(),
           };
 
-          const parsed = parseZelleEmail(email, {
-            allowedSenders: this.imap.allowedSenders,
+          const parsed = parsePaymentEmail(email, {
+            providers: this.imap.providers,
             codePrefix: this.codePrefix,
             codeLength: this.codeLength,
           });
@@ -108,7 +108,9 @@ export class ZelleWatcher extends EventEmitter {
 
           if (parsed.isPayment) {
             payments += 1;
-            log.info(`Payment detected: ${parsed.amountCents} cents, codes=${parsed.codes.join(',') || 'none'}`);
+            log.info(
+              `${parsed.provider} payment detected: ${parsed.amountCents} cents, codes=${parsed.codes.join(',') || 'none'}`,
+            );
             this.emit('payment', parsed, email);
           } else {
             log.debug(`Email skipped (${parsed.reason}): ${email.subject}`);

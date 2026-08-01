@@ -1,33 +1,67 @@
 import { extractCodes } from '../lib/codes.js';
 
-// Wording banks use to announce an INCOMING Zelle payment. Spanish phrasings are
-// kept as well, since some banks send their alerts in Spanish.
-const RECEIVED_PATTERNS = [
-  /you\s+received\s+\$?\s?([\d,]+(?:\.\d{2})?)/i,
-  /sent\s+you\s+\$?\s?([\d,]+(?:\.\d{2})?)/i,
-  /has\s+sent\s+you\s+\$?\s?([\d,]+(?:\.\d{2})?)/i,
-  /deposited\s+\$?\s?([\d,]+(?:\.\d{2})?)/i,
-  /te\s+(?:ha\s+)?envi[oó]\s+\$?\s?([\d,]+(?:\.\d{2})?)/i,
-  /(?:recibiste|has\s+recibido)\s+(?:un\s+pago\s+de\s+)?\$?\s?([\d,]+(?:\.\d{2})?)/i,
-];
+/**
+ * Neither Zelle nor Venmo offers a public API for personal accounts, so both are
+ * detected the same way: by reading the notification email and pulling out the
+ * amount and the code the buyer put in the memo.
+ *
+ * Every pattern uses named groups (`amount`, `name`) so one matcher serves the
+ * different word orders — "you received $50 from X" and "X paid you $50".
+ */
+export const PROVIDERS = {
+  zelle: {
+    name: 'zelle',
+    label: 'Zelle',
+    source: 'zelle-email',
+    keyword: /zelle/i,
+    // Spanish phrasings are kept: some banks send their alerts in Spanish.
+    received: [
+      /you\s+received\s+\$?\s?(?<amount>[\d,]+(?:\.\d{2})?)\s+from\s+(?<name>[^\n.,;<]{2,60})/i,
+      /(?<name>[A-Z][\w'.-]*(?:\s+[A-Z][\w'.-]*){0,3})\s+sent\s+you\s+\$?\s?(?<amount>[\d,]+(?:\.\d{2})?)/,
+      /you\s+received\s+\$?\s?(?<amount>[\d,]+(?:\.\d{2})?)/i,
+      /sent\s+you\s+\$?\s?(?<amount>[\d,]+(?:\.\d{2})?)/i,
+      /deposited\s+\$?\s?(?<amount>[\d,]+(?:\.\d{2})?)/i,
+      /(?<name>[^\n.,;<]{2,60})\s+te\s+(?:ha\s+)?envi[oó]\s+\$?\s?(?<amount>[\d,]+(?:\.\d{2})?)/i,
+      /te\s+(?:ha\s+)?envi[oó]\s+\$?\s?(?<amount>[\d,]+(?:\.\d{2})?)/i,
+      /(?:recibiste|has\s+recibido)\s+(?:un\s+pago\s+de\s+)?\$?\s?(?<amount>[\d,]+(?:\.\d{2})?)/i,
+    ],
+    outgoing: [/you\s+sent\s+\$?\s?[\d,]+/i, /your\s+payment\s+to\b/i, /enviaste\s+\$?\s?[\d,]+/i],
+    // Bank specific: there is no safe default, it must be configured.
+    defaultSenders: [],
+  },
 
-// If the email says YOU sent money, it is not an incoming payment: ignore it.
-const OUTGOING_PATTERNS = [
-  /you\s+sent\s+\$?\s?[\d,]+/i,
-  /your\s+payment\s+to\b/i,
-  /enviaste\s+\$?\s?[\d,]+/i,
-];
+  venmo: {
+    name: 'venmo',
+    label: 'Venmo',
+    source: 'venmo-email',
+    keyword: /venmo/i,
+    received: [
+      /(?<name>[\w .'-]{2,40})\s+paid\s+you\s+\$?\s?(?<amount>[\d,]+(?:\.\d{2})?)/i,
+      /you\s+received\s+\$?\s?(?<amount>[\d,]+(?:\.\d{2})?)\s+from\s+(?<name>[^\n.,;<]{2,60})/i,
+      /you\s+received\s+\$?\s?(?<amount>[\d,]+(?:\.\d{2})?)/i,
+    ],
+    // "You paid X" and payment requests must never be read as income.
+    outgoing: [
+      /you\s+paid\s+/i,
+      /you\s+completed\s+.*payment\s+to/i,
+      /requests?\s+\$?[\d,]+/i,
+      /is\s+requesting/i,
+    ],
+    defaultSenders: ['venmo@venmo.com', 'venmo.com'],
+  },
+};
 
-const NAME_PATTERNS = [
-  /([A-Z][\w'.-]*(?:\s+[A-Z][\w'.-]*){0,3})\s+sent\s+you/,
-  /you\s+received\s+\$?[\d,.]+\s+from\s+([^\n.,;<]{2,60})/i,
-  /from\s+([^\n.,;<]{2,60})\s+(?:with|via)\s+zelle/i,
-  /([^\n.,;<]{2,60})\s+te\s+(?:ha\s+)?envi[oó]/i,
-];
+const MEMO_PATTERNS = [/(?:memo|note|nota|concepto|mensaje)\s*[:\-]\s*([^\n<]{1,120})/i];
 
-const MEMO_PATTERNS = [
-  /(?:memo|note|nota|concepto|mensaje)\s*[:\-]\s*([^\n<]{1,120})/i,
-];
+/** "JUAN PEREZ with Zelle®" -> "JUAN PEREZ". */
+function cleanName(raw) {
+  if (!raw) return null;
+  const cleaned = raw
+    .replace(/\s+(with|via|using|through|mediante|por)\s+(zelle|venmo)[®™]?.*$/i, '')
+    .replace(/[®™]/g, '')
+    .trim();
+  return cleaned === '' ? null : cleaned;
+}
 
 /** Turns "1,234.50" into 123450 cents. */
 export function parseAmountToCents(raw) {
@@ -64,28 +98,24 @@ function firstMatch(patterns, text) {
 }
 
 /**
- * Parses a Zelle notification email.
+ * Reads a payment notification email from any supported provider.
  *
- * @param {object} email
- * @param {string} [email.from] sender address
- * @param {string} [email.subject]
- * @param {string} [email.text] plain text body
- * @param {string} [email.html] HTML body (used when there is no plain text)
- * @param {string} [email.messageId]
- * @param {Date|number} [email.date]
+ * @param {object} email  {from, subject, text, html, messageId, date}
  * @param {object} [options]
- * @param {string[]} [options.allowedSenders] trusted domains or addresses
+ * @param {Array<{provider: string, allowedSenders: string[]}>} [options.providers]
+ *        which providers to accept and whose senders to trust. Defaults to Zelle.
+ * @param {string[]} [options.allowedSenders] shorthand for a single-provider setup
  * @param {string} [options.codePrefix='VIP']
  * @param {number} [options.codeLength=6]
- * @param {boolean} [options.requireZelleKeyword=true]
- * @returns {{isPayment: boolean, reason?: string, amountCents: number|null, senderName: string|null, memo: string|null, codes: string[], reference: string|null, receivedAt: number, source: 'zelle-email'}}
+ * @param {boolean} [options.requireKeyword=true]
  */
-export function parseZelleEmail(email = {}, options = {}) {
+export function parsePaymentEmail(email = {}, options = {}) {
   const {
-    allowedSenders = [],
     codePrefix = 'VIP',
     codeLength = 6,
-    requireZelleKeyword = true,
+    requireKeyword = true,
+    allowedSenders,
+    providers = [{ provider: 'zelle', allowedSenders: allowedSenders ?? [] }],
   } = options;
 
   const from = (email.from ?? '').toLowerCase();
@@ -96,43 +126,68 @@ export function parseZelleEmail(email = {}, options = {}) {
 
   const base = {
     isPayment: false,
+    provider: null,
     amountCents: null,
     senderName: null,
     memo: null,
     codes: [],
     reference: email.messageId ?? null,
     receivedAt,
-    source: 'zelle-email',
+    source: null,
   };
 
-  if (allowedSenders.length > 0) {
-    const trusted = allowedSenders.some((allowed) => from.includes(allowed.toLowerCase()));
-    if (!trusted) return { ...base, reason: `Untrusted sender: ${email.from ?? '(empty)'}` };
+  const reasons = [];
+
+  for (const entry of providers) {
+    const rules = PROVIDERS[entry.provider];
+    if (!rules) {
+      reasons.push(`unknown provider ${entry.provider}`);
+      continue;
+    }
+
+    const trusted = entry.allowedSenders?.length ? entry.allowedSenders : rules.defaultSenders;
+    if (trusted.length > 0 && !trusted.some((allowed) => from.includes(allowed.toLowerCase()))) {
+      reasons.push(`${rules.label}: Untrusted sender ${email.from ?? '(empty)'}`);
+      continue;
+    }
+
+    if (requireKeyword && !rules.keyword.test(`${from}\n${haystack}`)) {
+      reasons.push(`The email does not mention ${rules.label}`);
+      continue;
+    }
+
+    const amountMatch = firstMatch(rules.received, haystack);
+    if (firstMatch(rules.outgoing, haystack) && !amountMatch) {
+      reasons.push(`${rules.label}: this is an outgoing payment, not an incoming one`);
+      continue;
+    }
+    if (!amountMatch) {
+      reasons.push(`${rules.label}: no payment-received wording found`);
+      continue;
+    }
+
+    const memoMatch = firstMatch(MEMO_PATTERNS, haystack);
+    return {
+      ...base,
+      isPayment: true,
+      provider: rules.name,
+      source: rules.source,
+      amountCents: parseAmountToCents(amountMatch.groups?.amount ?? ''),
+      senderName: cleanName(amountMatch.groups?.name),
+      memo: memoMatch ? memoMatch[1].trim() : null,
+      codes: extractCodes(haystack, { prefix: codePrefix, length: codeLength }),
+    };
   }
 
-  if (requireZelleKeyword && !/zelle/i.test(`${from}\n${haystack}`)) {
-    return { ...base, reason: 'The email does not mention Zelle' };
-  }
+  return { ...base, reason: reasons.join('; ') || 'no provider matched' };
+}
 
-  if (firstMatch(OUTGOING_PATTERNS, haystack) && !firstMatch(RECEIVED_PATTERNS, haystack)) {
-    return { ...base, reason: 'This is an outgoing payment, not an incoming one' };
-  }
-
-  const amountMatch = firstMatch(RECEIVED_PATTERNS, haystack);
-  if (!amountMatch) {
-    return { ...base, reason: 'No payment-received wording found' };
-  }
-
-  const codes = extractCodes(haystack, { prefix: codePrefix, length: codeLength });
-  const nameMatch = firstMatch(NAME_PATTERNS, haystack);
-  const memoMatch = firstMatch(MEMO_PATTERNS, haystack);
-
-  return {
-    ...base,
-    isPayment: true,
-    amountCents: parseAmountToCents(amountMatch[1]),
-    senderName: nameMatch ? nameMatch[1].trim() : null,
-    memo: memoMatch ? memoMatch[1].trim() : null,
-    codes,
-  };
+/** Zelle-only wrapper, kept for callers that do not care about other providers. */
+export function parseZelleEmail(email = {}, options = {}) {
+  const parsed = parsePaymentEmail(email, {
+    ...options,
+    requireKeyword: options.requireZelleKeyword ?? options.requireKeyword ?? true,
+    providers: [{ provider: 'zelle', allowedSenders: options.allowedSenders ?? [] }],
+  });
+  return { ...parsed, source: parsed.source ?? 'zelle-email' };
 }
