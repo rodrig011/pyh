@@ -24,7 +24,12 @@ import { SUBSCRIPTION_STATUS, daysLeft } from '../lib/subscriptions.js';
 import { ORDER_STATUS, createOrder, expireStaleOrders } from './orders.js';
 import { processPayment } from './paymentFlow.js';
 import { grantTierRoles, revokeTierRoles } from './roles.js';
-import { activeSubscriptions, endSubscription, upsertSubscription } from './subscriptions.js';
+import {
+  activeSubscriptions,
+  endSubscription,
+  planAdoption,
+  upsertSubscription,
+} from './subscriptions.js';
 import { sendDm, sendLog } from './notify.js';
 
 const commandLog = createLogger('commands');
@@ -108,6 +113,21 @@ export function buildCommands(config) {
     )
     .addSubcommand((sub) =>
       sub.setName('members').setDescription('List active VIP memberships and when they expire'),
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('adopt')
+        .setDescription('Start tracking members who already hold a tier role but have no membership')
+        .addIntegerOption((option) =>
+          option
+            .setName('tier')
+            .setDescription('Tier whose role holders should be adopted')
+            .setRequired(true)
+            .addChoices(...tierChoices),
+        )
+        .addIntegerOption((option) =>
+          option.setName('days').setDescription('Days to give them (defaults to the usual period)').setRequired(false),
+        ),
     )
     .addSubcommand((sub) =>
       sub
@@ -523,6 +543,73 @@ async function handleAdminMembers(interaction, { store, config }) {
   });
 }
 
+async function handleAdminAdopt(interaction, { store, config, client }) {
+  const tier = interaction.options.getInteger('tier');
+  const days = interaction.options.getInteger('days') ?? config.subscriptionDays;
+  const roleId = config.tiers[tier]?.roleId;
+
+  if (!roleId) {
+    await interaction.editReply(`Tier ${tier} has no role configured, so there is nobody to adopt.`);
+    return;
+  }
+
+  const guild = await client.guilds.fetch(interaction.guildId);
+  const members = await guild.members.fetch();
+
+  const plan = planAdoption(
+    [...members.values()].map((member) => ({
+      id: member.id,
+      isBot: member.user.bot,
+      roleIds: [...member.roles.cache.keys()],
+    })),
+    {
+      roleId,
+      modRoleIds: config.modRoleIds,
+      hasActiveSubscription: (userId) =>
+        store.getSubscription(interaction.guildId, userId)?.status === SUBSCRIPTION_STATUS.ACTIVE,
+    },
+  );
+
+  for (const userId of plan.adopt) {
+    const subscription = upsertSubscription(store, {
+      guildId: interaction.guildId,
+      userId,
+      tier,
+      code: null,
+      days,
+    });
+    subscription.source = 'migration';
+    subscription.autoRenew = false;
+    subscription.grantReason = `adopted by ${interaction.user.tag}`;
+    store.putSubscription(subscription);
+  }
+
+  const until = Math.floor((Date.now() + days * 86400000) / 1000);
+
+  await sendLog(
+    client,
+    config,
+    new EmbedBuilder()
+      .setColor(COLORS.gold)
+      .setTitle('Existing role holders adopted')
+      .setDescription(`${plan.adopt.length} member(s) now have a tracked **${TIER_NAMES[tier]}** membership`)
+      .addFields(
+        { name: 'By', value: `<@${interaction.user.id}>`, inline: true },
+        { name: 'Days given', value: String(days), inline: true },
+        { name: 'Until', value: time(until, 'f'), inline: true },
+      )
+      .setTimestamp(),
+  );
+
+  await interaction.editReply(
+    [
+      `**${plan.adopt.length}** member(s) adopted into **${TIER_NAMES[tier]}** — they now expire ${time(until, 'R')} and will get the usual reminders.`,
+      `Skipped: ${plan.skipped.tracked.length} already tracked, ${plan.skipped.staff.length} staff, ${plan.skipped.bots.length} bot(s).`,
+      'Running this again is safe — anyone already tracked is left alone.',
+    ].join('\n'),
+  );
+}
+
 async function handleAdminGrant(interaction, { store, config, client }) {
   const user = interaction.options.getUser('user');
   const tier = interaction.options.getInteger('tier');
@@ -656,6 +743,7 @@ export async function handleInteraction(interaction, context) {
     if (sub === 'sync') return handleAdminSync(interaction, context);
     if (sub === 'members') return handleAdminMembers(interaction, context);
     if (sub === 'grant') return handleAdminGrant(interaction, context);
+    if (sub === 'adopt') return handleAdminAdopt(interaction, context);
     if (sub === 'revoke') return handleAdminRevoke(interaction, context);
     return undefined;
   }

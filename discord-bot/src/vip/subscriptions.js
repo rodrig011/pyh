@@ -45,6 +45,43 @@ export function markReminded(store, subscription, thresholds) {
   return store.putSubscription(subscription);
 }
 
+/**
+ * Works out who should be adopted into the membership system.
+ *
+ * Members given a VIP role by hand — a migration from the old setup, say — hold
+ * the role but have no membership record, so nothing ever expires for them.
+ * This picks them out while leaving alone anyone already tracked, the staff who
+ * hold the role for moderation, and bots.
+ *
+ * Pure so the selection can be tested without a guild.
+ *
+ * @param {Array<{id: string, isBot?: boolean, roleIds: string[]}>} members
+ * @param {{roleId: string, modRoleIds?: string[], hasActiveSubscription: (id: string) => boolean}} options
+ * @returns {{adopt: string[], skipped: {tracked: string[], staff: string[], bots: string[]}}}
+ */
+export function planAdoption(members, { roleId, modRoleIds = [], hasActiveSubscription }) {
+  const result = { adopt: [], skipped: { tracked: [], staff: [], bots: [] } };
+
+  for (const member of members) {
+    if (!member.roleIds.includes(roleId)) continue;
+    if (member.isBot) {
+      result.skipped.bots.push(member.id);
+      continue;
+    }
+    if (modRoleIds.some((modRole) => member.roleIds.includes(modRole))) {
+      result.skipped.staff.push(member.id);
+      continue;
+    }
+    if (hasActiveSubscription(member.id)) {
+      result.skipped.tracked.push(member.id);
+      continue;
+    }
+    result.adopt.push(member.id);
+  }
+
+  return result;
+}
+
 export function activeSubscriptions(store, now = Date.now()) {
   return store.listSubscriptions(
     (subscription) => subscription.status === SUBSCRIPTION_STATUS.ACTIVE && subscription.expiresAt > now,
