@@ -27,27 +27,33 @@ export function createVipBot(config = loadVipConfig()) {
   const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
 
   // Card payments are optional: with no Stripe key the bot is Zelle-only.
-  const stripe = createStripeClient(config);
+  let stripe = createStripeClient(config);
   let webhookServer = null;
 
+  if (stripe && !config.stripe.webhookSecret) {
+    // Without the signing secret nothing can confirm a card payment, so the
+    // checkout would take money and never grant the roles. Better no button.
+    log.error(
+      'STRIPE_WEBHOOK_SECRET is missing, so card payments stay OFF: a checkout nobody can verify would charge people without giving them access. Set it and redeploy.',
+    );
+    stripe = null;
+  }
+
   if (stripe) {
-    if (!config.stripe.webhookSecret) {
-      log.warn('STRIPE_WEBHOOK_SECRET missing: card payments cannot be verified, so they will not be accepted');
-    } else {
-      webhookServer = startStripeWebhookServer({
-        config,
-        stripe,
-        onEvent: async (event) => {
-          const intent = interpretStripeEvent(event);
-          if (intent.action === 'ignore') {
-            log.debug(`Stripe ${event.type}: ${intent.reason}`);
-            return;
-          }
-          const result = await applyStripeIntent(client, store, config, intent, stripe);
-          log.info(`Stripe ${event.type} -> ${intent.action}: ${result.status}`);
-        },
-      });
-    }
+    webhookServer = startStripeWebhookServer({
+      config,
+      stripe,
+      onEvent: async (event) => {
+        const intent = interpretStripeEvent(event);
+        if (intent.action === 'ignore') {
+          log.debug(`Stripe ${event.type}: ${intent.reason}`);
+          return;
+        }
+        const result = await applyStripeIntent(client, store, config, intent, stripe);
+        log.info(`Stripe ${event.type} -> ${intent.action}: ${result.status}`);
+      },
+    });
+    log.info('Card payments are on');
   }
 
   const watcher = new ZelleWatcher({
