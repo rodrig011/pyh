@@ -84,7 +84,41 @@ startup if it detects this problem.
 Turn on *User Settings → Advanced → Developer Mode*, then right click → *Copy ID* on the
 server, the roles and the channels.
 
-### 3. Connect the bank mailbox
+### 3. Set the profile picture
+
+The KING T PARLAYS artwork is in `assets/`, already adapted to the square avatar
+Discord expects:
+
+| File | Use |
+|------|-----|
+| `logo-source.png` | the original wide artwork |
+| `avatar-1024.png` / `avatar-512.png` / `avatar-256.png` | square avatars |
+| `avatar-preview.png` | how it looks once Discord rounds it into a circle |
+
+Discord crops avatars into a circle, so the wide logo would lose the `K` and the `S`
+if it were pasted edge to edge. `assets/make-avatar.py` measures where the logo's ink
+actually is, scales it to the largest size that fits fully inside the circle, and sets
+it on a backdrop taken from the artwork itself (blurred, so the marble tone and gold
+bloom survive without the letters showing through). Re-run it if you ever change the
+logo:
+
+```bash
+pip install pillow numpy
+python3 assets/make-avatar.py
+```
+
+Apply the avatar to whichever bots have a token configured:
+
+```bash
+npm run avatar
+```
+
+It reads `VIP_BOT_AVATAR` / `PHOTO_BOT_AVATAR` (both default to `assets/avatar-512.png`)
+and, if set, also renames the bot to `VIP_BOT_USERNAME` / `PHOTO_BOT_USERNAME`. Discord
+only allows a couple of avatar changes per hour per bot; the script tells you when you
+have hit that limit. You can also just upload the PNG by hand in the developer portal.
+
+### 4. Connect the bank mailbox
 
 With Gmail: turn on two-step verification and create an
 [app password](https://myaccount.google.com/apppasswords); that is what goes into
@@ -142,12 +176,15 @@ the message is deleted all the same.
 ## Layout
 
 ```
+assets/                  logo, generated avatars and make-avatar.py
 src/
   config.js              reads and validates .env
   index.js               starts both bots
   deployCommands.js      registers the slash commands without starting the bot
+  setAvatar.js           uploads the profile picture (npm run avatar)
   bots/vipBot.js         VIP bot client
   bots/photoBot.js       photos-only bot client
+  lib/brand.js           embed colours
   lib/codes.js           random code generation and detection
   lib/tiers.js           prices and the stacking tier rule
   lib/store.js           JSON persistence (data/store.json)

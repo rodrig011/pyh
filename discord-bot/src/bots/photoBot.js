@@ -1,5 +1,6 @@
 import { Client, EmbedBuilder, Events, GatewayIntentBits, MessageType, Partials } from 'discord.js';
 import { loadPhotoConfig } from '../config.js';
+import { COLORS } from '../lib/brand.js';
 import { createLogger } from '../lib/logger.js';
 import { REASON_MESSAGES, evaluateMessage } from '../photo/photoOnly.js';
 
@@ -68,7 +69,7 @@ export function createPhotoBot(config = loadPhotoConfig()) {
           await channel.send({
             embeds: [
               new EmbedBuilder()
-                .setColor(0xe67e22)
+                .setColor(COLORS.warning)
                 .setTitle('Message deleted in photos-only channel')
                 .addFields(
                   { name: 'Author', value: `<@${message.author?.id}>`, inline: true },

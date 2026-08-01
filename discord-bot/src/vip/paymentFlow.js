@@ -1,4 +1,5 @@
 import { EmbedBuilder } from 'discord.js';
+import { COLORS } from '../lib/brand.js';
 import { createLogger } from '../lib/logger.js';
 import { TIER_NAMES, formatMoney, includedTiers } from '../lib/tiers.js';
 import { markOrderPaid, matchPayment } from './orders.js';
@@ -31,7 +32,7 @@ export async function processPayment(client, store, config, payment) {
       client,
       config,
       new EmbedBuilder()
-        .setColor(0xe67e22)
+        .setColor(COLORS.warning)
         .setTitle('Payment received but not applied')
         .setDescription(match.reason ?? match.status)
         .addFields(
@@ -56,7 +57,7 @@ export async function processPayment(client, store, config, payment) {
       client,
       config,
       new EmbedBuilder()
-        .setColor(0xe74c3c)
+        .setColor(COLORS.danger)
         .setTitle('Valid payment but role assignment failed')
         .setDescription(`Order \`${order.code}\` from <@${order.userId}>: ${error.message}`)
         .setTimestamp(),
@@ -80,7 +81,7 @@ export async function processPayment(client, store, config, payment) {
     await user.send({
       embeds: [
         new EmbedBuilder()
-          .setColor(0x2ecc71)
+          .setColor(COLORS.success)
           .setTitle('Payment confirmed!')
           .setDescription(
             `We received your payment of **${formatMoney(payment.amountCents ?? order.amountCents)}** with code \`${order.code}\`.\n` +
@@ -97,7 +98,7 @@ export async function processPayment(client, store, config, payment) {
     client,
     config,
     new EmbedBuilder()
-      .setColor(0x2ecc71)
+      .setColor(COLORS.success)
       .setTitle('Payment applied')
       .setDescription(`<@${order.userId}> received **${TIER_NAMES[tier]}**`)
       .addFields(

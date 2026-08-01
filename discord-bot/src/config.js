@@ -49,6 +49,9 @@ export function loadVipConfig() {
     token: required('VIP_BOT_TOKEN'),
     clientId: required('VIP_CLIENT_ID'),
     guildId: required('VIP_GUILD_ID'),
+    // Profile picture applied by `npm run avatar`.
+    avatarPath: str('VIP_BOT_AVATAR', 'assets/avatar-512.png'),
+    username: str('VIP_BOT_USERNAME'),
     deployCommandsOnStart: bool('DEPLOY_COMMANDS_ON_START', true),
     logChannelId: str('VIP_LOG_CHANNEL_ID'),
     adminRoleIds: list('VIP_ADMIN_ROLE_IDS'),
@@ -87,6 +90,8 @@ export function loadVipConfig() {
 export function loadPhotoConfig() {
   return {
     token: required('PHOTO_BOT_TOKEN'),
+    avatarPath: str('PHOTO_BOT_AVATAR', 'assets/avatar-512.png'),
+    username: str('PHOTO_BOT_USERNAME'),
     channelIds: list('PHOTO_ONLY_CHANNEL_IDS'),
     allowCaptions: bool('PHOTO_ONLY_ALLOW_CAPTIONS', false),
     allowVideos: bool('PHOTO_ONLY_ALLOW_VIDEOS', false),

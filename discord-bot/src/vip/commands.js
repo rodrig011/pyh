@@ -6,6 +6,7 @@ import {
   time,
 } from 'discord.js';
 import { TIER_NAMES, formatMoney, includedTiers } from '../lib/tiers.js';
+import { COLORS } from '../lib/brand.js';
 import { normalizeCode } from '../lib/codes.js';
 import { ORDER_STATUS, createOrder, expireStaleOrders } from './orders.js';
 import { processPayment } from './paymentFlow.js';
@@ -106,7 +107,7 @@ function statusLabel(status) {
 
 function pricesEmbed(config) {
   return new EmbedBuilder()
-    .setColor(0x9b59b6)
+    .setColor(COLORS.gold)
     .setTitle('VIP tiers')
     .setDescription('Every tier includes the perks of all the tiers below it.')
     .addFields(
@@ -136,7 +137,7 @@ async function handleBuy(interaction, { store, config }) {
     });
 
   const embed = new EmbedBuilder()
-    .setColor(0x9b59b6)
+    .setColor(COLORS.gold)
     .setTitle(`${TIER_NAMES[tier]} — ${formatMoney(order.amountCents)}`)
     .setDescription(
       [
@@ -177,7 +178,7 @@ async function handleStatus(interaction, { store }) {
   }
 
   const embed = new EmbedBuilder()
-    .setColor(0x3498db)
+    .setColor(COLORS.info)
     .setTitle('Your orders')
     .addFields(
       orders.map((order) => ({
@@ -266,7 +267,7 @@ async function handleAdminLookup(interaction, { store, config }) {
   }
 
   const embed = new EmbedBuilder()
-    .setColor(0x3498db)
+    .setColor(COLORS.info)
     .setTitle(`Order ${order.code}`)
     .addFields(
       { name: 'User', value: `<@${order.userId}>`, inline: true },
@@ -307,7 +308,7 @@ async function handleAdminPending(interaction, { store }) {
   await interaction.editReply({
     embeds: [
       new EmbedBuilder()
-        .setColor(0xf1c40f)
+        .setColor(COLORS.pending)
         .setTitle(`Pending orders (${pending.length})`)
         .setDescription(
           pending
