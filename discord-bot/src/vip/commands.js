@@ -23,8 +23,9 @@ import { normalizeCode } from '../lib/codes.js';
 import { SUBSCRIPTION_STATUS, daysLeft } from '../lib/subscriptions.js';
 import { ORDER_STATUS, createOrder, expireStaleOrders } from './orders.js';
 import { processPayment } from './paymentFlow.js';
-import { revokeTierRoles } from './roles.js';
-import { activeSubscriptions, endSubscription } from './subscriptions.js';
+import { grantTierRoles, revokeTierRoles } from './roles.js';
+import { activeSubscriptions, endSubscription, upsertSubscription } from './subscriptions.js';
+import { sendDm, sendLog } from './notify.js';
 
 const commandLog = createLogger('commands');
 
@@ -107,6 +108,27 @@ export function buildCommands(config) {
     )
     .addSubcommand((sub) =>
       sub.setName('members').setDescription('List active VIP memberships and when they expire'),
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('grant')
+        .setDescription('Give someone a membership without a payment (migrations, comps)')
+        .addUserOption((option) =>
+          option.setName('user').setDescription('Member to grant').setRequired(true),
+        )
+        .addIntegerOption((option) =>
+          option
+            .setName('tier')
+            .setDescription('Tier to grant')
+            .setRequired(true)
+            .addChoices(...tierChoices),
+        )
+        .addIntegerOption((option) =>
+          option.setName('days').setDescription('Days of access (defaults to the usual period)').setRequired(false),
+        )
+        .addStringOption((option) =>
+          option.setName('reason').setDescription('Why (kept in the log)').setRequired(false),
+        ),
     )
     .addSubcommand((sub) =>
       sub
@@ -501,6 +523,72 @@ async function handleAdminMembers(interaction, { store, config }) {
   });
 }
 
+async function handleAdminGrant(interaction, { store, config, client }) {
+  const user = interaction.options.getUser('user');
+  const tier = interaction.options.getInteger('tier');
+  const days = interaction.options.getInteger('days') ?? config.subscriptionDays;
+  const reason = interaction.options.getString('reason') ?? `granted by ${interaction.user.tag}`;
+
+  const guild = await client.guilds.fetch(interaction.guildId);
+  let roles;
+  try {
+    roles = await grantTierRoles(guild, user.id, tier, config, reason);
+  } catch (error) {
+    await interaction.editReply(`Could not give the roles to <@${user.id}>: ${error.message}`);
+    return;
+  }
+
+  const subscription = upsertSubscription(store, {
+    guildId: interaction.guildId,
+    userId: user.id,
+    tier,
+    code: null,
+    days,
+  });
+  subscription.source = 'manual';
+  subscription.autoRenew = false;
+  subscription.grantReason = reason;
+  store.putSubscription(subscription);
+
+  const expiresAt = Math.floor(subscription.expiresAt / 1000);
+
+  await sendDm(
+    client,
+    user.id,
+    new EmbedBuilder()
+      .setColor(COLORS.success)
+      .setTitle(`You have ${tierTitle(tier, config.tiers)}`)
+      .setDescription(
+        [
+          `Your access is active until ${time(expiresAt, 'F')} (${time(expiresAt, 'R')}).`,
+          '',
+          'We will remind you before it ends. Renew any time with `/vip buy` — the days stack on top of what is left.',
+        ].join('\n'),
+      )
+      .setTimestamp(),
+  );
+
+  await sendLog(
+    client,
+    config,
+    new EmbedBuilder()
+      .setColor(COLORS.gold)
+      .setTitle('Membership granted by hand')
+      .setDescription(`<@${user.id}> received **${TIER_NAMES[tier]}**`)
+      .addFields(
+        { name: 'By', value: `<@${interaction.user.id}>`, inline: true },
+        { name: 'Days', value: String(days), inline: true },
+        { name: 'Until', value: time(expiresAt, 'f'), inline: true },
+        { name: 'Reason', value: reason },
+      )
+      .setTimestamp(),
+  );
+
+  await interaction.editReply(
+    `<@${user.id}> now has **${TIER_NAMES[tier]}** for ${days} days (${roles.added.length} role(s) added, ${roles.already.length} already held). They expire ${time(expiresAt, 'R')} like any other membership.`,
+  );
+}
+
 async function handleAdminRevoke(interaction, { store, config, client }) {
   const user = interaction.options.getUser('user');
   const reason = interaction.options.getString('reason') ?? `revoked by ${interaction.user.tag}`;
@@ -567,6 +655,7 @@ export async function handleInteraction(interaction, context) {
     if (sub === 'cancel') return handleAdminCancel(interaction, context);
     if (sub === 'sync') return handleAdminSync(interaction, context);
     if (sub === 'members') return handleAdminMembers(interaction, context);
+    if (sub === 'grant') return handleAdminGrant(interaction, context);
     if (sub === 'revoke') return handleAdminRevoke(interaction, context);
     return undefined;
   }
