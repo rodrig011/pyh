@@ -1,0 +1,25 @@
+{
+  "name": "discord-vip-zelle-bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Bot de Discord con tiers VIP pagados por Zelle (detectados con un codigo aleatorio) y bot de canal solo-fotos",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "start:vip": "node src/bots/vipBot.js",
+    "start:photo": "node src/bots/photoBot.js",
+    "deploy": "node src/deployCommands.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "discord.js": "^14.27.0",
+    "dotenv": "^17.4.2",
+    "imapflow": "^1.6.5",
+    "mailparser": "^3.9.14"
+  }
+}

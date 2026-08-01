@@ -1,0 +1,75 @@
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+
+const EMPTY = { version: 1, orders: {}, processedEmails: [], payments: [] };
+
+/**
+ * Almacen JSON con escritura atomica. Suficiente para un bot de un solo proceso;
+ * si algun dia necesitas mas, este modulo es lo unico que hay que reemplazar.
+ */
+export function createStore(filePath) {
+  const path = resolve(filePath);
+  let data = structuredClone(EMPTY);
+
+  if (existsSync(path)) {
+    try {
+      data = { ...structuredClone(EMPTY), ...JSON.parse(readFileSync(path, 'utf8')) };
+    } catch (error) {
+      throw new Error(`No se pudo leer el almacen ${path}: ${error.message}`);
+    }
+  }
+
+  function save() {
+    mkdirSync(dirname(path), { recursive: true });
+    const tmp = `${path}.tmp`;
+    writeFileSync(tmp, JSON.stringify(data, null, 2));
+    renameSync(tmp, path);
+  }
+
+  return {
+    path,
+    get data() {
+      return data;
+    },
+    save,
+
+    getOrder(code) {
+      return data.orders[code] ?? null;
+    },
+
+    putOrder(order) {
+      data.orders[order.code] = order;
+      save();
+      return order;
+    },
+
+    listOrders(filter = () => true) {
+      return Object.values(data.orders).filter(filter);
+    },
+
+    /** Ordenes pendientes de un usuario (las mas nuevas primero). */
+    pendingOrdersFor(userId) {
+      return Object.values(data.orders)
+        .filter((order) => order.userId === userId && order.status === 'pending')
+        .sort((a, b) => b.createdAt - a.createdAt);
+    },
+
+    isEmailProcessed(messageId) {
+      return data.processedEmails.includes(messageId);
+    },
+
+    markEmailProcessed(messageId, { keep = 2000 } = {}) {
+      if (!messageId || data.processedEmails.includes(messageId)) return;
+      data.processedEmails.push(messageId);
+      if (data.processedEmails.length > keep) {
+        data.processedEmails = data.processedEmails.slice(-keep);
+      }
+      save();
+    },
+
+    recordPayment(payment) {
+      data.payments.push(payment);
+      save();
+    },
+  };
+}
