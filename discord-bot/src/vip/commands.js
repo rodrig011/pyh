@@ -73,7 +73,13 @@ export function buildCommands(config) {
     .setName('vip-admin')
     .setDescription('VIP payment administration')
     .setDMPermission(false)
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
+    // Discord can only gate a command's visibility on permission bits, not on a
+    // role. Once VIP_MOD_ROLE_IDS names the mod roles, hiding it behind Manage
+    // Roles would stop those very mods from seeing it — so the code check
+    // becomes the authority and anyone else is turned away when they try.
+    .setDefaultMemberPermissions(
+      config.modRoleIds.length > 0 ? null : PermissionFlagsBits.ManageRoles,
+    )
     .addSubcommand((sub) =>
       sub
         .setName('confirm')
@@ -588,6 +594,89 @@ async function handleAdminMembers(interaction, { store, config }) {
   });
 }
 
+async function handleAdminNotify(interaction, { store, config, client }) {
+  const tier = interaction.options.getInteger('tier');
+  const note = interaction.options.getString('note');
+  const resend = interaction.options.getBoolean('resend') ?? false;
+
+  const targets = activeSubscriptions(store).filter(
+    (subscription) =>
+      subscription.guildId === interaction.guildId &&
+      subscription.tier === tier &&
+      (resend || !subscription.startNoticeSentAt),
+  );
+
+  if (targets.length === 0) {
+    await interaction.editReply(
+      `Nobody to notify in **${TIER_NAMES[tier]}** — either there are no active members, or they have all been notified already (use \`resend:true\` to send again).`,
+    );
+    return;
+  }
+
+  await interaction.editReply(`Sending to ${targets.length} member(s)…`);
+
+  let sent = 0;
+  let closed = 0;
+
+  for (const subscription of targets) {
+    const expiresAt = Math.floor(subscription.expiresAt / 1000);
+    const delivered = await sendDm(
+      client,
+      subscription.userId,
+      new EmbedBuilder()
+        .setColor(COLORS.gold)
+        .setTitle(`Your ${tierTitle(tier, config.tiers)} is active`)
+        .setDescription(
+          [
+            note,
+            note ? '' : null,
+            `Your **${config.subscriptionDays}-day** period is running and ends ${time(expiresAt, 'F')} — ${time(expiresAt, 'R')}.`,
+            '',
+            'We will DM you before it runs out. If it is not renewed by then, the VIP roles come off automatically.',
+            `Renew any time with \`/vip buy tier:${tier}\` — the days stack on top of what is left, so renewing early never costs you time.`,
+            '',
+            'Check your own dates whenever you want with `/vip status`.',
+          ]
+            .filter((line) => line !== null)
+            .join('\n'),
+        )
+        .setTimestamp(),
+    );
+
+    if (delivered) sent += 1;
+    else closed += 1;
+
+    subscription.startNoticeSentAt = Date.now();
+    store.putSubscription(subscription);
+
+    // Opening many DM channels quickly is the fastest way to hit a rate limit.
+    await new Promise((resolve) => setTimeout(resolve, 800));
+  }
+
+  await sendLog(
+    client,
+    config,
+    new EmbedBuilder()
+      .setColor(COLORS.gold)
+      .setTitle('Membership notice sent')
+      .setDescription(`**${TIER_NAMES[tier]}** — ${sent} delivered, ${closed} with DMs closed`)
+      .addFields({ name: 'By', value: `<@${interaction.user.id}>`, inline: true })
+      .setTimestamp(),
+  );
+
+  await interaction.editReply(
+    [
+      `Done: **${sent}** member(s) notified in **${TIER_NAMES[tier]}**.`,
+      closed > 0
+        ? `**${closed}** could not be reached — their DMs are closed. They can still see their dates with \`/vip status\`.`
+        : null,
+      'Nobody is notified twice unless you pass `resend:true`.',
+    ]
+      .filter(Boolean)
+      .join('\n'),
+  );
+}
+
 async function handleAdminAdopt(interaction, { store, config, client }) {
   const tier = interaction.options.getInteger('tier');
   const days = interaction.options.getInteger('days') ?? config.subscriptionDays;
@@ -789,6 +878,7 @@ export async function handleInteraction(interaction, context) {
     if (sub === 'members') return handleAdminMembers(interaction, context);
     if (sub === 'grant') return handleAdminGrant(interaction, context);
     if (sub === 'adopt') return handleAdminAdopt(interaction, context);
+    if (sub === 'notify') return handleAdminNotify(interaction, context);
     if (sub === 'revoke') return handleAdminRevoke(interaction, context);
     return undefined;
   }
