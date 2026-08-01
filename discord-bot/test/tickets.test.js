@@ -173,3 +173,37 @@ test('a member with no orders is described as such, not left blank', async (t) =
   assert.match(text, /no membership on record/);
   assert.match(text, /never ran/);
 });
+
+test('the bot only grants permissions it actually holds', () => {
+  // Discord rejects the whole channel creation if a bot tries to grant a
+  // permission it lacks — which surfaced as "Missing Permissions" even with
+  // Manage Channels granted, and sent everyone chasing the wrong setting.
+  const guild = { roles: { everyone: { id: 'everyone' } } };
+  const limited = {
+    has: (permission) =>
+      permission === PermissionFlagsBits.ViewChannel || permission === PermissionFlagsBits.SendMessages,
+  };
+
+  const overwrites = ticketPermissions(guild, 'u1', ['mod1'], 'bot1', limited);
+  const opener = overwrites.find((o) => o.id === 'u1');
+
+  assert.deepEqual(opener.allow, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]);
+  assert.ok(!opener.allow.includes(PermissionFlagsBits.AttachFiles), 'not granted, so not requested');
+});
+
+test('a bot with everything grants the full set', () => {
+  const guild = { roles: { everyone: { id: 'everyone' } } };
+  const overwrites = ticketPermissions(guild, 'u1', [], 'bot1', { has: () => true });
+  const opener = overwrites.find((o) => o.id === 'u1');
+
+  assert.ok(opener.allow.includes(PermissionFlagsBits.AttachFiles), 'screenshots are the point of a ticket');
+  assert.ok(opener.allow.includes(PermissionFlagsBits.ReadMessageHistory));
+});
+
+test('a ticket is still openable even if the bot can grant nothing', () => {
+  const guild = { roles: { everyone: { id: 'everyone' } } };
+  const overwrites = ticketPermissions(guild, 'u1', [], 'bot1', { has: () => false });
+  const opener = overwrites.find((o) => o.id === 'u1');
+
+  assert.deepEqual(opener.allow, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]);
+});

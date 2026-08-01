@@ -64,18 +64,34 @@ export function panelMessage() {
  * Who can see the ticket: the member who opened it, the mods, and nobody else.
  * @everyone is denied explicitly rather than relying on the category, so the
  * channel is private even if it ends up outside one.
+ *
+ * Discord refuses to let a bot grant a permission it does not hold itself, and
+ * rejects the whole channel creation when you try — which reads as a confusing
+ * "Missing Permissions" even though the bot can create channels fine. So the
+ * grant is narrowed to what the bot actually has: the ticket still works, it
+ * just hands out less.
+ *
+ * @param {import('discord.js').PermissionsBitField} [botPermissions]
  */
-export function ticketPermissions(guild, userId, modRoleIds = [], botId) {
+export function ticketPermissions(guild, userId, modRoleIds = [], botId, botPermissions) {
+  const grantable = botPermissions
+    ? MEMBER_PERMISSIONS.filter((permission) => botPermissions.has(permission))
+    : MEMBER_PERMISSIONS;
+
+  // Without these two a ticket is not a conversation, so keep them regardless
+  // and let Discord complain plainly if the bot really cannot send messages.
+  const allow =
+    grantable.length > 0
+      ? grantable
+      : [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages];
+
   const overwrites = [
     { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-    { id: userId, allow: MEMBER_PERMISSIONS },
+    { id: userId, allow },
   ];
 
-  for (const roleId of modRoleIds) {
-    overwrites.push({ id: roleId, allow: [...MEMBER_PERMISSIONS, PermissionFlagsBits.ManageMessages] });
-  }
-
-  if (botId) overwrites.push({ id: botId, allow: [...MEMBER_PERMISSIONS, PermissionFlagsBits.ManageChannels] });
+  for (const roleId of modRoleIds) overwrites.push({ id: roleId, allow });
+  if (botId) overwrites.push({ id: botId, allow });
 
   return overwrites;
 }
@@ -141,6 +157,7 @@ export async function openTicket(interaction, { store, config }) {
     if (stillThere) return { status: 'already_open', channelId: existing.channelId };
   }
 
+  const me = interaction.guild.members?.me ?? null;
   const channel = await interaction.guild.channels.create({
     name: `ticket-${interaction.user.username}`.slice(0, 90),
     type: ChannelType.GuildText,
@@ -149,7 +166,8 @@ export async function openTicket(interaction, { store, config }) {
       interaction.guild,
       interaction.user.id,
       config.modRoleIds,
-      interaction.client?.user?.id,
+      me?.id ?? interaction.client?.user?.id,
+      me?.permissions,
     ),
     reason: `Payment ticket for ${interaction.user.tag}`,
   });

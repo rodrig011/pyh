@@ -606,9 +606,16 @@ async function handleButton(interaction, context) {
           : `Ticket opened: <#${result.channelId}> — the team has been notified.`,
       );
     } catch (error) {
-      commandLog.error(`Could not open a ticket for ${interaction.user.tag}: ${error.message}`);
+      commandLog.error(`Could not open a ticket for ${interaction.user.tag}: ${error.stack ?? error.message}`);
+      // Say what Discord actually refused: guessing at the cause sent people
+      // chasing a permission that was already granted.
       await interaction.editReply(
-        'Could not open the ticket. Tell a mod — the bot may be missing the "Manage Channels" permission.',
+        [
+          'Could not open the ticket. Show a mod this message:',
+          `> ${error.message}`,
+          '',
+          'The bot needs **Manage Channels**, and if a ticket category is configured it needs access to that category too.',
+        ].join('\n'),
       );
     }
     return undefined;
