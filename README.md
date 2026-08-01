@@ -52,7 +52,11 @@ No se necesita saber programar ni usar GitHub. Todo es desde una página web, co
 
 No hace falta guardar nada más ni avisarle a nadie — publicar desde el panel actualiza el sitio en vivo automáticamente.
 
-### Dos cosas útiles al escribir
+### Cosas útiles al escribir
+
+- **Agrandar un texto dentro de un post:** selecciona el texto con el mouse/dedo y dale a uno de los botones **H1 … H6** de la barra del editor. H1 es el más grande y H6 el más chico (aun así, un poco más grande que el texto normal). Los seis usan la tipografía del sitio, así que cualquiera se ve bien.
+
+  > Ese es el único control de tamaño por selección que existe: Decap CMS trae una barra de botones fija (negrita, cursiva, tachado, código, link, H1–H6, cita, listas) y no se le pueden agregar botones nuevos. Los "componentes personalizados" se insertan donde está el cursor, no aplican formato a lo seleccionado.
 
 - **Saltos de línea:** en los campos de texto largo, cada **Enter** crea un renglón nuevo en el sitio. Dos Enters dejan un espacio más grande entre renglones. También puedes usar `**texto**` para poner algo en **negrita**.
 - **Tamaño del texto:** en *Configuración del sitio → Tamaño del texto* puedes elegir **Normal**, **Grande** o **Más grande**. Agranda el texto de lectura de todo el sitio (portada, posts, biografía). Los títulos grandes y el menú se quedan igual a propósito, para que el diseño no se descuadre.

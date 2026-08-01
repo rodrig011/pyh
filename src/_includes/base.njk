@@ -377,8 +377,16 @@ footer{background:var(--warm-dark);color:rgba(250,246,241,.45);padding:3.5rem 3r
 @media(max-width:768px){.post-content{padding:0 1.2rem 4rem}}
 .post-content p{margin-bottom:1.3rem;font-weight:300}
 .post-content > p:first-of-type::first-letter{font-family:var(--serif);font-size:3.4em;float:left;line-height:.82;padding:.05em .13em 0 0;color:var(--rose)}
-.post-content h2{font-family:var(--serif);font-size:calc(1.5rem * var(--tscale));font-weight:400;margin:2.2rem 0 1rem}
-.post-content h3{font-family:var(--serif);font-size:calc(1.2rem * var(--tscale));font-weight:400;margin:1.8rem 0 .8rem}
+/* Escala de tamaños: los botones H1-H6 del editor agrandan el texto seleccionado.
+   Todos quedan por encima del texto normal, del más grande (H1) al más chico (H6). */
+.post-content h1,.post-content h2,.post-content h3,
+.post-content h4,.post-content h5,.post-content h6{font-family:var(--serif);font-weight:400;line-height:1.28;color:var(--warm-dark)}
+.post-content h1{font-size:calc(2rem * var(--tscale));margin:2.4rem 0 1.1rem}
+.post-content h2{font-size:calc(1.5rem * var(--tscale));margin:2.2rem 0 1rem}
+.post-content h3{font-size:calc(1.22rem * var(--tscale));margin:1.8rem 0 .8rem}
+.post-content h4{font-size:calc(1.12rem * var(--tscale));margin:1.6rem 0 .7rem}
+.post-content h5{font-size:calc(1.06rem * var(--tscale));margin:1.5rem 0 .65rem}
+.post-content h6{font-size:calc(1.02rem * var(--tscale));margin:1.4rem 0 .6rem}
 .post-content strong{font-weight:500;color:var(--deep-rose)}
 .post-content em{font-style:italic}
 .post-content a{color:var(--rose);text-decoration:underline;text-decoration-color:rgba(200,133,106,.35)}
