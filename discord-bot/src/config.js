@@ -44,6 +44,15 @@ function list(name, fallback = []) {
     .filter(Boolean);
 }
 
+/** Comma-separated numbers, biggest first: "3,1" -> [3, 1]. */
+function numberList(name, fallback) {
+  const values = list(name);
+  if (values.length === 0) return fallback;
+  const parsed = values.map(Number).filter((value) => Number.isFinite(value) && value >= 0);
+  if (parsed.length === 0) throw new Error(`${name} must be a comma-separated list of numbers`);
+  return parsed.sort((a, b) => b - a);
+}
+
 export function loadVipConfig() {
   return {
     token: required('VIP_BOT_TOKEN'),
@@ -54,7 +63,14 @@ export function loadVipConfig() {
     username: str('VIP_BOT_USERNAME'),
     deployCommandsOnStart: bool('DEPLOY_COMMANDS_ON_START', true),
     logChannelId: str('VIP_LOG_CHANNEL_ID'),
-    adminRoleIds: list('VIP_ADMIN_ROLE_IDS'),
+    // Roles allowed to run /vip-admin. Once this is set, ONLY these roles (plus
+    // anyone with Administrator) can touch orders, payments and memberships.
+    modRoleIds: list('VIP_MOD_ROLE_IDS', list('VIP_ADMIN_ROLE_IDS')),
+    // How long a paid membership lasts, and when to warn before it runs out.
+    subscriptionDays: int('SUBSCRIPTION_DAYS', 30),
+    reminderDaysBefore: numberList('SUBSCRIPTION_REMINDER_DAYS', [3, 1]),
+    subscriptionGraceDays: int('SUBSCRIPTION_GRACE_DAYS', 0),
+    sweepIntervalMinutes: int('SWEEP_INTERVAL_MINUTES', 15),
     zelleRecipient: str('ZELLE_RECIPIENT', '(set ZELLE_RECIPIENT)'),
     zelleRecipientName: str('ZELLE_RECIPIENT_NAME'),
     orderTtlHours: int('ORDER_TTL_HOURS', 48),

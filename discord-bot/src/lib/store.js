@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { subscriptionKey } from './subscriptions.js';
 
-const EMPTY = { version: 1, orders: {}, processedEmails: [], payments: [] };
+const EMPTY = { version: 1, orders: {}, subscriptions: {}, processedEmails: [], payments: [] };
 
 /**
  * JSON store with atomic writes. Plenty for a single-process bot; if you ever
@@ -52,6 +53,20 @@ export function createStore(filePath) {
       return Object.values(data.orders)
         .filter((order) => order.userId === userId && order.status === 'pending')
         .sort((a, b) => b.createdAt - a.createdAt);
+    },
+
+    getSubscription(guildId, userId) {
+      return data.subscriptions[subscriptionKey(guildId, userId)] ?? null;
+    },
+
+    putSubscription(subscription) {
+      data.subscriptions[subscriptionKey(subscription.guildId, subscription.userId)] = subscription;
+      save();
+      return subscription;
+    },
+
+    listSubscriptions(filter = () => true) {
+      return Object.values(data.subscriptions).filter(filter);
     },
 
     isEmailProcessed(messageId) {

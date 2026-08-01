@@ -38,6 +38,37 @@ export async function grantTierRoles(guild, userId, tier, config, reason = 'VIP 
   return result;
 }
 
+/**
+ * Takes back the roles of a tier (and the tiers below it) when a membership
+ * ends. A member who already left the guild is not an error: there is nothing
+ * to take back.
+ *
+ * @returns {Promise<{removed: string[], absent: boolean, failed: {roleId: string, error: string}[]}>}
+ */
+export async function revokeTierRoles(guild, userId, tier, config, reason = 'VIP subscription expired') {
+  const result = { removed: [], absent: false, failed: [] };
+  const member = await guild.members.fetch(userId).catch(() => null);
+
+  if (!member) {
+    result.absent = true;
+    log.info(`${userId} is no longer in guild ${guild.id}; nothing to revoke`);
+    return result;
+  }
+
+  for (const roleId of roleIdsForTier(tier, config.tiers)) {
+    if (!member.roles.cache.has(roleId)) continue;
+    try {
+      await member.roles.remove(roleId, reason);
+      result.removed.push(roleId);
+    } catch (error) {
+      result.failed.push({ roleId, error: error.message });
+      log.error(`Could not remove role ${roleId} from ${userId}: ${error.message}`);
+    }
+  }
+
+  return result;
+}
+
 /** On startup, check that the configured roles exist and can be assigned. */
 export async function checkRoleSetup(guild, config) {
   const problems = [];

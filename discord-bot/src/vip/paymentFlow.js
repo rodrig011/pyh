@@ -1,21 +1,13 @@
-import { EmbedBuilder } from 'discord.js';
+import { EmbedBuilder, time } from 'discord.js';
 import { COLORS } from '../lib/brand.js';
 import { createLogger } from '../lib/logger.js';
 import { TIER_NAMES, formatMoney, includedTiers } from '../lib/tiers.js';
 import { markOrderPaid, matchPayment } from './orders.js';
+import { sendDm, sendLog } from './notify.js';
 import { grantTierRoles } from './roles.js';
+import { upsertSubscription } from './subscriptions.js';
 
 const log = createLogger('payments');
-
-async function sendLog(client, config, embed) {
-  if (!config.logChannelId) return;
-  try {
-    const channel = await client.channels.fetch(config.logChannelId);
-    if (channel?.isTextBased()) await channel.send({ embeds: [embed] });
-  } catch (error) {
-    log.warn(`Could not write to the log channel: ${error.message}`);
-  }
-}
 
 /**
  * Takes a detected payment (from email or confirmed by hand), matches it to an
@@ -71,28 +63,37 @@ export async function processPayment(client, store, config, payment) {
     grantedRoleIds: [...roles.added, ...roles.already],
   });
 
+  const subscription = upsertSubscription(store, {
+    guildId: order.guildId,
+    userId: order.userId,
+    tier,
+    code: order.code,
+    days: config.subscriptionDays,
+  });
+
   const tierList = includedTiers(tier)
     .map((level) => TIER_NAMES[level])
     .join(', ');
+  const expiresAt = Math.floor(subscription.expiresAt / 1000);
+  const renewal = subscription.renewals > 0;
 
-  // Let the buyer know by DM (may fail if their DMs are closed).
-  try {
-    const user = await client.users.fetch(order.userId);
-    await user.send({
-      embeds: [
-        new EmbedBuilder()
-          .setColor(COLORS.success)
-          .setTitle('Payment confirmed!')
-          .setDescription(
-            `We received your payment of **${formatMoney(payment.amountCents ?? order.amountCents)}** with code \`${order.code}\`.\n` +
-              `You now have access to: **${tierList}**.`,
-          )
-          .setTimestamp(),
-      ],
-    });
-  } catch (error) {
-    log.warn(`Could not DM ${order.userId}: ${error.message}`);
-  }
+  await sendDm(
+    client,
+    order.userId,
+    new EmbedBuilder()
+      .setColor(COLORS.success)
+      .setTitle(renewal ? 'Membership renewed!' : 'Payment confirmed!')
+      .setDescription(
+        [
+          `We received your payment of **${formatMoney(payment.amountCents ?? order.amountCents)}** with code \`${order.code}\`.`,
+          `You now have access to: **${tierList}**.`,
+          '',
+          `This is a **${config.subscriptionDays}-day membership**. It ends ${time(expiresAt, 'R')} — ${time(expiresAt, 'F')}.`,
+          'We will remind you before then. If it is not renewed, the bot removes the roles automatically.',
+        ].join('\n'),
+      )
+      .setTimestamp(),
+  );
 
   await sendLog(
     client,
@@ -106,10 +107,13 @@ export async function processPayment(client, store, config, payment) {
         { name: 'Amount', value: formatMoney(payment.amountCents ?? order.amountCents), inline: true },
         { name: 'Source', value: payment.source ?? 'manual', inline: true },
         { name: 'Roles granted', value: tierList },
+        { name: renewal ? 'Renewed until' : 'Expires', value: time(expiresAt, 'f'), inline: true },
       )
       .setTimestamp(),
   );
 
-  log.info(`Order ${order.code} paid: ${order.userId} -> ${TIER_NAMES[tier]}`);
-  return { status: 'granted', order, tier, roles };
+  log.info(
+    `Order ${order.code} paid: ${order.userId} -> ${TIER_NAMES[tier]} until ${new Date(subscription.expiresAt).toISOString()}`,
+  );
+  return { status: 'granted', order, tier, roles, subscription };
 }

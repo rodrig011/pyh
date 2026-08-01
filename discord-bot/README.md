@@ -19,6 +19,39 @@ Two independent bots in one project:
 Tiers **stack**: tier 3 grants all three roles, tier 2 grants two, tier 1 grants one.
 Prices are set in `.env` (`TIER_1_PRICE`, and so on).
 
+A tier with no `ROLE_TIER_n` configured is treated as **coming soon**: it never shows
+up in `/vip buy` and is listed as locked in `/vip prices`, so nobody can pay for a role
+the bot cannot hand out. Add the role ID later and it goes on sale by itself.
+
+## Memberships are 30 days
+
+Every payment buys `SUBSCRIPTION_DAYS` (30 by default) of access, not a permanent role.
+
+- The buyer is told the exact expiry date when they pay, and can check it any time with
+  `/vip status`.
+- The bot **DMs a reminder** 3 days and 1 day before it runs out
+  (`SUBSCRIPTION_REMINDER_DAYS`). Each reminder is sent once; if the bot was offline it
+  sends only the most urgent one rather than a burst.
+- When the time is up it **removes the VIP roles automatically** and DMs the member.
+  `SUBSCRIPTION_GRACE_DAYS` adds slack before that happens.
+- **Renewing early stacks**: paying with 10 days left gives 40, so nobody is punished
+  for renewing ahead of time. Renewing into a higher tier upgrades; buying a lower tier
+  only adds time and never demotes.
+- Somebody who left the server is expired quietly — there are no roles to take back.
+
+Mods see every active membership with `/vip-admin members` and can end one immediately
+with `/vip-admin revoke` (useful for a Zelle chargeback).
+
+## Who can administer the bot
+
+`/vip-admin` is for staff only. Set `VIP_MOD_ROLE_IDS` to your MOD role ID (comma
+separated for several) and **only** those roles can confirm payments, revoke
+memberships or cancel orders. Anyone with the Discord **Administrator** permission also
+passes, so a server owner cannot lock themselves out of their own bot.
+
+While `VIP_MOD_ROLE_IDS` is empty the bot falls back to the *Manage Roles* permission,
+so it stays usable before you configure it — set the variable to lock it down.
+
 ## How the payment flow works
 
 ```
@@ -150,7 +183,7 @@ If your bank words its alerts differently, adjust the patterns in
 | `/vip status` | Shows your orders and their status |
 | `/vip cancel [code]` | Cancels one of your pending orders |
 
-**For staff** (needs the *Manage Roles* permission or a role from `VIP_ADMIN_ROLE_IDS`)
+**For staff** (needs a role from `VIP_MOD_ROLE_IDS`, or the Administrator permission)
 
 | Command | What it does |
 |---------|----------|
@@ -159,6 +192,8 @@ If your bank words its alerts differently, adjust the patterns in
 | `/vip-admin pending` | Orders still awaiting payment |
 | `/vip-admin cancel code:<>` | Cancels anyone's order |
 | `/vip-admin sync` | Checks the mailbox right now instead of waiting for the next poll |
+| `/vip-admin members` | Every active membership and when it expires |
+| `/vip-admin revoke user:<> [reason]` | Ends a membership now and takes the roles back |
 
 ## Photos-only channel
 
@@ -189,6 +224,7 @@ src/
   bots/vipBot.js         VIP bot client
   bots/photoBot.js       photos-only bot client
   lib/brand.js           embed colours
+  lib/subscriptions.js   membership expiry, renewals and reminder timing
   lib/codes.js           random code generation and detection
   lib/tiers.js           prices and the stacking tier rule
   lib/store.js           JSON persistence (data/store.json)
@@ -196,7 +232,10 @@ src/
   payments/zelleWatcher.js  periodic IMAP mailbox polling
   vip/orders.js          order lifecycle
   vip/roles.js           role assignment
-  vip/paymentFlow.js     payment -> order -> roles -> notifications
+  vip/paymentFlow.js     payment -> order -> roles -> membership -> notifications
+  vip/subscriptions.js   membership records
+  vip/subscriptionSweeper.js  reminders and automatic role removal
+  vip/notify.js          DMs and the audit channel
   vip/commands.js        slash commands
   photo/photoOnly.js     the rule for what a photos channel accepts
 test/                    tests (node --test)
@@ -212,5 +251,7 @@ npm test
 ```
 
 They cover code generation and detection, the stacking tier rule, Zelle email parsing
-(including spoofing attempts and outgoing-payment alerts), the order lifecycle, and the
-full payment flow against a stubbed Discord client.
+(including spoofing attempts and outgoing-payment alerts), the order lifecycle, the
+membership rules (expiry, early renewal stacking, reminder timing, grace period, members
+who left the server, closed DMs) and the full payment flow against a stubbed Discord
+client.

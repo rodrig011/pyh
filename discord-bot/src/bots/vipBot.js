@@ -6,6 +6,7 @@ import { ZelleWatcher } from '../payments/zelleWatcher.js';
 import { buildCommands, handleInteraction } from '../vip/commands.js';
 import { expireStaleOrders } from '../vip/orders.js';
 import { processPayment } from '../vip/paymentFlow.js';
+import { sweepSubscriptions } from '../vip/subscriptionSweeper.js';
 import { checkRoleSetup } from '../vip/roles.js';
 
 const log = createLogger('vip');
@@ -55,11 +56,26 @@ export function createVipBot(config = loadVipConfig()) {
     }
 
     watcher.start();
-    // Periodic cleanup of overdue orders.
-    setInterval(() => {
+
+    // Housekeeping: expire abandoned orders, warn memberships that are about to
+    // run out and take the roles back from the ones that already did.
+    const housekeeping = async () => {
       const expired = expireStaleOrders(store);
       if (expired.length > 0) log.info(`${expired.length} order(s) expired`);
-    }, 15 * 60 * 1000).unref();
+      try {
+        const swept = await sweepSubscriptions(client, store, config);
+        if (swept.reminded || swept.expired) {
+          log.info(`Memberships: ${swept.reminded} reminded, ${swept.expired} expired`);
+        }
+      } catch (error) {
+        log.error(`Membership sweep failed: ${error.message}`);
+      }
+    };
+
+    await housekeeping();
+    setInterval(() => {
+      housekeeping().catch((error) => log.error(`Housekeeping failed: ${error.message}`));
+    }, config.sweepIntervalMinutes * 60 * 1000).unref();
   });
 
   client.on(Events.InteractionCreate, async (interaction) => {

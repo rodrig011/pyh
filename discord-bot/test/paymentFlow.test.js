@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createStore } from '../src/lib/store.js';
+import { DAY_MS, SUBSCRIPTION_STATUS } from '../src/lib/subscriptions.js';
 import { createOrder } from '../src/vip/orders.js';
 import { processPayment } from '../src/vip/paymentFlow.js';
 
@@ -14,6 +15,7 @@ const config = {
   amountToleranceCents: 0,
   upgradeOnOverpay: true,
   logChannelId: null,
+  subscriptionDays: 30,
   tiers: {
     1: { tier: 1, priceCents: 5000, roleId: 'role-1' },
     2: { tier: 2, priceCents: 10000, roleId: 'role-2' },
@@ -136,4 +138,38 @@ test('replaying the same payment does not grant the roles again', async (t) => {
 
   assert.equal(repeat.status, 'already_paid');
   assert.deepEqual(state.roles, ['role-1', 'role-2'], 'roles are not duplicated');
+});
+
+test('a confirmed payment starts a 30-day membership', async (t) => {
+  const store = freshStore(t);
+  const { client } = fakeClient();
+  const order = createOrder(store, { userId: 'u1', guildId: 'g', tier: 2, config });
+
+  const before = Date.now();
+  const result = await processPayment(client, store, config, { codes: [order.code], amountCents: 10000 });
+
+  const subscription = store.getSubscription('g', 'u1');
+  assert.equal(result.status, 'granted');
+  assert.equal(subscription.status, SUBSCRIPTION_STATUS.ACTIVE);
+  assert.equal(subscription.tier, 2);
+  assert.ok(
+    subscription.expiresAt >= before + 30 * DAY_MS && subscription.expiresAt <= Date.now() + 30 * DAY_MS,
+    'expires roughly 30 days out',
+  );
+});
+
+test('paying again extends the membership instead of restarting it', async (t) => {
+  const store = freshStore(t);
+  const { client } = fakeClient();
+
+  const first = createOrder(store, { userId: 'u1', guildId: 'g', tier: 1, config });
+  await processPayment(client, store, config, { codes: [first.code], amountCents: 5000 });
+  const firstExpiry = store.getSubscription('g', 'u1').expiresAt;
+
+  const second = createOrder(store, { userId: 'u1', guildId: 'g', tier: 1, config });
+  await processPayment(client, store, config, { codes: [second.code], amountCents: 5000 });
+  const subscription = store.getSubscription('g', 'u1');
+
+  assert.equal(subscription.expiresAt, firstExpiry + 30 * DAY_MS);
+  assert.equal(subscription.renewals, 1);
 });

@@ -8,8 +8,11 @@ import {
 import { TIER_NAMES, availableTiers, formatMoney, includedTiers } from '../lib/tiers.js';
 import { COLORS } from '../lib/brand.js';
 import { normalizeCode } from '../lib/codes.js';
+import { SUBSCRIPTION_STATUS, daysLeft } from '../lib/subscriptions.js';
 import { ORDER_STATUS, createOrder, expireStaleOrders } from './orders.js';
 import { processPayment } from './paymentFlow.js';
+import { revokeTierRoles } from './roles.js';
+import { activeSubscriptions, endSubscription } from './subscriptions.js';
 
 export function buildCommands(config) {
   // Only tiers with a role configured can be bought; the rest read as "coming soon".
@@ -87,15 +90,41 @@ export function buildCommands(config) {
     )
     .addSubcommand((sub) =>
       sub.setName('sync').setDescription('Check the Zelle mailbox right now'),
+    )
+    .addSubcommand((sub) =>
+      sub.setName('members').setDescription('List active VIP memberships and when they expire'),
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('revoke')
+        .setDescription('End a membership now and take the roles back')
+        .addUserOption((option) =>
+          option.setName('user').setDescription('Member to revoke').setRequired(true),
+        )
+        .addStringOption((option) =>
+          option.setName('reason').setDescription('Why (kept in the log)').setRequired(false),
+        ),
     );
 
   return [vip.toJSON(), admin.toJSON()];
 }
 
-function isAdmin(interaction, config) {
-  if (interaction.memberPermissions?.has(PermissionFlagsBits.ManageRoles)) return true;
-  if (config.adminRoleIds.length === 0) return false;
-  return config.adminRoleIds.some((roleId) => interaction.member?.roles?.cache?.has(roleId));
+/**
+ * Who may run /vip-admin.
+ *
+ * With VIP_MOD_ROLE_IDS configured, only those roles qualify — having "Manage
+ * Roles" is deliberately not enough any more. Administrator still passes, so a
+ * server owner cannot lock themselves out of their own bot.
+ */
+function isMod(interaction, config) {
+  if (interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return true;
+
+  if (config.modRoleIds.length > 0) {
+    return config.modRoleIds.some((roleId) => interaction.member?.roles?.cache?.has(roleId));
+  }
+
+  // Not configured yet: fall back to the Discord permission so the bot is usable.
+  return interaction.memberPermissions?.has(PermissionFlagsBits.ManageRoles) ?? false;
 }
 
 function statusLabel(status) {
@@ -112,7 +141,10 @@ function pricesEmbed(config) {
   return new EmbedBuilder()
     .setColor(COLORS.gold)
     .setTitle('VIP tiers')
-    .setDescription('Every tier includes the perks of all the tiers below it.')
+    .setDescription(
+      `Every tier includes the perks of all the tiers below it.\n` +
+        `Each one is a **${config.subscriptionDays}-day membership** — renew before it ends or the roles come off automatically.`,
+    )
     .addFields(
       [1, 2, 3].map((tier) => ({
         name: `${TIER_NAMES[tier]} — ${formatMoney(config.tiers[tier].priceCents)}`,
@@ -165,6 +197,7 @@ async function handleBuy(interaction, { store, config }) {
         '**3.** That is it. As soon as the payment lands the bot hands you the roles automatically.',
         '',
         `Includes: ${includedTiers(tier).map((level) => TIER_NAMES[level]).join(', ')}`,
+        `⏳ **${config.subscriptionDays}-day membership.** We remind you before it ends; if it is not renewed the bot removes the roles.`,
         `This code expires ${time(Math.floor(order.expiresAt / 1000), 'R')}.`,
       ].join('\n'),
     )
@@ -177,30 +210,51 @@ async function handleBuy(interaction, { store, config }) {
   });
 }
 
-async function handleStatus(interaction, { store }) {
+async function handleStatus(interaction, { store, config }) {
   expireStaleOrders(store);
+  const subscription = store.getSubscription(interaction.guildId, interaction.user.id);
   const orders = store
     .listOrders((order) => order.userId === interaction.user.id)
     .sort((a, b) => b.createdAt - a.createdAt)
-    .slice(0, 10);
+    .slice(0, 5);
 
-  if (orders.length === 0) {
+  if (!subscription && orders.length === 0) {
     await interaction.reply({
-      content: 'You have no orders yet. Use `/vip buy` to get started.',
+      content: 'You have no membership yet. Use `/vip buy` to get started.',
       flags: MessageFlags.Ephemeral,
     });
     return;
   }
 
-  const embed = new EmbedBuilder()
-    .setColor(COLORS.info)
-    .setTitle('Your orders')
-    .addFields(
-      orders.map((order) => ({
-        name: `${order.code} — ${TIER_NAMES[order.tier]}`,
-        value: `${statusLabel(order.status)} · ${formatMoney(order.amountCents)} · created ${time(Math.floor(order.createdAt / 1000), 'R')}`,
-      })),
-    );
+  const embed = new EmbedBuilder().setColor(COLORS.info).setTitle('Your VIP membership');
+
+  if (subscription?.status === SUBSCRIPTION_STATUS.ACTIVE) {
+    const left = daysLeft(subscription, Date.now());
+    embed.setColor(left <= 3 ? COLORS.pending : COLORS.success).addFields({
+      name: `✅ ${TIER_NAMES[subscription.tier]} — active`,
+      value:
+        `Expires ${time(Math.floor(subscription.expiresAt / 1000), 'R')} (${time(Math.floor(subscription.expiresAt / 1000), 'f')})\n` +
+        `${left} day${left === 1 ? '' : 's'} left of your ${config.subscriptionDays}-day period.\n` +
+        `Renew any time with \`/vip buy tier:${subscription.tier}\` — the days stack on top of what is left.`,
+    });
+  } else if (subscription) {
+    embed.setColor(COLORS.warning).addFields({
+      name: `⌛ ${TIER_NAMES[subscription.tier]} — ${subscription.status}`,
+      value: `Ended ${time(Math.floor((subscription.endedAt ?? subscription.expiresAt) / 1000), 'R')}. Use \`/vip buy\` to come back.`,
+    });
+  }
+
+  if (orders.length > 0) {
+    embed.addFields({
+      name: 'Recent orders',
+      value: orders
+        .map(
+          (order) =>
+            `\`${order.code}\` · ${TIER_NAMES[order.tier]} · ${statusLabel(order.status)} · ${formatMoney(order.amountCents)}`,
+        )
+        .join('\n'),
+    });
+  }
 
   await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
 }
@@ -352,6 +406,54 @@ async function handleAdminCancel(interaction, { store, config }) {
   await interaction.editReply(`Order \`${order.code}\` from <@${order.userId}> cancelled.`);
 }
 
+async function handleAdminMembers(interaction, { store, config }) {
+  const active = activeSubscriptions(store).sort((a, b) => a.expiresAt - b.expiresAt);
+
+  if (active.length === 0) {
+    await interaction.editReply('Nobody has an active membership right now.');
+    return;
+  }
+
+  const lines = active
+    .slice(0, 25)
+    .map(
+      (subscription) =>
+        `<@${subscription.userId}> · ${TIER_NAMES[subscription.tier]} · expires ${time(Math.floor(subscription.expiresAt / 1000), 'R')}` +
+        `${subscription.renewals > 0 ? ` · ${subscription.renewals + 1} periods` : ''}`,
+    );
+
+  await interaction.editReply({
+    embeds: [
+      new EmbedBuilder()
+        .setColor(COLORS.gold)
+        .setTitle(`Active memberships (${active.length})`)
+        .setDescription(lines.join('\n'))
+        .setFooter({
+          text: `${config.subscriptionDays}-day memberships · roles are removed automatically when they run out`,
+        }),
+    ],
+  });
+}
+
+async function handleAdminRevoke(interaction, { store, config, client }) {
+  const user = interaction.options.getUser('user');
+  const reason = interaction.options.getString('reason') ?? `revoked by ${interaction.user.tag}`;
+  const subscription = store.getSubscription(interaction.guildId, user.id);
+
+  if (!subscription || subscription.status !== SUBSCRIPTION_STATUS.ACTIVE) {
+    await interaction.editReply(`<@${user.id}> has no active membership.`);
+    return;
+  }
+
+  const guild = await client.guilds.fetch(interaction.guildId);
+  const revoked = await revokeTierRoles(guild, user.id, subscription.tier, config, reason);
+  endSubscription(store, subscription, { status: SUBSCRIPTION_STATUS.REVOKED, reason });
+
+  await interaction.editReply(
+    `Membership of <@${user.id}> (**${TIER_NAMES[subscription.tier]}**) revoked. ${revoked.removed.length} role(s) removed${revoked.absent ? ' — the user already left the server' : ''}.`,
+  );
+}
+
 async function handleAdminSync(interaction, { watcher }) {
   if (!watcher) {
     await interaction.editReply('The mailbox watcher is not running (check your IMAP settings).');
@@ -383,9 +485,9 @@ export async function handleInteraction(interaction, context) {
   }
 
   if (interaction.commandName === 'vip-admin') {
-    if (!isAdmin(interaction, context.config)) {
+    if (!isMod(interaction, context.config)) {
       return interaction.reply({
-        content: 'You do not have permission to use this command.',
+        content: 'Only the mod team can use this command.',
         flags: MessageFlags.Ephemeral,
       });
     }
@@ -395,6 +497,8 @@ export async function handleInteraction(interaction, context) {
     if (sub === 'pending') return handleAdminPending(interaction, context);
     if (sub === 'cancel') return handleAdminCancel(interaction, context);
     if (sub === 'sync') return handleAdminSync(interaction, context);
+    if (sub === 'members') return handleAdminMembers(interaction, context);
+    if (sub === 'revoke') return handleAdminRevoke(interaction, context);
     return undefined;
   }
 
