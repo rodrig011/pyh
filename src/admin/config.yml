@@ -81,7 +81,7 @@ collections:
         name: "body"
         widget: "markdown"
         required: false
-        hint: "Aquí escribes el post completo. Puedes poner negritas, títulos, listas e imágenes."
+        hint: "Aquí escribes el post completo. Para AGRANDAR un texto: selecciónalo y dale a uno de los botones H1 a H6 de la barra de arriba (H1 = el más grande, H6 = apenas más grande que lo normal). También hay negritas, cursivas, listas, links e imágenes."
 
   - name: "settings"
     label: "Configuración del sitio"
