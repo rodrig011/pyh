@@ -96,6 +96,17 @@ collections:
             required: false
             hint: "Aparece en la pestaña del navegador y cuando compartes el link"
 
+          - label: "Tamaño del texto"
+            name: "text_size"
+            widget: "select"
+            required: false
+            default: "normal"
+            options:
+              - { label: "Normal", value: "normal" }
+              - { label: "Grande", value: "grande" }
+              - { label: "Más grande", value: "xl" }
+            hint: "Agranda el texto de lectura de todo el sitio (portada, posts, biografía). Los títulos grandes y el menú no cambian, para que el diseño no se rompa."
+
           - label: "Barra de texto que se mueve arriba (ticker)"
             name: "ticker"
             widget: "list"
