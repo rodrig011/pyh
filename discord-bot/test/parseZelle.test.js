@@ -5,6 +5,7 @@ import {
   parseAmountToCents,
   parsePaymentEmail,
   parseZelleEmail,
+  senderMatches,
 } from '../src/payments/parseZelle.js';
 
 const CHASE = {
@@ -169,4 +170,33 @@ test('Venmo still works with no allowlist because it ships a safe default', () =
   );
   assert.equal(parsed.isPayment, true);
   assert.equal(parsed.amountCents, 5000);
+});
+
+test('an allowlisted domain covers its subdomains, which is all you know sometimes', () => {
+  assert.equal(senderMatches('alerts@huntington.com', 'huntington.com'), true);
+  assert.equal(senderMatches('huntingtonbank@email.huntington.com', 'huntington.com'), true);
+  assert.equal(senderMatches('a@notify.alerts.huntington.com', 'huntington.com'), true);
+});
+
+test('a domain entry does not match a lookalike registered by someone else', () => {
+  // The address a spoofer would actually buy: it contains the bank's domain but
+  // belongs to them. Substring matching would have let every one of these in.
+  assert.equal(senderMatches('spoof@huntington.com.evil.net', 'huntington.com'), false);
+  assert.equal(senderMatches('spoof@myhuntington.com', 'huntington.com'), false);
+  assert.equal(senderMatches('spoof@huntington.com.co', 'huntington.com'), false);
+  assert.equal(senderMatches('huntington.com@gmail.com', 'huntington.com'), false);
+});
+
+test('an entry with an @ is an exact address, nothing looser', () => {
+  assert.equal(senderMatches('alerts@chase.com', 'alerts@chase.com'), true);
+  assert.equal(senderMatches('other@chase.com', 'alerts@chase.com'), false);
+});
+
+test('the spoofed-domain rule holds through the whole parser', () => {
+  const parsed = parsePaymentEmail(
+    { ...HUNTINGTON, from: 'alerts@huntington.com.evil.net' },
+    { providers: [{ provider: 'zelle', allowedSenders: ['huntington.com'] }] },
+  );
+  assert.equal(parsed.isPayment, false);
+  assert.match(parsed.reason, /Untrusted sender/);
 });

@@ -53,6 +53,29 @@ export const PROVIDERS = {
 
 const MEMO_PATTERNS = [/(?:memo|note|nota|concepto|mensaje)\s*[:\-]\s*([^\n<]{1,120})/i];
 
+/**
+ * Does this sender match an allowlist entry?
+ *
+ * An entry with an "@" is an exact address. Without one it is a domain, and it
+ * matches that domain or any subdomain of it — so `huntington.com` covers
+ * `alerts@huntington.com` and `x@email.huntington.com`, which matters when all
+ * you know is which bank sends the alert.
+ *
+ * The comparison is on the domain, never a substring: `x@huntington.com.evil.net`
+ * contains "huntington.com" but is not Huntington, and that is exactly the
+ * address a spoofer would register.
+ */
+export function senderMatches(from, allowed) {
+  const address = (from ?? '').toLowerCase().trim();
+  const entry = (allowed ?? '').toLowerCase().trim();
+  if (address === '' || entry === '') return false;
+
+  if (entry.includes('@')) return address === entry;
+
+  const domain = address.slice(address.lastIndexOf('@') + 1);
+  return domain === entry || domain.endsWith(`.${entry}`);
+}
+
 /** "JUAN PEREZ with Zelle®" -> "JUAN PEREZ". */
 function cleanName(raw) {
   if (!raw) return null;
@@ -155,7 +178,7 @@ export function parsePaymentEmail(email = {}, options = {}) {
       continue;
     }
 
-    if (!trusted.some((allowed) => from.includes(allowed.toLowerCase()))) {
+    if (!trusted.some((allowed) => senderMatches(from, allowed))) {
       reasons.push(`${rules.label}: Untrusted sender ${email.from ?? '(empty)'}`);
       continue;
     }
