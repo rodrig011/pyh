@@ -602,13 +602,13 @@ async function handleButton(interaction, context) {
       const result = await openTicket(interaction, context);
       await interaction.editReply(
         result.status === 'already_open'
-          ? `You already have a ticket open: <#${result.threadId}>`
-          : `Ticket opened: <#${result.threadId}> — the team has been notified.`,
+          ? `You already have a ticket open: <#${result.channelId}>`
+          : `Ticket opened: <#${result.channelId}> — the team has been notified.`,
       );
     } catch (error) {
       commandLog.error(`Could not open a ticket for ${interaction.user.tag}: ${error.message}`);
       await interaction.editReply(
-        'Could not open the ticket. Tell a mod — the bot may be missing the permission to create private threads here.',
+        'Could not open the ticket. Tell a mod — the bot may be missing the "Manage Channels" permission.',
       );
     }
     return undefined;
@@ -621,7 +621,9 @@ async function handleButton(interaction, context) {
         flags: MessageFlags.Ephemeral,
       });
     }
-    await interaction.reply({ content: `Closed by <@${interaction.user.id}>.` });
+    await interaction.reply({
+      content: `Closed by <@${interaction.user.id}> — this channel is deleted in a few seconds.`,
+    });
     await closeTicket(interaction, context);
     return undefined;
   }
@@ -632,7 +634,7 @@ async function handleButton(interaction, context) {
 async function handleAdminPanel(interaction, { config }) {
   await interaction.channel.send(panelMessage(config));
   await interaction.editReply(
-    'Panel posted. Pin it so members can find it, and make sure the bot can create private threads in this channel.',
+    'Panel posted. Pin it so members can find it. The bot needs "Manage Channels" to create the private ticket channels.',
   );
 }
 

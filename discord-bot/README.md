@@ -76,6 +76,22 @@ Every payment buys `SUBSCRIPTION_DAYS` (30 by default) of access, not a permanen
 Mods see every active membership with `/vip-admin members` and can end one immediately
 with `/vip-admin revoke` (useful for a Zelle chargeback).
 
+## Tickets
+
+`/vip-admin panel` posts a button members press when a payment has not landed. It opens
+a **private channel** — the member, the mods and nobody else — pings the mod roles, and
+leads with the context somebody would otherwise have to go dig for: the member's
+membership state, their last order codes, and the exact `/vip-admin confirm` line that
+applies the payment. Clicking twice reuses the channel they already have; mods close it
+from a button, which deletes it.
+
+The bot needs **Manage Channels** for this. `TICKET_CATEGORY_ID` files the tickets under
+a category.
+
+Note that payments arriving with **no VIP code** are never posted to Discord: the watched
+inbox also carries the owner's personal transfers, and those are nobody's business.
+`LOG_UNMATCHED_PAYMENTS=true` brings them back if you want them.
+
 ## Who can administer the bot
 
 `/vip-admin` is for staff only. Set `VIP_MOD_ROLE_IDS` to your MOD role ID (comma

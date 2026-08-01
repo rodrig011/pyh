@@ -86,6 +86,8 @@ export function loadVipConfig() {
     // Payments carrying no VIP code are assumed to be the owner's personal
     // transfers and are never posted to Discord. Turn on to see them anyway.
     logUnmatchedPayments: bool('LOG_UNMATCHED_PAYMENTS', false),
+    // Category the private ticket channels are created under (optional).
+    ticketCategoryId: str('TICKET_CATEGORY_ID'),
     // How long a paid membership lasts, and when to warn before it runs out.
     subscriptionDays: int('SUBSCRIPTION_DAYS', 30),
     reminderDaysBefore: numberList('SUBSCRIPTION_REMINDER_DAYS', [3, 1]),

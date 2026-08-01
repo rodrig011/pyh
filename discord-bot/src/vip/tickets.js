@@ -1,4 +1,12 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, EmbedBuilder, time } from 'discord.js';
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ChannelType,
+  EmbedBuilder,
+  PermissionFlagsBits,
+  time,
+} from 'discord.js';
 import { COLORS } from '../lib/brand.js';
 import { createLogger } from '../lib/logger.js';
 import { SUBSCRIPTION_STATUS } from '../lib/subscriptions.js';
@@ -10,12 +18,20 @@ const log = createLogger('tickets');
 export const TICKET_OPEN = 'vip:ticket:open';
 export const TICKET_CLOSE = 'vip:ticket:close';
 
+const MEMBER_PERMISSIONS = [
+  PermissionFlagsBits.ViewChannel,
+  PermissionFlagsBits.SendMessages,
+  PermissionFlagsBits.ReadMessageHistory,
+  PermissionFlagsBits.AttachFiles,
+  PermissionFlagsBits.EmbedLinks,
+];
+
 export function ticketKey(guildId, userId) {
   return `${guildId}:${userId}`;
 }
 
 /** The public message members click on. Posted once, left pinned in a channel. */
-export function panelMessage(config) {
+export function panelMessage() {
   return {
     embeds: [
       new EmbedBuilder()
@@ -27,7 +43,7 @@ export function panelMessage(config) {
             '',
             '**Before you do:** most payments land on their own within a minute. Check `/vip status` first — it shows whether yours went through.',
             '',
-            'Opening a ticket creates a **private thread** where only you and the mods can see it.',
+            'This opens a **private channel** that only you and the mods can see. It is deleted when the issue is closed.',
           ].join('\n'),
         )
         .setFooter({ text: 'Have your payment screenshot ready — it makes this much faster.' }),
@@ -45,11 +61,31 @@ export function panelMessage(config) {
 }
 
 /**
+ * Who can see the ticket: the member who opened it, the mods, and nobody else.
+ * @everyone is denied explicitly rather than relying on the category, so the
+ * channel is private even if it ends up outside one.
+ */
+export function ticketPermissions(guild, userId, modRoleIds = [], botId) {
+  const overwrites = [
+    { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+    { id: userId, allow: MEMBER_PERMISSIONS },
+  ];
+
+  for (const roleId of modRoleIds) {
+    overwrites.push({ id: roleId, allow: [...MEMBER_PERMISSIONS, PermissionFlagsBits.ManageMessages] });
+  }
+
+  if (botId) overwrites.push({ id: botId, allow: [...MEMBER_PERMISSIONS, PermissionFlagsBits.ManageChannels] });
+
+  return overwrites;
+}
+
+/**
  * What the mods need in front of them the moment the ticket opens: who this is,
  * what they were told to pay, and whether the bot already knows about it.
  * Without this a ticket is just "help me" and someone has to go dig.
  */
-export function memberContextEmbed(store, { guildId, userId, config }) {
+export function memberContextEmbed(store, { guildId, userId }) {
   const subscription = store.getSubscription(guildId, userId);
   const orders = store
     .listOrders((order) => order.userId === userId && order.guildId === guildId)
@@ -92,42 +128,43 @@ export function memberContextEmbed(store, { guildId, userId, config }) {
 }
 
 /**
- * Opens a private thread for one member. Returns the existing one instead of a
- * second thread if they click twice — a duplicate ticket just splits the
- * conversation and hides half the context from whoever picks it up.
+ * Opens a private channel for one member. Clicking twice returns the one they
+ * already have — a second ticket just splits the conversation and hides half
+ * the context from whoever picks it up.
  */
 export async function openTicket(interaction, { store, config }) {
   const key = ticketKey(interaction.guildId, interaction.user.id);
   const existing = store.data.tickets?.[key];
 
   if (existing?.status === 'open') {
-    const stillThere = await interaction.guild.channels.fetch(existing.threadId).catch(() => null);
-    if (stillThere && !stillThere.archived) {
-      return { status: 'already_open', threadId: existing.threadId };
-    }
+    const stillThere = await interaction.guild.channels.fetch(existing.channelId).catch(() => null);
+    if (stillThere) return { status: 'already_open', channelId: existing.channelId };
   }
 
-  const thread = await interaction.channel.threads.create({
-    name: `payment-${interaction.user.username}`.slice(0, 90),
-    type: ChannelType.PrivateThread,
-    invitable: false,
-    autoArchiveDuration: 1440,
+  const channel = await interaction.guild.channels.create({
+    name: `ticket-${interaction.user.username}`.slice(0, 90),
+    type: ChannelType.GuildText,
+    parent: config.ticketCategoryId ?? undefined,
+    permissionOverwrites: ticketPermissions(
+      interaction.guild,
+      interaction.user.id,
+      config.modRoleIds,
+      interaction.client?.user?.id,
+    ),
     reason: `Payment ticket for ${interaction.user.tag}`,
   });
 
-  await thread.members.add(interaction.user.id);
-
   const mentions = (config.modRoleIds ?? []).map((roleId) => `<@&${roleId}>`).join(' ');
-  await thread.send({
+  await channel.send({
     content: `${mentions} <@${interaction.user.id}> opened a payment ticket.`.trim(),
     allowedMentions: { roles: config.modRoleIds ?? [], users: [interaction.user.id] },
-    embeds: [memberContextEmbed(store, { guildId: interaction.guildId, userId: interaction.user.id, config })],
+    embeds: [memberContextEmbed(store, { guildId: interaction.guildId, userId: interaction.user.id })],
     components: [
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId(TICKET_CLOSE)
-          .setStyle(ButtonStyle.Secondary)
-          .setLabel('Close ticket')
+          .setStyle(ButtonStyle.Danger)
+          .setLabel('Close and delete')
           .setEmoji('🔒'),
       ),
     ],
@@ -137,20 +174,23 @@ export async function openTicket(interaction, { store, config }) {
   store.data.tickets[key] = {
     guildId: interaction.guildId,
     userId: interaction.user.id,
-    threadId: thread.id,
+    channelId: channel.id,
     status: 'open',
     openedAt: Date.now(),
   };
   store.save();
 
-  log.info(`Ticket opened by ${interaction.user.tag} (${thread.id})`);
-  return { status: 'opened', threadId: thread.id };
+  log.info(`Ticket opened by ${interaction.user.tag} (#${channel.id})`);
+  return { status: 'opened', channelId: channel.id };
 }
 
-/** Locks and archives the thread, and lets the member open a new one later. */
-export async function closeTicket(interaction, { store }) {
-  const thread = interaction.channel;
-  const entry = Object.values(store.data.tickets ?? {}).find((ticket) => ticket.threadId === thread.id);
+/**
+ * Deletes the channel. The delay is so the "closing" message is actually seen
+ * rather than vanishing with the channel the instant a mod clicks.
+ */
+export async function closeTicket(interaction, { store, config }, { delayMs = 5000 } = {}) {
+  const channel = interaction.channel;
+  const entry = Object.values(store.data.tickets ?? {}).find((ticket) => ticket.channelId === channel.id);
 
   if (entry) {
     entry.status = 'closed';
@@ -159,8 +199,17 @@ export async function closeTicket(interaction, { store }) {
     store.save();
   }
 
-  await thread.setLocked(true).catch(() => {});
-  await thread.setArchived(true).catch(() => {});
-  log.info(`Ticket ${thread.id} closed by ${interaction.user.tag}`);
-  return { status: 'closed' };
+  const remove = async () => {
+    try {
+      await channel.delete(`Ticket closed by ${interaction.user.tag}`);
+      log.info(`Ticket channel ${channel.id} deleted`);
+    } catch (error) {
+      log.error(`Could not delete the ticket channel ${channel.id}: ${error.message}`);
+    }
+  };
+
+  if (delayMs > 0) setTimeout(remove, delayMs).unref?.();
+  else await remove();
+
+  return { status: 'closed', channelId: channel.id };
 }
