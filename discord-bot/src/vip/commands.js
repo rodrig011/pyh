@@ -1,4 +1,7 @@
 import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   EmbedBuilder,
   MessageFlags,
   PermissionFlagsBits,
@@ -14,12 +17,16 @@ import {
   tierTitle,
 } from '../lib/tiers.js';
 import { COLORS } from '../lib/brand.js';
+import { createLogger } from '../lib/logger.js';
+import { createSubscriptionCheckout } from '../payments/stripe.js';
 import { normalizeCode } from '../lib/codes.js';
 import { SUBSCRIPTION_STATUS, daysLeft } from '../lib/subscriptions.js';
 import { ORDER_STATUS, createOrder, expireStaleOrders } from './orders.js';
 import { processPayment } from './paymentFlow.js';
 import { revokeTierRoles } from './roles.js';
 import { activeSubscriptions, endSubscription } from './subscriptions.js';
+
+const commandLog = createLogger('commands');
 
 export function buildCommands(config) {
   // Only tiers with a role configured can be bought; the rest read as "coming soon".
@@ -36,7 +43,7 @@ export function buildCommands(config) {
     .addSubcommand((sub) =>
       sub
         .setName('buy')
-        .setDescription('Get your Zelle payment code')
+        .setDescription('Buy VIP access — card subscription or Zelle')
         .addIntegerOption((option) =>
           option
             .setName('tier')
@@ -165,7 +172,29 @@ function pricesEmbed(config) {
     .setFooter({ text: 'Renew before it runs out and your days stack — you never lose time.' });
 }
 
-async function handleBuy(interaction, { store, config }) {
+/**
+ * Opens a card checkout for this order, if Stripe is configured.
+ * Card failures must never block the Zelle instructions, so this returns null
+ * instead of throwing.
+ */
+async function cardCheckoutRow(stripe, config, order) {
+  if (!stripe) return null;
+  try {
+    const session = await createSubscriptionCheckout(stripe, { config, order });
+    return new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setStyle(ButtonStyle.Link)
+        .setLabel(`Pay by card — ${formatMoney(order.amountCents)} every ${config.subscriptionDays} days`)
+        .setEmoji('💳')
+        .setURL(session.url),
+    );
+  } catch (error) {
+    commandLog.error(`Could not open a Stripe checkout for ${order.code}: ${error.message}`);
+    return null;
+  }
+}
+
+async function handleBuy(interaction, { store, config, stripe }) {
   const tier = interaction.options.getInteger('tier');
 
   // Guards against a stale command registration still offering a locked tier.
@@ -177,6 +206,8 @@ async function handleBuy(interaction, { store, config }) {
     return;
   }
 
+  // Opening a Stripe checkout takes a moment; defer so Discord does not time out.
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   expireStaleOrders(store);
 
   const existing = store
@@ -200,24 +231,26 @@ async function handleBuy(interaction, { store, config }) {
       [
         tierPerks(tier, config.tiers),
         '',
-        `**1.** Send **${formatMoney(order.amountCents)}** via Zelle to:`,
-        `> \`${config.zelleRecipient}\`${config.zelleRecipientName ? ` (${config.zelleRecipientName})` : ''}`,
+        '**💳 Card — pays itself**',
+        `Use the button below. **${formatMoney(order.amountCents)} every ${config.subscriptionDays} days**, charged automatically until you cancel, so you never lose access by forgetting.`,
         '',
-        '**2.** Put **exactly** this code in the memo / note of the payment:',
+        '**🏦 Zelle — one payment**',
+        `**1.** Send **${formatMoney(order.amountCents)}** to \`${config.zelleRecipient}\`${config.zelleRecipientName ? ` (${config.zelleRecipientName})` : ''}`,
+        '**2.** Put **exactly** this code in the memo / note:',
         `> # ${order.code}`,
-        '',
-        '**3.** That is it. As soon as the payment lands the bot hands you the roles automatically.',
+        `**3.** Done — the roles land by themselves. Covers **${config.subscriptionDays} days**, then you renew by hand.`,
         '',
         `Includes: ${includedTiers(tier).map((level) => TIER_NAMES[level]).join(', ')}`,
-        `⏳ **${config.subscriptionDays}-day membership.** We remind you before it ends; if it is not renewed the bot removes the roles.`,
         `This code expires ${time(Math.floor(order.expiresAt / 1000), 'R')}.`,
       ].join('\n'),
     )
-    .setFooter({ text: 'Without the code in the memo the payment cannot be matched automatically.' });
+    .setFooter({ text: 'Paying by Zelle without the code in the memo means it cannot be matched automatically.' });
 
-  await interaction.reply({
+  const cardRow = await cardCheckoutRow(stripe, config, order);
+
+  await interaction.editReply({
     embeds: [embed],
-    flags: MessageFlags.Ephemeral,
+    components: cardRow ? [cardRow] : [],
     content: existing ? 'You already had an open order for this tier, so here is its code again:' : undefined,
   });
 }

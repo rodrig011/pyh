@@ -3,6 +3,7 @@ import { COLORS } from '../lib/brand.js';
 import { createLogger } from '../lib/logger.js';
 import { SUBSCRIPTION_STATUS, dueReminder, isExpired } from '../lib/subscriptions.js';
 import { TIER_NAMES, formatMoney } from '../lib/tiers.js';
+import { fetchSubscriptionState } from '../payments/stripe.js';
 import { sendDm, sendLog } from './notify.js';
 import { revokeTierRoles } from './roles.js';
 import { endSubscription, markReminded } from './subscriptions.js';
@@ -52,8 +53,8 @@ function expiredEmbed(subscription, config, removed) {
  *
  * @returns {Promise<{reminded: number, expired: number, failed: number}>}
  */
-export async function sweepSubscriptions(client, store, config, now = Date.now()) {
-  const result = { reminded: 0, expired: 0, failed: 0 };
+export async function sweepSubscriptions(client, store, config, now = Date.now(), stripe = null) {
+  const result = { reminded: 0, expired: 0, failed: 0, reconciled: 0 };
 
   const open = store.listSubscriptions(
     (subscription) => subscription.status === SUBSCRIPTION_STATUS.ACTIVE,
@@ -62,6 +63,26 @@ export async function sweepSubscriptions(client, store, config, now = Date.now()
   for (const subscription of open) {
     try {
       if (isExpired(subscription, now, config.subscriptionGraceDays)) {
+        // A card membership renews itself. Before taking anyone's roles, ask
+        // Stripe directly — a webhook we never received must not cost a paying
+        // member their access.
+        if (stripe && subscription.stripeSubscriptionId) {
+          const state = await fetchSubscriptionState(stripe, subscription.stripeSubscriptionId).catch(
+            () => null,
+          );
+          if (state?.active && state.currentPeriodEnd > now) {
+            subscription.expiresAt = state.currentPeriodEnd;
+            subscription.autoRenew = !state.cancelAtPeriodEnd;
+            subscription.remindersSent = [];
+            store.putSubscription(subscription);
+            result.reconciled += 1;
+            log.warn(
+              `Missed renewal webhook for ${subscription.userId}; Stripe says paid through ${new Date(state.currentPeriodEnd).toISOString()}`,
+            );
+            continue;
+          }
+        }
+
         const guild = await client.guilds.fetch(subscription.guildId);
         const revoked = await revokeTierRoles(guild, subscription.userId, subscription.tier, config);
 
@@ -86,6 +107,10 @@ export async function sweepSubscriptions(client, store, config, now = Date.now()
         log.info(`Subscription expired: ${subscription.userId} (${revoked.removed.length} role(s) removed)`);
         continue;
       }
+
+      // A card subscription bills itself, so nagging about renewal would be
+      // wrong. Reminders come back if the member cancels auto-renew.
+      if (subscription.autoRenew) continue;
 
       const reminder = dueReminder(subscription, now, config.reminderDaysBefore);
       if (reminder) {

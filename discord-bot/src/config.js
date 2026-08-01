@@ -68,10 +68,11 @@ function numberList(name, fallback) {
 }
 
 export function loadVipConfig() {
+  const guildId = required('VIP_GUILD_ID');
   return {
     token: required('VIP_BOT_TOKEN'),
     clientId: required('VIP_CLIENT_ID'),
-    guildId: required('VIP_GUILD_ID'),
+    guildId,
     // Profile picture applied by `npm run avatar`.
     avatarPath: str('VIP_BOT_AVATAR', 'assets/avatar-512.png'),
     username: str('VIP_BOT_USERNAME'),
@@ -129,6 +130,18 @@ export function loadVipConfig() {
           '🎯 Personal guidance on your own bankroll and your own plays.',
         ]),
       },
+    },
+    // Card payments. Zelle is a one-off 30 days; Stripe bills again by itself
+    // every period until the member cancels.
+    stripe: {
+      enabled: bool('STRIPE_ENABLED', false),
+      secretKey: str('STRIPE_SECRET_KEY'),
+      webhookSecret: str('STRIPE_WEBHOOK_SECRET'),
+      webhookPath: str('STRIPE_WEBHOOK_PATH', '/stripe/webhook'),
+      port: int('PORT', 3000),
+      currency: str('STRIPE_CURRENCY', 'usd'),
+      successUrl: str('STRIPE_SUCCESS_URL', `https://discord.com/channels/${guildId}`),
+      cancelUrl: str('STRIPE_CANCEL_URL', `https://discord.com/channels/${guildId}`),
     },
     imap: {
       enabled: bool('IMAP_ENABLED', true),

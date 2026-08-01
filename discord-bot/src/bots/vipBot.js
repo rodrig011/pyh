@@ -3,6 +3,9 @@ import { loadVipConfig } from '../config.js';
 import { createLogger } from '../lib/logger.js';
 import { createStore } from '../lib/store.js';
 import { ZelleWatcher } from '../payments/zelleWatcher.js';
+import { createStripeClient, interpretStripeEvent } from '../payments/stripe.js';
+import { startStripeWebhookServer } from '../payments/stripeWebhook.js';
+import { applyStripeIntent } from '../vip/stripeFlow.js';
 import { buildCommands, handleInteraction } from '../vip/commands.js';
 import { expireStaleOrders } from '../vip/orders.js';
 import { processPayment } from '../vip/paymentFlow.js';
@@ -22,6 +25,30 @@ export async function registerCommands(config) {
 export function createVipBot(config = loadVipConfig()) {
   const store = createStore(config.storePath);
   const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
+
+  // Card payments are optional: with no Stripe key the bot is Zelle-only.
+  const stripe = createStripeClient(config);
+  let webhookServer = null;
+
+  if (stripe) {
+    if (!config.stripe.webhookSecret) {
+      log.warn('STRIPE_WEBHOOK_SECRET missing: card payments cannot be verified, so they will not be accepted');
+    } else {
+      webhookServer = startStripeWebhookServer({
+        config,
+        stripe,
+        onEvent: async (event) => {
+          const intent = interpretStripeEvent(event);
+          if (intent.action === 'ignore') {
+            log.debug(`Stripe ${event.type}: ${intent.reason}`);
+            return;
+          }
+          const result = await applyStripeIntent(client, store, config, intent, stripe);
+          log.info(`Stripe ${event.type} -> ${intent.action}: ${result.status}`);
+        },
+      });
+    }
+  }
 
   const watcher = new ZelleWatcher({
     imap: config.imap,
@@ -63,9 +90,11 @@ export function createVipBot(config = loadVipConfig()) {
       const expired = expireStaleOrders(store);
       if (expired.length > 0) log.info(`${expired.length} order(s) expired`);
       try {
-        const swept = await sweepSubscriptions(client, store, config);
-        if (swept.reminded || swept.expired) {
-          log.info(`Memberships: ${swept.reminded} reminded, ${swept.expired} expired`);
+        const swept = await sweepSubscriptions(client, store, config, Date.now(), stripe);
+        if (swept.reminded || swept.expired || swept.reconciled) {
+          log.info(
+            `Memberships: ${swept.reminded} reminded, ${swept.expired} expired, ${swept.reconciled} reconciled with Stripe`,
+          );
         }
       } catch (error) {
         log.error(`Membership sweep failed: ${error.message}`);
@@ -80,7 +109,7 @@ export function createVipBot(config = loadVipConfig()) {
 
   client.on(Events.InteractionCreate, async (interaction) => {
     try {
-      await handleInteraction(interaction, { store, config, client, watcher });
+      await handleInteraction(interaction, { store, config, client, watcher, stripe });
     } catch (error) {
       log.error(`Interaction error: ${error.stack ?? error.message}`);
       const payload = { content: 'Something went wrong while handling that command.' };
@@ -91,15 +120,16 @@ export function createVipBot(config = loadVipConfig()) {
     }
   });
 
-  return { client, store, watcher, config };
+  return { client, store, watcher, stripe, webhookServer, config };
 }
 
 const isDirectRun = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
 if (isDirectRun) {
   const config = loadVipConfig();
-  const { client, watcher } = createVipBot(config);
+  const { client, watcher, webhookServer } = createVipBot(config);
   const shutdown = () => {
     watcher.stop();
+    webhookServer?.close();
     client.destroy();
     process.exit(0);
   };

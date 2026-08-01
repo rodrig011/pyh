@@ -80,7 +80,7 @@ test('an active membership is left alone', async (t) => {
 
   const result = await sweepSubscriptions(client, store, config, NOW + 10 * DAY_MS);
 
-  assert.deepEqual(result, { reminded: 0, expired: 0, failed: 0 });
+  assert.deepEqual(result, { reminded: 0, expired: 0, failed: 0, reconciled: 0 });
   assert.deepEqual(state.removed, []);
   assert.deepEqual(state.dms, []);
 });
@@ -165,4 +165,101 @@ test('renewing before the sweep keeps the roles', async (t) => {
   assert.equal(result.expired, 0);
   assert.deepEqual(state.removed, []);
   assert.equal(store.getSubscription('g', 'u').status, SUBSCRIPTION_STATUS.ACTIVE);
+});
+
+test('a card membership is never nagged to renew — it bills itself', async (t) => {
+  const store = freshStore(t);
+  const { client, state } = fakeClient();
+  const sub = upsertSubscription(store, { guildId: 'g', userId: 'u', tier: 1, days: 30, now: NOW });
+  sub.autoRenew = true;
+  sub.source = 'stripe';
+  store.putSubscription(sub);
+
+  const result = await sweepSubscriptions(client, store, config, NOW + 29 * DAY_MS);
+
+  assert.equal(result.reminded, 0);
+  assert.deepEqual(state.dms, []);
+});
+
+test('reminders come back once the member cancels auto-renew', async (t) => {
+  const store = freshStore(t);
+  const { client, state } = fakeClient();
+  const sub = upsertSubscription(store, { guildId: 'g', userId: 'u', tier: 1, days: 30, now: NOW });
+  sub.autoRenew = false;
+  store.putSubscription(sub);
+
+  const result = await sweepSubscriptions(client, store, config, NOW + 29 * DAY_MS);
+
+  assert.equal(result.reminded, 1);
+  assert.equal(state.dms.length, 1);
+});
+
+test('a missed renewal webhook does not cost a paying member their roles', async (t) => {
+  const store = freshStore(t);
+  const { client, state } = fakeClient();
+  const sub = upsertSubscription(store, { guildId: 'g', userId: 'u', tier: 2, days: 30, now: NOW });
+  sub.stripeSubscriptionId = 'sub_live';
+  sub.autoRenew = true;
+  store.putSubscription(sub);
+
+  // Our copy looks expired, but Stripe says they are paid for another period.
+  const stripe = {
+    subscriptions: {
+      retrieve: async () => ({
+        status: 'active',
+        current_period_end: Math.floor((NOW + 60 * DAY_MS) / 1000),
+        cancel_at_period_end: false,
+      }),
+    },
+  };
+
+  const result = await sweepSubscriptions(client, store, config, NOW + 31 * DAY_MS, stripe);
+
+  assert.equal(result.reconciled, 1);
+  assert.equal(result.expired, 0);
+  assert.deepEqual(state.removed, [], 'roles stay');
+  assert.equal(store.getSubscription('g', 'u').expiresAt, NOW + 60 * DAY_MS);
+});
+
+test('a card subscription that really ended still loses its roles', async (t) => {
+  const store = freshStore(t);
+  const { client, state } = fakeClient();
+  const sub = upsertSubscription(store, { guildId: 'g', userId: 'u', tier: 1, days: 30, now: NOW });
+  sub.stripeSubscriptionId = 'sub_dead';
+  sub.autoRenew = true;
+  store.putSubscription(sub);
+
+  const stripe = {
+    subscriptions: {
+      retrieve: async () => ({ status: 'canceled', current_period_end: null, cancel_at_period_end: false }),
+    },
+  };
+
+  const result = await sweepSubscriptions(client, store, config, NOW + 31 * DAY_MS, stripe);
+
+  assert.equal(result.expired, 1);
+  assert.deepEqual(state.removed, ['role-1']);
+});
+
+test('a Stripe outage during the sweep does not strand the membership', async (t) => {
+  const store = freshStore(t);
+  const { client, state } = fakeClient();
+  const sub = upsertSubscription(store, { guildId: 'g', userId: 'u', tier: 1, days: 30, now: NOW });
+  sub.stripeSubscriptionId = 'sub_x';
+  store.putSubscription(sub);
+
+  const stripe = {
+    subscriptions: {
+      retrieve: async () => {
+        throw new Error('Stripe is down');
+      },
+    },
+  };
+
+  const result = await sweepSubscriptions(client, store, config, NOW + 31 * DAY_MS, stripe);
+
+  // Falls back to our own record rather than crashing the sweep.
+  assert.equal(result.failed, 0);
+  assert.equal(result.expired, 1);
+  assert.deepEqual(state.removed, ['role-1']);
 });

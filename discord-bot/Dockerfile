@@ -19,6 +19,10 @@ COPY assets ./assets
 RUN mkdir -p /data && chown -R node:node /data /app
 USER node
 
+# The Stripe webhook listens here. Only needed when card payments are on; with
+# Zelle alone nothing has to reach the container.
+EXPOSE 3000
+
 # No VOLUME instruction on purpose: Railway rejects it ("docker VOLUME is not
 # supported, use Railway Volumes") and it buys nothing anywhere else — mounting
 # the volume at /data works the same with `docker run -v` or a Railway volume.

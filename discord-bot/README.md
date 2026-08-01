@@ -27,6 +27,27 @@ A tier with no `ROLE_TIER_n` configured is treated as **coming soon**: it never 
 up in `/vip buy` and is listed as locked in `/vip prices`, so nobody can pay for a role
 the bot cannot hand out. Add the role ID later and it goes on sale by itself.
 
+## Two ways to pay
+
+`/vip buy` offers both in the same private reply:
+
+| | **💳 Card (Stripe)** | **🏦 Zelle** |
+|---|---|---|
+| How it renews | Charges the card automatically every period until cancelled | One payment, renewed by hand |
+| Reminders | None needed — it pays itself | DM 3 days and 1 day before it ends |
+| If it lapses | Stripe reports the cancellation, the bot removes the roles | The roles come off when the time runs out |
+| Fees | ~2.9% + $0.30 per charge | none |
+| Setup | Stripe key + webhook (see [DEPLOY.md](DEPLOY.md)) | just an email or phone |
+
+The card plan is built from `TIER_n_PRICE` and `SUBSCRIPTION_DAYS` at checkout time, so
+nothing has to be created in the Stripe dashboard and the two payment methods can never
+charge different amounts. With no Stripe key configured the bot is simply Zelle-only and
+the card button does not appear.
+
+Card memberships are reconciled against Stripe before anyone is revoked: if a renewal
+webhook goes missing, the bot asks Stripe directly rather than taking the roles off a
+member who actually paid.
+
 ## Memberships are 30 days
 
 Every payment buys `SUBSCRIPTION_DAYS` (30 by default) of access, not a permanent role.

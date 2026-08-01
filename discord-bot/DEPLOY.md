@@ -74,6 +74,42 @@ cd pyh && git pull && cd discord-bot && docker build -t vipbot . && \
   --env-file .env -v vipbot-data:/data vipbot   # deploy an update
 ```
 
+## Turning on card payments (Stripe)
+
+Zelle needs nothing public — the bot dials out. Card payments do: Stripe has to be able
+to reach the bot to say "this person paid". That is the only reason the container
+listens on a port.
+
+1. **Get the key.** Stripe dashboard → *Developers → API keys* → copy the **secret key**
+   (`sk_test_…` while you try it out, `sk_live_…` when you go live).
+2. **Give the service a public address.** Railway → service → *Settings → Networking →
+   Generate Domain*. You get something like `heroic-freedom-production.up.railway.app`.
+   On a VPS, publish the port and put it behind HTTPS.
+3. **Create the webhook.** Stripe dashboard → *Developers → Webhooks → Add endpoint*:
+   - URL: `https://<your-domain>/stripe/webhook`
+   - Events: `checkout.session.completed`, `invoice.paid`,
+     `customer.subscription.deleted`, `customer.subscription.updated`
+   - Copy the **signing secret** (`whsec_…`).
+4. **Set the variables** and redeploy:
+
+   ```
+   STRIPE_ENABLED=true
+   STRIPE_SECRET_KEY=sk_live_...
+   STRIPE_WEBHOOK_SECRET=whsec_...
+   ```
+
+The signing secret is not optional. Without it the bot refuses every card event, on
+purpose: an unverified endpoint would let anyone who finds the URL POST a fake "payment
+succeeded" and hand themselves a role. The bot answers 400 to anything it cannot verify
+and 500 when handling fails, which makes Stripe retry rather than drop the payment.
+
+Nothing else needs configuring in Stripe — no products, no prices. The plan is built
+from `TIER_n_PRICE` and `SUBSCRIPTION_DAYS` at checkout time, so the card plan can never
+drift away from the Zelle one.
+
+To check it end to end, use Stripe's test mode with card `4242 4242 4242 4242`, then
+watch the deploy logs for `Stripe checkout.session.completed -> activate: granted`.
+
 ## Backing up the data
 
 The store is a single JSON file. On a VPS:
