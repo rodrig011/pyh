@@ -8,7 +8,7 @@ eleventyExcludeFromCollections: true
   <title>{{ site.title }}</title>
   <link>{{ meta.url }}/</link>
   <atom:link href="{{ meta.url }}/feed.xml" rel="self" type="application/rss+xml" />
-  <description>{{ site.hero.subtitle }}</description>
+  <description>{{ site.hero.subtitle | oneLine }}</description>
   <language>en</language>
   {%- if collections.posts.length %}
   <lastBuildDate>{{ collections.posts | getNewestCollectionItemDate | dateToRfc822 }}</lastBuildDate>

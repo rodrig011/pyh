@@ -1,10 +1,18 @@
 const { DateTime } = require("luxon");
-const md = require("markdown-it")({ html: false });
+// breaks:true → un Enter en el CMS se convierte en un salto de línea real en el sitio
+const md = require("markdown-it")({ html: false, breaks: true });
 const pluginRss = require("@11ty/eleventy-plugin-rss");
 
 module.exports = function (eleventyConfig) {
   eleventyConfig.addPlugin(pluginRss);
   eleventyConfig.addFilter("mdInline", (str) => md.renderInline(str || ""));
+  // Para meta tags, RSS y JSON-LD: sin saltos de línea ni markdown
+  eleventyConfig.addFilter("oneLine", (str) =>
+    (str || "")
+      .replace(/\*\*|__|\*|_/g, "")
+      .replace(/\s*\n+\s*/g, " ")
+      .trim()
+  );
   eleventyConfig.addPassthroughCopy({ "src/admin": "admin" });
   eleventyConfig.addPassthroughCopy({ "src/_headers": "_headers" });
   eleventyConfig.addPassthroughCopy({ "src/images": "images" });

@@ -2,7 +2,7 @@
 <div class="nl-section" id="newsletter">
   <div class="nl-eyebrow">{{ site.newsletter.eyebrow }}</div>
   <h2 class="nl-title">{{ site.newsletter.title }}</h2>
-  <p class="nl-sub">{{ site.newsletter.subtitle }}</p>
+  <p class="nl-sub">{{ site.newsletter.subtitle | mdInline | safe }}</p>
   {% if site.newsletter.form_action %}
   <form class="nl-form" action="{{ site.newsletter.form_action }}" method="post" target="_blank" rel="noopener">
     <input type="email" name="EMAIL" placeholder="your@email.com" aria-label="Email address" required />
