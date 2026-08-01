@@ -121,6 +121,9 @@ export function buildCommands(config) {
       sub.setName('members').setDescription('List active VIP memberships and when they expire'),
     )
     .addSubcommand((sub) =>
+      sub.setName('stats').setDescription('Members, revenue and who is about to expire'),
+    )
+    .addSubcommand((sub) =>
       sub
         .setName('notify')
         .setDescription('DM a tier that their membership period is running, with their expiry date')
@@ -586,6 +589,75 @@ async function handleAdminCancel(interaction, { store, config }) {
   await interaction.editReply(`Order \`${order.code}\` from <@${order.userId}> cancelled.`);
 }
 
+async function handleAdminStats(interaction, { store, config }) {
+  const stats = computeStats(
+    {
+      subscriptions: store.listSubscriptions(),
+      payments: store.data.payments,
+      orders: store.listOrders(),
+    },
+    { guildId: interaction.guildId, tiers: config.tiers },
+  );
+
+  const tierLines = [1, 2, 3]
+    .map((tier) => `${tierTitle(tier, config.tiers)} — **${stats.active.byTier[tier] ?? 0}**`)
+    .join('\n');
+
+  const sourceLines =
+    Object.entries(stats.revenue.bySource)
+      .sort((a, b) => b[1] - a[1])
+      .map(([source, cents]) => `${source}: **${formatMoney(cents)}**`)
+      .join(' · ') || 'nothing yet';
+
+  const embed = new EmbedBuilder()
+    .setColor(COLORS.gold)
+    .setTitle('📊 VIP overview')
+    .addFields(
+      {
+        name: `👥 Active members — ${stats.active.total}`,
+        value: `${tierLines}\n${stats.active.autoRenewing} on card auto-renew`,
+        inline: true,
+      },
+      {
+        name: '💰 Revenue',
+        value: [
+          `Last 7 days: **${formatMoney(stats.revenue.last7dCents)}**`,
+          `Last 30 days: **${formatMoney(stats.revenue.last30dCents)}**`,
+          `All time: **${formatMoney(stats.revenue.allTimeCents)}**`,
+        ].join('\n'),
+        inline: true,
+      },
+      {
+        name: '📈 Worth per period',
+        value:
+          `**${formatMoney(stats.monthlyValueCents)}** if every active member renews\n` +
+          `${stats.payments.last30d} payment(s) in the last 30 days`,
+      },
+      {
+        name: `⏳ Expiring within ${stats.expiringSoon.days} days — ${stats.expiringSoon.count}`,
+        value:
+          stats.expiringSoon.count === 0
+            ? 'Nobody, everyone has time left.'
+            : stats.expiringSoon.members
+                .slice(0, 10)
+                .map(
+                  (subscription) =>
+                    `<@${subscription.userId}> · ${TIER_NAMES[subscription.tier]} · ${time(Math.floor(subscription.expiresAt / 1000), 'R')}`,
+                )
+                .join('\n'),
+      },
+      { name: '💳 Last 30 days by method', value: sourceLines, inline: true },
+      {
+        name: '📋 Other',
+        value: `${stats.pendingOrders} unpaid order(s)\n${stats.lost30d} membership(s) lost in 30 days`,
+        inline: true,
+      },
+    )
+    .setTimestamp();
+
+  await interaction.editReply({ embeds: [embed] });
+}
+
 async function handleAdminMembers(interaction, { store, config }) {
   const active = activeSubscriptions(store).sort((a, b) => a.expiresAt - b.expiresAt);
 
@@ -897,6 +969,7 @@ export async function handleInteraction(interaction, context) {
     if (sub === 'cancel') return handleAdminCancel(interaction, context);
     if (sub === 'sync') return handleAdminSync(interaction, context);
     if (sub === 'members') return handleAdminMembers(interaction, context);
+    if (sub === 'stats') return handleAdminStats(interaction, context);
     if (sub === 'grant') return handleAdminGrant(interaction, context);
     if (sub === 'adopt') return handleAdminAdopt(interaction, context);
     if (sub === 'notify') return handleAdminNotify(interaction, context);
