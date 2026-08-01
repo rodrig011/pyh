@@ -122,6 +122,27 @@ export function buildCommands(config) {
     )
     .addSubcommand((sub) =>
       sub
+        .setName('notify')
+        .setDescription('DM a tier that their membership period is running, with their expiry date')
+        .addIntegerOption((option) =>
+          option
+            .setName('tier')
+            .setDescription('Tier to notify')
+            .setRequired(true)
+            .addChoices(...tierChoices),
+        )
+        .addStringOption((option) =>
+          option.setName('note').setDescription('Extra line to include in the DM').setRequired(false),
+        )
+        .addBooleanOption((option) =>
+          option
+            .setName('resend')
+            .setDescription('Send again to members already notified (default: skip them)')
+            .setRequired(false),
+        ),
+    )
+    .addSubcommand((sub) =>
+      sub
         .setName('adopt')
         .setDescription('Start tracking members who already hold a tier role but have no membership')
         .addIntegerOption((option) =>
