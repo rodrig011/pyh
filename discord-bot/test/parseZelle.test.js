@@ -22,8 +22,10 @@ test('parseAmountToCents understands thousand separators', () => {
   assert.equal(parseAmountToCents('abc'), null);
 });
 
+const chaseOptions = { allowedSenders: ['chase.com'] };
+
 test('reads a typical Zelle received notification', () => {
-  const parsed = parseZelleEmail(CHASE);
+  const parsed = parseZelleEmail(CHASE, chaseOptions);
   assert.equal(parsed.isPayment, true);
   assert.equal(parsed.amountCents, 5000);
   assert.deepEqual(parsed.codes, ['VIP-7K3QDM']);
@@ -37,7 +39,7 @@ test('reads notifications written in Spanish', () => {
     from: 'alertas@banco.com',
     subject: 'Recibiste un pago por Zelle',
     text: 'MARIA LOPEZ te envio $200.00 mediante Zelle. Nota: vip 4h9x2b',
-  });
+  }, { allowedSenders: ['banco.com'] });
   assert.equal(parsed.isPayment, true);
   assert.equal(parsed.amountCents, 20000);
   assert.deepEqual(parsed.codes, ['VIP-4H9X2B']);
@@ -48,7 +50,7 @@ test('falls back to the HTML body when there is no plain text', () => {
     from: 'alerts@notify.wellsfargo.com',
     subject: 'Zelle payment received',
     html: '<html><body><p>ANA RUIZ sent you <b>$100.00</b> with Zelle.</p><p>Memo: VIP-<b>AAAA22</b></p></body></html>',
-  });
+  }, { allowedSenders: ['wellsfargo.com'] });
   assert.equal(parsed.isPayment, true);
   assert.equal(parsed.amountCents, 10000);
   assert.deepEqual(parsed.codes, ['VIP-AAAA22']);
@@ -59,7 +61,7 @@ test('ignores notifications about outgoing payments', () => {
     from: 'no.reply.alerts@chase.com',
     subject: 'You sent $50.00 with Zelle®',
     text: 'You sent $50.00 to JUAN PEREZ with Zelle®. Memo: VIP-7K3QDM',
-  });
+  }, chaseOptions);
   assert.equal(parsed.isPayment, false);
   assert.match(parsed.reason, /outgoing/);
 });
@@ -89,7 +91,7 @@ test('accepts an allowlisted sender', () => {
 });
 
 test('a payment with no code is detected but carries no codes', () => {
-  const parsed = parseZelleEmail({ ...CHASE, text: 'JUAN PEREZ sent you $50.00 with Zelle. Memo: thanks' });
+  const parsed = parseZelleEmail({ ...CHASE, text: 'JUAN PEREZ sent you $50.00 with Zelle. Memo: thanks' }, chaseOptions);
   assert.equal(parsed.isPayment, true);
   assert.deepEqual(parsed.codes, []);
 });
@@ -146,4 +148,25 @@ test('a Huntington alert from a spoofed sender is rejected', () => {
   const parsed = parsePaymentEmail(spoofed, huntingtonOptions);
   assert.equal(parsed.isPayment, false);
   assert.match(parsed.reason, /Untrusted sender/);
+});
+
+test('with no allowlist configured, nothing is trusted at all', () => {
+  // The dangerous misconfiguration: an inbox anyone can email, and a bot that
+  // believes whatever looks like a payment. It must refuse, not accept.
+  const parsed = parseZelleEmail(CHASE);
+  assert.equal(parsed.isPayment, false);
+  assert.match(parsed.reason, /no sender allowlist/);
+});
+
+test('Venmo still works with no allowlist because it ships a safe default', () => {
+  const parsed = parsePaymentEmail(
+    {
+      from: 'venmo@venmo.com',
+      subject: 'CHRISTOPHER SWAILS paid you $50.00',
+      text: 'CHRISTOPHER SWAILS paid you $50.00 - VIP-7K3QDM',
+    },
+    { providers: [{ provider: 'venmo', allowedSenders: [] }] },
+  );
+  assert.equal(parsed.isPayment, true);
+  assert.equal(parsed.amountCents, 5000);
 });

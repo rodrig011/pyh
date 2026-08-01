@@ -146,7 +146,16 @@ export function parsePaymentEmail(email = {}, options = {}) {
     }
 
     const trusted = entry.allowedSenders?.length ? entry.allowedSenders : rules.defaultSenders;
-    if (trusted.length > 0 && !trusted.some((allowed) => from.includes(allowed.toLowerCase()))) {
+
+    // No allowlist means no way to tell the bank apart from anyone who emails
+    // this inbox, and the wording of a payment alert is trivial to fake. Refuse
+    // rather than trust: a misconfigured deployment must be inert, not generous.
+    if (trusted.length === 0) {
+      reasons.push(`${rules.label}: no sender allowlist configured, so nothing is trusted`);
+      continue;
+    }
+
+    if (!trusted.some((allowed) => from.includes(allowed.toLowerCase()))) {
       reasons.push(`${rules.label}: Untrusted sender ${email.from ?? '(empty)'}`);
       continue;
     }
