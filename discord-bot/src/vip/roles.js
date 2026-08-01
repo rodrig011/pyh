@@ -69,9 +69,36 @@ export async function revokeTierRoles(guild, userId, tier, config, reason = 'VIP
   return result;
 }
 
+/**
+ * Two tiers pointing at the same role is almost always a copy-paste slip, and a
+ * costly one: the higher tier would deliver exactly what the cheaper one does,
+ * with nothing to tell the buyers apart. Worth shouting about at startup.
+ *
+ * @returns {string[]} one line per clash
+ */
+export function duplicateRoleProblems(tiersConfig) {
+  const seen = new Map();
+  const problems = [];
+
+  for (const tier of Object.keys(tiersConfig).map(Number).sort((a, b) => a - b)) {
+    const roleId = tiersConfig[tier]?.roleId;
+    if (!roleId) continue;
+    if (seen.has(roleId)) {
+      problems.push(
+        `Tier ${tier} uses the same role as tier ${seen.get(roleId)} (${roleId}): ` +
+          `buyers of both tiers would end up with identical access. Give each tier its own role.`,
+      );
+    } else {
+      seen.set(roleId, tier);
+    }
+  }
+
+  return problems;
+}
+
 /** On startup, check that the configured roles exist and can be assigned. */
 export async function checkRoleSetup(guild, config) {
-  const problems = [];
+  const problems = [...duplicateRoleProblems(config.tiers)];
   const me = await guild.members.fetchMe();
 
   for (const [tier, tierConfig] of Object.entries(config.tiers)) {
