@@ -52,6 +52,11 @@ No se necesita saber programar ni usar GitHub. Todo es desde una página web, co
 
 No hace falta guardar nada más ni avisarle a nadie — publicar desde el panel actualiza el sitio en vivo automáticamente.
 
+### Dos cosas útiles al escribir
+
+- **Saltos de línea:** en los campos de texto largo, cada **Enter** crea un renglón nuevo en el sitio. Dos Enters dejan un espacio más grande entre renglones. También puedes usar `**texto**` para poner algo en **negrita**.
+- **Tamaño del texto:** en *Configuración del sitio → Tamaño del texto* puedes elegir **Normal**, **Grande** o **Más grande**. Agranda el texto de lectura de todo el sitio (portada, posts, biografía). Los títulos grandes y el menú se quedan igual a propósito, para que el diseño no se descuadre.
+
 ---
 
 ## 3. Desarrollo local (solo para quien programa)
