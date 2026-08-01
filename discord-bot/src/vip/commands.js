@@ -31,6 +31,7 @@ import {
   upsertSubscription,
 } from './subscriptions.js';
 import { sendDm, sendLog } from './notify.js';
+import { computeStats } from './stats.js';
 
 const commandLog = createLogger('commands');
 
