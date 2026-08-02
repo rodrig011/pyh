@@ -191,6 +191,8 @@ the signal is worth less the longer it takes to send.
 | 🟢 **BUY UP** / 🔴 **BUY DOWN** | A call opens, stamped with the live price |
 | 💰 **CASH AT %** | Asks for the percentage, then tells the room to take that much off |
 | ✅ **CASH AT PROFIT** | Close it out in profit |
+| 💰 **25% / 50% / 75%** | Take that share off — **the call stays open** |
+| 💯 **ALL OUT (full port)** | Close the whole position; the call ends and is scored |
 | ❌ **CUT LOSS** | The call is wrong — get out and take the loss |
 | ✋ **HOLD** | Stay in, nothing has changed |
 
@@ -199,6 +201,24 @@ room to sit through the losers.
 
 Cash-out and hold messages are posted as replies to the analyst's own open call, since a
 bare "cash out" is unreadable in a channel where three calls are running.
+
+### Tell the room what the buttons mean
+
+```
+/picks guide
+```
+
+Posts an announcement explaining every signal, in plain words, and **pin it**. "Take 50%
+off" and "all out" are the same word — *cash* — to somebody who has not traded before,
+and a member who reads them as the same thing sits in a position the analyst has already
+left.
+
+After a call closes the console is **posted again** at the bottom of the channel
+(`PICKS_REPOST_PANEL`). A pinned panel is fifty messages up by the time it matters, and
+the next signal is the one nobody should have to go hunting for.
+
+Mods can press everything the analysts can — `VIP_MOD_ROLE_IDS` counts as an analyst role
+here, so nobody is locked out of their own room.
 
 ### A call ends when the analyst says it ends
 

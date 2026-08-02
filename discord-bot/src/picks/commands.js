@@ -11,12 +11,15 @@ import {
 import { COLORS } from '../lib/brand.js';
 import { postPermissionHelp } from '../lib/channelAccess.js';
 import {
+  ACTION_PERCENT,
   CASH_MODAL,
+  CLOSING_ACTIONS,
   DIRECTION_FOR_ACTION,
   PANEL_ACTIONS,
   PANEL_PREFIX,
   analystPanel,
   cashPercentModal,
+  guideMessage,
   managementMessage,
   panelAction,
 } from './panel.js';
@@ -45,6 +48,7 @@ export const PICK_DEFAULTS = {
   minimumForBoard: 5,
   disclaimer: 'Not financial advice',
   pingRoleIds: [],
+  repostPanel: true,
 };
 
 /**
@@ -439,6 +443,17 @@ export async function handlePicks(interaction, { store, config }) {
     return interaction.editReply('Console posted. Pin it — only analysts can press the buttons.');
   }
 
+  if (sub === 'guide') {
+    if (!isAnalyst(interaction, config)) {
+      return interaction.editReply('Only the analysts and mods can post the guide.');
+    }
+    const help = postPermissionHelp(interaction.channel, interaction.guild);
+    if (help) return interaction.editReply(help);
+
+    await interaction.channel.send(guideMessage(config, pickSettings(config)));
+    return interaction.editReply('Guide posted. **Pin it** — the buttons only work if the room reads them the same way.');
+  }
+
   if (sub === 'price') {
     const settings = pickSettings(config);
     const quote = await fetchSpotPrice(settings.defaultAsset);
@@ -543,7 +558,10 @@ export async function handlePanelButton(interaction, { store, config }) {
     );
   }
 
-  return postManagement(interaction, { store, config }, { action });
+  return postManagement(interaction, { store, config }, {
+    action,
+    percent: ACTION_PERCENT[action] ?? null,
+  });
 }
 
 export async function handleCashModal(interaction, { store, config }) {
@@ -603,14 +621,17 @@ async function postManagement(interaction, { store, config }, { action, percent 
   const quote = await fetchSpotPrice(open?.asset ?? settings.defaultAsset);
 
   // A partial take leaves the position on; only a full exit closes the call.
-  const closes = action === PANEL_ACTIONS.CASH_PROFIT || action === PANEL_ACTIONS.CUT_LOSS;
+  const closes = CLOSING_ACTIONS.has(action);
   let verdict = null;
 
   if (closes && open) {
     verdict =
       quote.price !== null && open.entry !== null
         ? gradeByPrice(open.direction, open.entry, quote.price)
-        : { outcome: action === PANEL_ACTIONS.CASH_PROFIT ? OUTCOMES.WIN : OUTCOMES.LOSS, changePercent: null };
+        : {
+            outcome: action === PANEL_ACTIONS.CUT_LOSS ? OUTCOMES.LOSS : OUTCOMES.WIN,
+            changePercent: null,
+          };
 
     settlePick(open, {
       outcome: verdict.outcome,
@@ -643,12 +664,32 @@ async function postManagement(interaction, { store, config }, { action, percent 
     );
   }
 
+  await repostPanel(interaction.client, config, channel.id);
+
   const record = computeRecord(store.listPicks(), { analystId: interaction.user.id });
   return interaction.editReply(
     `Closed your **${open.asset}** call as **${OUTCOME_LABEL[verdict.outcome]}**` +
       (quote.price === null ? ' (no price available).' : ` at ${formatPrice(quote.price)}.`) +
       ` You are now **${formatWinRate(record.winRate)}** (${record.wins}W ${record.losses}L).`,
   );
+}
+
+/**
+ * Puts the console back at the bottom of the channel after a call ends.
+ *
+ * A pinned panel is fifty messages up by the time a call closes, and the next
+ * signal is the one nobody wants to go hunting for. Posted fresh rather than
+ * moved, because Discord cannot move a message.
+ */
+export async function repostPanel(client, config, channelId) {
+  const settings = pickSettings(config);
+  if (!settings.repostPanel) return false;
+
+  const channel = await client.channels.fetch(channelId ?? settings.channelId).catch(() => null);
+  if (!channel?.isTextBased()) return false;
+
+  await channel.send(analystPanel(config, settings)).catch(() => null);
+  return true;
 }
 
 export async function handleSettleButton(interaction, { store, config }) {
@@ -684,6 +725,8 @@ export async function handleSettleButton(interaction, { store, config }) {
   store.putPick(pick);
 
   const record = computeRecord(store.listPicks(), { analystId: pick.analystId });
+
+  await repostPanel(interaction.client, config, pick.channelId);
 
   await interaction.update({
     embeds: [pickEmbed(pick, config)],
@@ -741,6 +784,7 @@ export async function promptDueSettlements(client, store, config, now = Date.now
         })
         .catch(() => null);
 
+      await repostPanel(client, config, channel.id);
       graded += 1;
       continue;
     }

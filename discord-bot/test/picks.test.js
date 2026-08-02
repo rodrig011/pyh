@@ -294,8 +294,15 @@ test('command registration survives a config with no picks block', () => {
 // The console and automatic grading. Grading is the part that decides what goes
 // on a public leaderboard, so it is driven end to end here rather than trusted.
 
-import { analystPanel, panelAction, PANEL_ACTIONS, managementMessage } from '../src/picks/panel.js';
-import { pickEmbed, promptDueSettlements } from '../src/picks/commands.js';
+import {
+  ACTION_PERCENT,
+  analystPanel,
+  guideMessage,
+  managementMessage,
+  panelAction,
+  PANEL_ACTIONS,
+} from '../src/picks/panel.js';
+import { pickEmbed, pickSettings, promptDueSettlements } from '../src/picks/commands.js';
 
 test('panel button ids map to actions, and nothing else does', () => {
   assert.equal(panelAction('pick:panel:up'), PANEL_ACTIONS.UP);
@@ -433,7 +440,7 @@ test('a call is only ever settled once', async (t) => {
 
 // Pinging: the people paying for signals are the ones who have to see them, and
 // the bot must never be able to reach past those roles.
-import { pingFor, pickSettings } from '../src/picks/commands.js';
+import { pingFor } from '../src/picks/commands.js';
 
 const pinging = {
   ...routingConfig,
@@ -493,6 +500,10 @@ test('the console offers every action, cutting losses included', () => {
   assert.deepEqual(ids, [
     'pick:panel:up',
     'pick:panel:down',
+    'pick:panel:cash_25',
+    'pick:panel:cash_50',
+    'pick:panel:cash_75',
+    'pick:panel:all_out',
     'pick:panel:cash_percent',
     'pick:panel:cash_profit',
     'pick:panel:cut_loss',
@@ -719,4 +730,80 @@ test('a non-mod cannot wipe a record', async (t) => {
 
   assert.match(replies[0], /Only the mods/);
   assert.equal(store.listPicks().length, 1);
+});
+
+// Sizing. "Take 50% off" and "get everything out" are the same word to somebody
+// who has not traded before, so the two must not behave the same way.
+
+test('a partial take leaves the call running', async (t) => {
+  const store = routingStore(t);
+  const pick = openCallIn(store);
+  withPrice(t, 63400);
+
+  const { interaction, posted } = panelPress('cash_50');
+  await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
+
+  assert.equal(store.getPick(pick.id).outcome, null, 'still open — half is still on');
+  assert.match(posted[0].embeds[0].toJSON().title, /50%/);
+});
+
+test('ALL OUT closes the call and scores it', async (t) => {
+  const store = routingStore(t);
+  const pick = openCallIn(store, { direction: DIRECTIONS.UP, entry: 63300 });
+  withPrice(t, 63400);
+
+  const { interaction, posted } = panelPress('all_out');
+  await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
+
+  assert.equal(store.getPick(pick.id).outcome, OUTCOMES.WIN);
+  assert.equal(store.getPick(pick.id).closedBy, 'exit');
+  assert.match(posted[0].embeds[0].toJSON().title, /full port/i);
+});
+
+test('every sizing button carries the share it takes off', () => {
+  assert.equal(ACTION_PERCENT[PANEL_ACTIONS.CASH_25], 25);
+  assert.equal(ACTION_PERCENT[PANEL_ACTIONS.ALL_OUT], 100);
+  assert.equal(ACTION_PERCENT[PANEL_ACTIONS.HOLD], undefined, 'holding takes nothing off');
+});
+
+test('the console comes back after a call closes', async (t) => {
+  const store = routingStore(t);
+  openCallIn(store, { direction: DIRECTIONS.UP, entry: 63300 });
+  withPrice(t, 63400);
+
+  const { interaction, posted } = panelPress('cash_profit');
+  await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
+
+  const panels = posted.filter((message) =>
+    message.embeds?.[0]?.toJSON().title?.includes('Analyst console'),
+  );
+  assert.equal(panels.length, 1, 'the next signal is one tap away, not fifty messages up');
+});
+
+test('the console does not come back when that is switched off', async (t) => {
+  const store = routingStore(t);
+  openCallIn(store, { direction: DIRECTIONS.UP, entry: 63300 });
+  withPrice(t, 63400);
+
+  const { interaction, posted } = panelPress('cash_profit');
+  await handleInteraction(interaction, {
+    store,
+    config: { ...routingConfig, picks: { ...routingConfig.picks, repostPanel: false } },
+    client: interaction.client,
+  });
+
+  assert.equal(
+    posted.filter((m) => m.embeds?.[0]?.toJSON().title?.includes('Analyst console')).length,
+    0,
+  );
+});
+
+test('the guide explains every button the console has', () => {
+  const guide = guideMessage(routingConfig, pickSettings(routingConfig));
+  const text = JSON.stringify(guide.embeds[0].toJSON());
+
+  for (const phrase of ['LONG', 'SHORT', '25%', 'full port', 'CASH AT PROFIT', 'CUT LOSS', 'HOLD']) {
+    assert.ok(text.includes(phrase), `the guide never mentions ${phrase}`);
+  }
+  assert.match(text, /own money and your own size/, 'and says whose risk it is');
 });

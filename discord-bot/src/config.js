@@ -165,6 +165,9 @@ export function loadVipConfig() {
         str('ROLE_TIER_3'),
       ].filter(Boolean)),
       disclaimer: str('PICKS_DISCLAIMER', 'Not financial advice'),
+      // Put the console back under the channel after a call closes, so the next
+      // signal is never fifty messages away from the button that sends it.
+      repostPanel: bool('PICKS_REPOST_PANEL', true),
     },
     // Card payments. Zelle is a one-off 30 days; Stripe bills again by itself
     // every period until the member cancels.
