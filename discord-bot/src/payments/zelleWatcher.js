@@ -27,13 +27,46 @@ export class ZelleWatcher extends EventEmitter {
     this.stopped = false;
   }
 
-  start() {
+  /**
+   * Everything standing between the current settings and automatic detection,
+   * in plain words. Nothing here talks to the network: it is what can be known
+   * without waiting for a real payment to arrive and fail silently.
+   *
+   * @returns {string[]} empty when detection is fully configured
+   */
+  diagnose() {
+    const problems = [];
     if (!this.imap.enabled) {
-      log.warn('IMAP disabled (IMAP_ENABLED=false): payments can only be confirmed manually');
-      return;
+      problems.push('`IMAP_ENABLED` is not `true`, so the mailbox is never read.');
     }
-    if (!this.imap.host || !this.imap.user || !this.imap.password) {
-      log.warn('IMAP_HOST/IMAP_USER/IMAP_PASSWORD missing: the mailbox will not be checked');
+    for (const [key, value] of [
+      ['IMAP_HOST', this.imap.host],
+      ['IMAP_USER', this.imap.user],
+      ['IMAP_PASSWORD', this.imap.password],
+    ]) {
+      if (!value) problems.push(`\`${key}\` is empty.`);
+    }
+    if (this.imap.password === 'REPLACE_ME') {
+      problems.push('`IMAP_PASSWORD` is still the placeholder `REPLACE_ME`.');
+    }
+
+    // Without an allowlist the parser refuses every email on purpose, so this
+    // looks exactly like "no payments arriving" while the inbox fills up.
+    const configured = (this.imap.providers ?? []).filter(
+      (entry) => entry.allowedSenders?.length > 0,
+    );
+    if (configured.length === 0) {
+      problems.push(
+        'No trusted senders configured (`IMAP_ALLOWED_SENDERS`), so every email is ignored.',
+      );
+    }
+    return problems;
+  }
+
+  start() {
+    const problems = this.diagnose();
+    if (problems.length > 0) {
+      log.warn(`Automatic detection is OFF: ${problems.join(' ')}`);
       return;
     }
     this.stopped = false;

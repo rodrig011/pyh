@@ -1059,13 +1059,45 @@ async function handleAdminSync(interaction, { watcher }) {
     await interaction.editReply('The mailbox watcher is not running (check your IMAP settings).');
     return;
   }
+
+  // Answers "is automatic detection actually live?" without needing a real
+  // payment to arrive first. A misconfigured watcher looks identical to a quiet
+  // inbox, so the settings get reported before anything is read.
+  const problems = watcher.diagnose();
+  if (problems.length > 0) {
+    await interaction.editReply(
+      [
+        '❌ **Automatic Zelle detection is OFF.** Payments have to be confirmed by hand with `/vip-admin confirm`.',
+        '',
+        ...problems.map((problem) => `• ${problem}`),
+        '',
+        'Fix these in the hosting dashboard, redeploy, then run this again.',
+      ].join('\n'),
+    );
+    return;
+  }
+
   try {
     const result = await watcher.poll();
     await interaction.editReply(
-      `Check finished: ${result.checked} new email(s), ${result.payments} payment(s) detected.`,
+      [
+        `✅ **Automatic detection is live**, reading \`${watcher.imap.user}\` every ${watcher.imap.pollSeconds}s.`,
+        `Check finished: ${result.checked} new email(s), ${result.payments} payment(s) detected.`,
+        result.checked === 0
+          ? '_No new mail. That is normal — already-read alerts are skipped._'
+          : '',
+      ]
+        .filter(Boolean)
+        .join('\n'),
     );
   } catch (error) {
-    await interaction.editReply(`The mailbox check failed: ${error.message}`);
+    await interaction.editReply(
+      [
+        `❌ **The mailbox check failed:** ${error.message}`,
+        '',
+        'Usually this means the app password is wrong, or IMAP is switched off in that Gmail account.',
+      ].join('\n'),
+    );
   }
 }
 
