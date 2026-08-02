@@ -9,6 +9,7 @@ import {
   formatStreak,
   formatWinRate,
   leaderboard,
+  nextCandleClose,
   settlePick,
 } from '../src/picks/picks.js';
 
@@ -29,11 +30,37 @@ function pick(analystId, outcome, { ago = 0, direction = DIRECTIONS.UP } = {}) {
 }
 
 test('a call records its own deadline and normalises the asset', () => {
-  const made = buildPick({ analystId: 'a', guildId: 'g', direction: 'up', asset: 'btc', minutes: 15, now });
+  const made = buildPick({
+    analystId: 'a', guildId: 'g', direction: 'up', asset: 'btc', minutes: 15,
+    alignToCandle: false, now,
+  });
 
   assert.equal(made.asset, 'BTC');
   assert.equal(made.closesAt, now + 15 * minute);
   assert.equal(made.outcome, null);
+});
+
+// "It says closes in 15 mins so it's gonna overlap next candle." A 15-minute
+// market settles on the quarter hour, so the call has to end where the candle
+// does — not fifteen minutes after whenever a button was pressed.
+
+test('a call closes on the next candle boundary, not 15 minutes from now', () => {
+  const at341 = Date.parse('2026-08-02T15:41:00Z');
+  const made = buildPick({ analystId: 'a', guildId: 'g', direction: 'up', asset: 'BTC', minutes: 15, now: at341 });
+
+  assert.equal(new Date(made.closesAt).toISOString(), '2026-08-02T15:45:00.000Z');
+});
+
+test('a boundary seconds away is skipped rather than sold as a call', () => {
+  const at344_50 = Date.parse('2026-08-02T15:44:50Z');
+  const made = buildPick({ analystId: 'a', guildId: 'g', direction: 'up', asset: 'BTC', minutes: 15, now: at344_50 });
+
+  assert.equal(new Date(made.closesAt).toISOString(), '2026-08-02T16:00:00.000Z');
+});
+
+test('nextCandleClose lands on the hour for a 60-minute window', () => {
+  const at1512 = Date.parse('2026-08-02T15:12:00Z');
+  assert.equal(new Date(nextCandleClose(at1512, 60)).toISOString(), '2026-08-02T16:00:00.000Z');
 });
 
 test('a call with no direction or no duration is refused', () => {
@@ -268,7 +295,7 @@ test('command registration survives a config with no picks block', () => {
 // on a public leaderboard, so it is driven end to end here rather than trusted.
 
 import { analystPanel, panelAction, PANEL_ACTIONS, managementMessage } from '../src/picks/panel.js';
-import { promptDueSettlements } from '../src/picks/commands.js';
+import { pickEmbed, promptDueSettlements } from '../src/picks/commands.js';
 
 test('panel button ids map to actions, and nothing else does', () => {
   assert.equal(panelAction('pick:panel:up'), PANEL_ACTIONS.UP);
@@ -471,4 +498,225 @@ test('the console offers every action, cutting losses included', () => {
     'pick:panel:cut_loss',
     'pick:panel:hold',
   ]);
+});
+
+// King T's complaint, reproduced: he pressed CASH AT PROFIT and the bot ignored
+// it, kept counting to the 15-minute mark and scored the call on where price
+// happened to be then. "It's going every 15 minutes. Not when we go in or out."
+
+function panelPress(action, userId = 'analyst1') {
+  const replies = [];
+  const posted = [];
+  return {
+    replies,
+    posted,
+    interaction: {
+      customId: `pick:panel:${action}`,
+      guildId: 'g',
+      user: { id: userId, tag: 'analyst#1', username: 'analyst' },
+      member: { roles: { cache: { has: () => false } } },
+      memberPermissions: { has: (flag) => flag === PermissionFlagsBits.Administrator },
+      deferred: false,
+      replied: false,
+      isButton: () => true,
+      isUserSelectMenu: () => false,
+      isModalSubmit: () => false,
+      isChatInputCommand: () => false,
+      client: {
+        channels: {
+          fetch: async () => ({ isTextBased: () => true, send: async (p) => posted.push(p) }),
+        },
+      },
+      channel: { isTextBased: () => true, send: async (p) => posted.push(p) },
+      deferReply: async function () {
+        this.deferred = true;
+      },
+      reply: async (payload) => replies.push(payload),
+      editReply: async (payload) => replies.push(payload),
+      showModal: async () => {},
+    },
+  };
+}
+
+function openCallIn(store, { direction = DIRECTIONS.UP, entry = 63297.58, analystId = 'analyst1' } = {}) {
+  const pick = buildPick({
+    analystId,
+    guildId: 'g',
+    direction,
+    asset: 'BTC',
+    minutes: 15,
+    entry,
+    now: Date.now(),
+  });
+  pick.channelId = 'c1';
+  pick.messageId = 'm1';
+  store.recordPick(pick);
+  return pick;
+}
+
+function withPrice(t, amount) {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ data: { amount: String(amount) } }) });
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+}
+
+test('cashing out in profit closes the call there and then', async (t) => {
+  const store = routingStore(t);
+  const pick = openCallIn(store, { direction: DIRECTIONS.DOWN, entry: 63297.58 });
+  withPrice(t, 63281.84);
+
+  const { interaction, replies } = panelPress('cash_profit');
+  await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
+
+  const closed = store.getPick(pick.id);
+  assert.equal(closed.outcome, OUTCOMES.WIN, 'a short closed lower is a win');
+  assert.equal(closed.exit, 63281.84, 'scored at the exit, not at the window');
+  assert.equal(closed.closedBy, 'exit');
+  assert.match(replies[0], /Closed your \*\*BTC\*\* call/);
+});
+
+test('a call the analyst cashed is never regraded when the window runs out', async (t) => {
+  const store = routingStore(t);
+  const pick = openCallIn(store, { direction: DIRECTIONS.DOWN, entry: 63297.58 });
+  withPrice(t, 63281.84);
+
+  const press = panelPress('cash_profit');
+  await handleInteraction(press.interaction, { store, config: routingConfig, client: press.interaction.client });
+
+  // Price then runs the other way and the window expires — the exact sequence
+  // that turned a cashed win into a recorded loss.
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ data: { amount: '63381.36' } }) });
+  store.getPick(pick.id).closesAt = Date.now() - 1000;
+
+  const swept = await promptDueSettlements(
+    { channels: { fetch: async () => ({ isTextBased: () => true, send: async () => {} }) } },
+    store,
+    routingConfig,
+  );
+
+  assert.equal(swept.graded, 0, 'a closed call is not due for anything');
+  assert.equal(store.getPick(pick.id).outcome, OUTCOMES.WIN, 'still the win he took');
+  assert.equal(store.getPick(pick.id).exit, 63281.84);
+});
+
+test('cutting a loss closes the call too', async (t) => {
+  const store = routingStore(t);
+  const pick = openCallIn(store, { direction: DIRECTIONS.UP, entry: 63300 });
+  withPrice(t, 63200);
+
+  const { interaction } = panelPress('cut_loss');
+  await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
+
+  assert.equal(store.getPick(pick.id).outcome, OUTCOMES.LOSS);
+  assert.equal(store.getPick(pick.id).closedBy, 'exit');
+});
+
+test('holding leaves the call running', async (t) => {
+  const store = routingStore(t);
+  const pick = openCallIn(store);
+  withPrice(t, 63400);
+
+  const { interaction } = panelPress('hold');
+  await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
+
+  assert.equal(store.getPick(pick.id).outcome, null, 'nothing changed, so nothing is scored');
+});
+
+test('cashing out with nothing open says so instead of inventing a message', async (t) => {
+  const store = routingStore(t);
+  const { interaction, replies, posted } = panelPress('cash_profit');
+
+  await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
+
+  assert.equal(posted.length, 0, 'the room was not told to close a position nobody opened');
+  assert.match(replies[0], /no open call/i);
+});
+
+test('a member who is not an analyst cannot press anything', async (t) => {
+  const store = routingStore(t);
+  openCallIn(store);
+
+  const { interaction, replies, posted } = panelPress('cash_profit', 'random-member');
+  interaction.memberPermissions = { has: () => false };
+
+  await handleInteraction(interaction, {
+    store,
+    config: { ...routingConfig, picks: { ...routingConfig.picks, analystRoleIds: ['analyst-role'] } },
+    client: interaction.client,
+  });
+
+  assert.equal(posted.length, 0);
+  assert.match(replies[0].content, /Only the analysts/);
+});
+
+test('with no analyst role configured, Manage Messages is not enough', async (t) => {
+  const store = routingStore(t);
+  const { interaction, replies, posted } = panelPress('up', 'a-moderator');
+  // Every moderator holds this. A member pressing BUY UP by accident sends a
+  // real signal to everyone paying for one.
+  interaction.memberPermissions = { has: (flag) => flag === PermissionFlagsBits.ManageMessages };
+
+  await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
+
+  assert.equal(posted.length, 0);
+  assert.match(replies[0].content, /Only the analysts/);
+});
+
+test('a settled call stops counting down and says how it ended', () => {
+  const pick = buildPick({
+    analystId: 'a1', guildId: 'g', direction: DIRECTIONS.UP, asset: 'BTC',
+    minutes: 15, entry: 63351.415, now: Date.now() - 20 * minute,
+  });
+  settlePick(pick, { outcome: OUTCOMES.WIN, settledBy: 'a1', exit: 63380.185, closedBy: 'exit' });
+
+  const embed = pickEmbed(pick, routingConfig).toJSON();
+  const names = embed.fields.map((f) => f.name);
+
+  assert.ok(!names.includes('Window'), 'no stale countdown on a finished call');
+  assert.ok(names.includes('Closed'));
+  assert.match(embed.fields.find((f) => f.name === 'Closed').value, /analyst closed it/);
+  assert.equal(embed.fields.find((f) => f.name === 'Entry').value, '$63,351.42', 'formatted, not a raw float');
+  assert.match(embed.fields.find((f) => f.name === 'Result').value, /\$63,380\.19/);
+});
+
+test('/picks reset previews before it destroys anything', async (t) => {
+  const store = routingStore(t);
+  const pick = openCallIn(store);
+  settlePick(pick, { outcome: OUTCOMES.LOSS, settledBy: 'bot' });
+  store.putPick(pick);
+
+  const preview = callInteraction('picks', { analyst: { id: 'analyst1' } }, { subcommand: 'reset' });
+  await handleInteraction(preview.interaction, { store, config: routingConfig, client: preview.interaction.client });
+
+  assert.match(preview.replies[0], /This would delete/);
+  assert.equal(store.listPicks().length, 1, 'nothing was deleted');
+
+  const confirmed = callInteraction(
+    'picks',
+    { analyst: { id: 'analyst1' }, confirm: true },
+    { subcommand: 'reset' },
+  );
+  await handleInteraction(confirmed.interaction, { store, config: routingConfig, client: confirmed.interaction.client });
+
+  assert.match(confirmed.replies[0], /Wiped \*\*1\*\*/);
+  assert.equal(store.listPicks().length, 0);
+});
+
+test('a non-mod cannot wipe a record', async (t) => {
+  const store = routingStore(t);
+  const pick = openCallIn(store);
+  settlePick(pick, { outcome: OUTCOMES.LOSS, settledBy: 'bot' });
+  store.putPick(pick);
+
+  const { interaction, replies } = callInteraction(
+    'picks',
+    { analyst: { id: 'analyst1' }, confirm: true },
+    { subcommand: 'reset', isAdmin: false },
+  );
+  await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
+
+  assert.match(replies[0], /Only the mods/);
+  assert.equal(store.listPicks().length, 1);
 });

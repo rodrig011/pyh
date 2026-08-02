@@ -150,6 +150,17 @@ export function buildPickCommands(config) {
     )
     .addSubcommand((sub) =>
       sub.setName('price').setDescription('Check the live price feed the bot grades calls with'),
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('reset')
+        .setDescription('Wipe a record the bot got wrong (mods only)')
+        .addUserOption((option) =>
+          option.setName('analyst').setDescription('Whose record to wipe').setRequired(true),
+        )
+        .addBooleanOption((option) =>
+          option.setName('confirm').setDescription('Required — this cannot be undone').setRequired(false),
+        ),
     );
 
   return [call.toJSON(), picks.toJSON()];
@@ -159,32 +170,58 @@ export function buildPickCommands(config) {
 export function isAnalyst(interaction, config) {
   if (interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return true;
   const allowed = [...pickSettings(config).analystRoleIds, ...(config.modRoleIds ?? [])];
-  if (allowed.length === 0) {
-    return Boolean(interaction.memberPermissions?.has(PermissionFlagsBits.ManageMessages));
-  }
+  // With no analyst roles set, only administrators may call. Manage Messages is
+  // held by every moderator in most servers, and a member pressing BUY UP by
+  // accident sends a real signal to everyone paying for one.
+  if (allowed.length === 0) return false;
   const roles = interaction.member?.roles?.cache;
   return Boolean(roles && allowed.some((roleId) => roles.has(roleId)));
 }
 
 export function pickEmbed(pick, config) {
-  const closes = Math.floor(pick.closesAt / 1000);
-  const fields = [
-    { name: 'Direction', value: DIRECTION_LABEL[pick.direction], inline: true },
-    { name: 'Window', value: `${pick.minutes} min — closes ${time(closes, 'R')}`, inline: true },
-  ];
+  const settled = Boolean(pick.outcome);
+  const fields = [{ name: 'Direction', value: DIRECTION_LABEL[pick.direction], inline: true }];
 
-  if (pick.entry !== null) fields.push({ name: 'Entry', value: `\`${pick.entry}\``, inline: true });
-  if (pick.target !== null) fields.push({ name: 'Target', value: `\`${pick.target}\``, inline: true });
-  if (pick.stop !== null) fields.push({ name: 'Invalidation', value: `\`${pick.stop}\``, inline: true });
+  // A closed call counting down to a deadline two hours gone reads as broken.
+  // Once it is settled the window is history, so it says how it ended instead.
+  fields.push(
+    settled
+      ? {
+          name: 'Closed',
+          value:
+            pick.closedBy === 'exit'
+              ? `${pick.minutes}m call — **the analyst closed it** ${time(Math.floor((pick.settledAt ?? pick.closesAt) / 1000), 'R')}`
+              : `${pick.minutes}m window ran out ${time(Math.floor((pick.settledAt ?? pick.closesAt) / 1000), 'R')}`,
+          inline: true,
+        }
+      : {
+          name: 'Window',
+          value: `${pick.minutes} min — closes ${time(Math.floor(pick.closesAt / 1000), 'R')}`,
+          inline: true,
+        },
+  );
 
-  if (pick.outcome) {
+  // Every price goes through one formatter. Raw floats put `63297.575` next to
+  // `$63,281.84` in the same embed, which reads as two different numbers.
+  if (pick.entry != null) {
+    fields.push({ name: 'Entry', value: formatPrice(pick.entry), inline: true });
+  }
+  if (pick.target != null) fields.push({ name: 'Target', value: formatPrice(pick.target), inline: true });
+  if (pick.stop != null) {
+    fields.push({ name: 'Invalidation', value: formatPrice(pick.stop), inline: true });
+  }
+
+  if (settled) {
     fields.push({
       name: 'Result',
-      value: `${OUTCOME_LABEL[pick.outcome]}${pick.exit !== null ? ` at \`${pick.exit}\`` : ''}`,
+      value:
+        `${OUTCOME_LABEL[pick.outcome]}` +
+        (pick.exit != null ? ` at ${formatPrice(pick.exit)}` : '') +
+        (Number.isFinite(pick.changePercent) ? ` · ${formatChange(pick.changePercent)}` : ''),
     });
   }
 
-  const colour = pick.outcome
+  const colour = settled
     ? { win: COLORS.success, loss: COLORS.danger }[pick.outcome] ?? COLORS.warning
     : pick.direction === DIRECTIONS.UP
       ? COLORS.success
@@ -416,6 +453,35 @@ export async function handlePicks(interaction, { store, config }) {
     );
   }
 
+  // A record the bot itself got wrong has to be fixable, or the board lies
+  // permanently about someone. Mods only, and it says what it will destroy
+  // before it does it.
+  if (sub === 'reset') {
+    const isMod =
+      interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) ||
+      (config.modRoleIds ?? []).some((roleId) => interaction.member?.roles?.cache?.has(roleId));
+    if (!isMod) return interaction.editReply('Only the mods can wipe a record.');
+
+    const user = interaction.options.getUser('analyst');
+    const theirs = picks.filter((pick) => pick.analystId === user.id);
+
+    if (theirs.length === 0) return interaction.editReply(`<@${user.id}> has no calls on record.`);
+
+    if (!interaction.options.getBoolean('confirm')) {
+      const record = computeRecord(picks, { analystId: user.id });
+      return interaction.editReply(
+        `This would delete **${theirs.length}** call(s) for <@${user.id}> — currently ` +
+          `**${formatWinRate(record.winRate)}** (${record.wins}W ${record.losses}L).\n` +
+          'Run it again with `confirm:True`. **This cannot be undone.**',
+      );
+    }
+
+    store.removePicks((pick) => pick.analystId === user.id);
+    return interaction.editReply(
+      `Wiped **${theirs.length}** call(s) for <@${user.id}>. Their record starts from zero.`,
+    );
+  }
+
   if (sub === 'open') {
     const open = picks
       .filter((pick) => !pick.outcome)
@@ -502,7 +568,16 @@ export async function handleCashModal(interaction, { store, config }) {
   });
 }
 
-/** Posts a cash-out or hold against the analyst's most recent open call. */
+/**
+ * Cash out, cut the loss, or hold.
+ *
+ * Cashing out and cutting a loss END the call: the exit is the moment the
+ * analyst says get out, not fifteen minutes later. Grading on the window while
+ * ignoring the exit marks a call the analyst took profit on as a loss because
+ * price kept going — which is what happened, and it is the whole complaint.
+ *
+ * Holding changes nothing, so it leaves the call running.
+ */
 async function postManagement(interaction, { store, config }, { action, percent = null, note = null }) {
   const settings = pickSettings(config);
 
@@ -518,26 +593,61 @@ async function postManagement(interaction, { store, config }, { action, percent 
 
   if (!channel?.isTextBased()) return interaction.editReply('I could not find where to post that.');
 
+  if (!open && action !== PANEL_ACTIONS.HOLD) {
+    return interaction.editReply(
+      'You have no open call to close. Open one with 🟢 BUY UP or 🔴 BUY DOWN first — ' +
+        'otherwise there is nothing for the room to act on and nothing to score.',
+    );
+  }
+
   const quote = await fetchSpotPrice(open?.asset ?? settings.defaultAsset);
+
+  // A partial take leaves the position on; only a full exit closes the call.
+  const closes = action === PANEL_ACTIONS.CASH_PROFIT || action === PANEL_ACTIONS.CUT_LOSS;
+  let verdict = null;
+
+  if (closes && open) {
+    verdict =
+      quote.price !== null && open.entry !== null
+        ? gradeByPrice(open.direction, open.entry, quote.price)
+        : { outcome: action === PANEL_ACTIONS.CASH_PROFIT ? OUTCOMES.WIN : OUTCOMES.LOSS, changePercent: null };
+
+    settlePick(open, {
+      outcome: verdict.outcome,
+      settledBy: interaction.user.id,
+      exit: quote.price,
+      closedBy: 'exit',
+    });
+    open.changePercent = verdict.changePercent;
+    store.putPick(open);
+  }
 
   await channel.send({
     ...pingFor(settings),
     ...managementMessage({
       action,
       analystId: interaction.user.id,
-      pick: open ?? null,
+      pick: open ? { ...open, entryLabel: open.entry == null ? null : formatPrice(open.entry) } : null,
       percent,
       note,
       price: quote.price === null ? null : formatPrice(quote.price),
+      verdict,
     }),
-    allowedMentions: { roles: pickSettings(config).pingRoleIds ?? [] },
+    allowedMentions: { roles: settings.pingRoleIds ?? [] },
     reply: open?.messageId ? { messageReference: open.messageId, failIfNotExists: false } : undefined,
   });
 
+  if (!closes) {
+    return interaction.editReply(
+      open ? `Sent to ${channel}, on your open **${open.asset}** call.` : `Sent to ${channel}.`,
+    );
+  }
+
+  const record = computeRecord(store.listPicks(), { analystId: interaction.user.id });
   return interaction.editReply(
-    open
-      ? `Sent to ${channel}, attached to your open **${open.asset}** call.`
-      : `Sent to ${channel}. You have no open call, so it went out on its own.`,
+    `Closed your **${open.asset}** call as **${OUTCOME_LABEL[verdict.outcome]}**` +
+      (quote.price === null ? ' (no price available).' : ` at ${formatPrice(quote.price)}.`) +
+      ` You are now **${formatWinRate(record.winRate)}** (${record.wins}W ${record.losses}L).`,
   );
 }
 

@@ -154,6 +154,14 @@ export function createStore(filePath) {
       return data.picks.filter(filter);
     },
 
+    /** Deletes matching calls. Used to undo a record the bot scored wrongly. */
+    removePicks(filter) {
+      const before = data.picks.length;
+      data.picks = data.picks.filter((pick) => !filter(pick));
+      save();
+      return before - data.picks.length;
+    },
+
     markPaymentAssigned(id, userId) {
       const entry = data.unassigned.find((item) => item.id === id);
       if (!entry) return null;

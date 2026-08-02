@@ -19,6 +19,25 @@ export const DIRECTION_LABEL = {
   [DIRECTIONS.DOWN]: '🔴 SHORT',
 };
 
+/**
+ * When the window should close.
+ *
+ * A 15-minute market settles on the quarter hour, not fifteen minutes after
+ * whenever somebody happened to press a button — a call opened at 3:41 that
+ * runs to 3:56 is graded across the boundary of the candle it was called on,
+ * which is the wrong candle. Snapping to the next boundary makes the bot's
+ * clock the same clock the room is trading.
+ *
+ * A boundary that is nearly here is skipped: a call with eleven seconds left in
+ * it is not a call.
+ */
+export function nextCandleClose(now, minutes, { minimumSeconds = 60 } = {}) {
+  const period = minutes * 60 * 1000;
+  let close = Math.ceil(now / period) * period;
+  if (close - now < minimumSeconds * 1000) close += period;
+  return close;
+}
+
 export const OUTCOME_LABEL = {
   [OUTCOMES.WIN]: '✅ Win',
   [OUTCOMES.LOSS]: '❌ Loss',
@@ -44,6 +63,7 @@ export function buildPick({
   target = null,
   stop = null,
   note = null,
+  alignToCandle = true,
   now = Date.now(),
 }) {
   if (!Object.values(DIRECTIONS).includes(direction)) {
@@ -66,10 +86,14 @@ export function buildPick({
     stop,
     note,
     createdAt: now,
-    closesAt: now + minutes * 60 * 1000,
+    closesAt: alignToCandle ? nextCandleClose(now, minutes) : now + minutes * 60 * 1000,
     outcome: null,
     settledAt: null,
     settledBy: null,
+    // How the call ended: 'exit' when the analyst closed it, 'window' when it
+    // simply ran out. The room is told which, because a call the analyst cashed
+    // and a call that expired against them are not the same event.
+    closedBy: null,
     exit: null,
     messageId: null,
   };
@@ -80,11 +104,12 @@ export function dueForSettlement(picks, now = Date.now()) {
   return picks.filter((pick) => !pick.outcome && pick.closesAt <= now);
 }
 
-export function settlePick(pick, { outcome, settledBy, exit = null, now = Date.now() }) {
+export function settlePick(pick, { outcome, settledBy, exit = null, closedBy = 'window', now = Date.now() }) {
   if (!Object.values(OUTCOMES).includes(outcome)) throw new Error(`Unknown outcome: ${outcome}`);
   pick.outcome = outcome;
   pick.settledAt = now;
   pick.settledBy = settledBy ?? null;
+  pick.closedBy = closedBy;
   pick.exit = exit;
   return pick;
 }

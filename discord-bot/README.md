@@ -200,6 +200,20 @@ room to sit through the losers.
 Cash-out and hold messages are posted as replies to the analyst's own open call, since a
 bare "cash out" is unreadable in a channel where three calls are running.
 
+### A call ends when the analyst says it ends
+
+Cashing out or cutting a loss **closes the call and scores it at that price**. The exit
+is the moment the analyst gets out, not fifteen minutes later — grading on the window
+while ignoring the exit marks a call somebody took profit on as a loss because price
+kept going afterwards.
+
+**HOLD** changes nothing, so it leaves the call running. **CASH AT %** is a partial take
+and also leaves it open.
+
+Windows **snap to the candle**: a 15-minute call opened at 3:41 closes at 3:45, not
+3:56, so the bot's clock is the clock the room is trading. A boundary less than a minute
+away is skipped, since a call with eleven seconds left in it is not a call.
+
 ### Calls grade themselves
 
 Kalshi is where these get traded, but a 15-minute "up or down" is settled by the
@@ -224,6 +238,15 @@ the people paying for signals are the ones who have to see them. This defaults t
 whichever `ROLE_TIER_n` are configured; `PICKS_PING_ROLE_IDS` overrides it, and setting
 it empty turns pinging off. `allowedMentions` is always set explicitly, so whatever ends
 up inside an embed the bot can never reach `@everyone`.
+
+**`PICKS_ANALYST_ROLE_IDS` is not optional.** With no analyst role configured only
+administrators can press anything: Manage Messages is held by every moderator in most
+servers, and a member pressing BUY UP by accident sends a real signal to everyone paying
+for one.
+
+If the bot scores a call wrongly, a mod can undo it — `/picks reset analyst:@them` shows
+what it would delete, and `confirm:True` does it. A record the bot got wrong has to be
+fixable or the board lies about someone permanently.
 
 Set `PICKS_ANALYST_ROLE_IDS` to the roles allowed to post calls. `PICKS_CHANNEL_ID`
 sends every call to one channel; without it they land wherever the command was run.

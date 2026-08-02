@@ -129,7 +129,7 @@ export function cashPercentModal() {
  * These are attached to the analyst's open call rather than floating free: a
  * bare "cash out" in a busy channel is unreadable when three calls are running.
  */
-export function managementMessage({ action, analystId, pick, percent = null, note = null, price = null }) {
+export function managementMessage({ action, analystId, pick, percent = null, note = null, price = null, verdict = null }) {
   const subject = pick ? `**${pick.asset}** ${pick.minutes}m` : 'your open position';
 
   const copy = {
@@ -161,9 +161,20 @@ export function managementMessage({ action, analystId, pick, percent = null, not
     .setDescription([copy.body, note ? `\n> ${note}` : ''].filter(Boolean).join('\n'))
     .setTimestamp();
 
-  if (price !== null) embed.addFields({ name: 'Price now', value: `\`${price}\``, inline: true });
-  if (pick?.entry != null) {
-    embed.addFields({ name: 'Called at', value: `\`${pick.entry}\``, inline: true });
+  if (price !== null) embed.addFields({ name: 'Price now', value: price, inline: true });
+  if (pick?.entryLabel) embed.addFields({ name: 'Called at', value: pick.entryLabel, inline: true });
+
+  // Closing a call is the moment it is scored, so the verdict rides along
+  // rather than turning up in a separate message minutes later.
+  if (verdict) {
+    embed.addFields({
+      name: 'Scored',
+      value: `${verdict.outcome === 'win' ? '✅ Win' : verdict.outcome === 'loss' ? '❌ Loss' : '➖ Break even'}` +
+        (Number.isFinite(verdict.changePercent)
+          ? ` · ${verdict.changePercent > 0 ? '+' : ''}${Math.round(verdict.changePercent * 1000) / 1000}%`
+          : ''),
+      inline: true,
+    });
   }
 
   return { embeds: [embed] };
