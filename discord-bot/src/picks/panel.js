@@ -27,39 +27,22 @@ export const ENTRY_SIZES = [
   { percent: 75, label: '75% of port' },
   { percent: 100, label: '💯 FULL PORT' },
 ];
+/**
+ * On Kalshi a position is closed whole — you sell the contracts you hold, you
+ * do not sell a quarter of them. So there is no partial exit here: crashing out
+ * and cutting a loss both take everything, and the only other thing an analyst
+ * can say is that nothing has changed.
+ */
 export const PANEL_ACTIONS = {
   UP: 'up',
   DOWN: 'down',
-  CASH_25: 'cash_25',
-  CASH_50: 'cash_50',
-  CASH_75: 'cash_75',
-  ALL_OUT: 'all_out',
-  CASH_PERCENT: 'cash_percent',
-  CASH_PROFIT: 'cash_profit',
+  CRASH_OUT: 'crash_out',
   CUT_LOSS: 'cut_loss',
   HOLD: 'hold',
 };
 
-/**
- * How much of the position each exit button takes off. 100 closes the call.
- * Separate from ENTRY_SIZES on purpose: one is how much you put in, the other
- * is how much you take out, and calling both "the percentage" is what made the
- * console unreadable.
- */
-export const ACTION_PERCENT = {
-  [PANEL_ACTIONS.CASH_25]: 25,
-  [PANEL_ACTIONS.CASH_50]: 50,
-  [PANEL_ACTIONS.CASH_75]: 75,
-  [PANEL_ACTIONS.ALL_OUT]: 100,
-};
-
-/** Actions that end the call. Anything else leaves it running. */
-export const CLOSING_ACTIONS = new Set([
-  PANEL_ACTIONS.ALL_OUT,
-  PANEL_ACTIONS.CASH_PROFIT,
-  PANEL_ACTIONS.CUT_LOSS,
-]);
-export const CASH_MODAL = 'pick:cash:';
+/** Every exit closes the whole position. Only holding leaves it running. */
+export const CLOSING_ACTIONS = new Set([PANEL_ACTIONS.CRASH_OUT, PANEL_ACTIONS.CUT_LOSS]);
 
 /** "pick:panel:up" -> "up". */
 export function panelAction(customId) {
@@ -88,11 +71,10 @@ export function analystPanel(config, settings) {
 '__Opening__',
         '🟢 **BUY UP** / 🔴 **BUY DOWN** — then pick **how much of the port** goes in.',
         '',
-        '__Closing__',
-        '💰 **CASH 25 / 50 / 75%** — take that much of the position off, the rest stays on',
-        '💯 **ALL OUT** — everything out, the call closes and is scored',
-        '✅ **CASH AT PROFIT** / ❌ **CUT LOSS** — close it and score it',
-        '✋ **HOLD** — nothing has changed',
+        '__Closing__ — a position comes out whole, never in pieces',
+        '💸 **CRASH OUT** — everything out with the profit. The call closes and is scored.',
+        '❌ **CUT LOSS** — everything out at a loss.',
+        '✋ **HOLD** — nothing has changed, stay in.',
       ].join('\n'),
     )
     .setFooter({ text: `Analysts only · ${settings.disclaimer}` });
@@ -112,40 +94,13 @@ export function analystPanel(config, settings) {
           .setLabel('BUY DOWN')
           .setEmoji('🔴'),
       ),
-      // Sizing on its own row. In a 15-minute market the difference between
-      // "take a quarter off" and "get everything out" is the whole message, and
-      // it should not cost a modal to say it.
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-          .setCustomId(`${PANEL_PREFIX}${PANEL_ACTIONS.CASH_25}`)
-          .setStyle(ButtonStyle.Secondary)
-          .setLabel('CASH 25%'),
-        new ButtonBuilder()
-          .setCustomId(`${PANEL_PREFIX}${PANEL_ACTIONS.CASH_50}`)
-          .setStyle(ButtonStyle.Secondary)
-          .setLabel('CASH 50%'),
-        new ButtonBuilder()
-          .setCustomId(`${PANEL_PREFIX}${PANEL_ACTIONS.CASH_75}`)
-          .setStyle(ButtonStyle.Secondary)
-          .setLabel('CASH 75%'),
-        new ButtonBuilder()
-          .setCustomId(`${PANEL_PREFIX}${PANEL_ACTIONS.ALL_OUT}`)
-          .setStyle(ButtonStyle.Primary)
-          .setLabel('ALL OUT — full port')
-          .setEmoji('💯'),
-        new ButtonBuilder()
-          .setCustomId(`${PANEL_PREFIX}${PANEL_ACTIONS.CASH_PERCENT}`)
-          .setStyle(ButtonStyle.Secondary)
-          .setLabel('Other %')
-          .setEmoji('✏️'),
-      ),
-      new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId(`${PANEL_PREFIX}${PANEL_ACTIONS.CASH_PROFIT}`)
+          .setCustomId(`${PANEL_PREFIX}${PANEL_ACTIONS.CRASH_OUT}`)
           .setStyle(ButtonStyle.Success)
-          .setLabel('CASH AT PROFIT')
-          .setEmoji('✅'),
-        // The counterpart to cashing out. A console that can only announce
+          .setLabel('CRASH OUT')
+          .setEmoji('💸'),
+        // The counterpart to crashing out. A console that can only announce
         // wins teaches the room to sit through the losers.
         new ButtonBuilder()
           .setCustomId(`${PANEL_PREFIX}${PANEL_ACTIONS.CUT_LOSS}`)
@@ -162,68 +117,32 @@ export function analystPanel(config, settings) {
   };
 }
 
-/** Asks how much to take off, since "cash at a percent" needs the percent. */
-export function cashPercentModal() {
-  return new ModalBuilder()
-    .setCustomId(`${CASH_MODAL}percent`)
-    .setTitle('Cash out — how much?')
-    .addComponents(
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId('percent')
-          .setLabel('Percentage to take off')
-          .setPlaceholder('e.g. 50')
-          .setStyle(TextInputStyle.Short)
-          .setMaxLength(6)
-          .setRequired(true),
-      ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId('note')
-          .setLabel('Anything to add (optional)')
-          .setStyle(TextInputStyle.Short)
-          .setMaxLength(120)
-          .setRequired(false),
-      ),
-    );
-}
-
 /**
  * The message the room gets for a management call — cash out or hold.
  *
  * These are attached to the analyst's open call rather than floating free: a
  * bare "cash out" in a busy channel is unreadable when three calls are running.
  */
-export function managementMessage({ action, analystId, pick, percent = null, note = null, price = null, verdict = null }) {
+export function managementMessage({ action, analystId, pick, note = null, price = null, verdict = null }) {
   const subject = pick ? `**${pick.asset}** ${pick.minutes}m` : 'your open position';
 
   const copy = {
-    [PANEL_ACTIONS.ALL_OUT]: {
-      colour: COLORS.gold,
-      title: '💯 All out — full port',
-      body: `<@${analystId}> is out of ${subject} entirely. Close the whole position.`,
-    },
-    [PANEL_ACTIONS.CASH_PERCENT]: {
-      colour: COLORS.gold,
-      title: `💰 Take ${percent}% off`,
-      body: `<@${analystId}> says take **${percent}%** off ${subject}.`,
-    },
-    [PANEL_ACTIONS.CASH_PROFIT]: {
+    [PANEL_ACTIONS.CRASH_OUT]: {
       colour: COLORS.success,
-      title: '✅ Cash out in profit',
-      body: `<@${analystId}> is closing ${subject} in profit. Take it.`,
+      title: '💸 Crash out',
+      body: `<@${analystId}> is out of ${subject} — **everything**, with the profit. Close your whole position.`,
     },
     [PANEL_ACTIONS.CUT_LOSS]: {
       colour: COLORS.danger,
       title: '❌ Cut the loss',
-      body: `<@${analystId}> is getting out of ${subject}. The call is wrong — take the loss and move on.`,
+      body: `<@${analystId}> is out of ${subject} — **everything**. The call is wrong, take the loss and move on.`,
     },
     [PANEL_ACTIONS.HOLD]: {
       colour: COLORS.warning,
       title: '✋ Hold',
       body: `<@${analystId}> says hold ${subject}. Nothing has changed yet.`,
     },
-  }[ACTION_PERCENT[action] && action !== PANEL_ACTIONS.ALL_OUT ? PANEL_ACTIONS.CASH_PERCENT : action];
+  }[action];
 
   const embed = new EmbedBuilder()
     .setColor(copy.colour)
@@ -287,16 +206,11 @@ export function guideMessage(config, settings) {
           'Size down if that is more than you are comfortable losing.',
       },
       {
-        name: '💰 CASH 25% / 50% / 75% — take some off',
+        name: '💸 CRASH OUT — everything, in profit',
         value:
-          'Sell that share of the position and **keep the rest running**. ' +
-          'This is locking in part of the move, not the exit. The call stays open and is not scored yet.',
-      },
-      {
-        name: '💯 ALL OUT — everything',
-        value:
-          '**Close the whole position now.** Nothing is left on. ' +
-          'The call ends here and goes on the record at this price.',
+          '**Sell your whole position now.** Your money comes out with the profit on it. ' +
+          'There is no half-way here — a position on Kalshi comes out whole. ' +
+          'The call ends and goes on the record at this price.',
       },
       {
         name: '🗳️ After a call closes — you get a vote',
@@ -306,13 +220,9 @@ export function guideMessage(config, settings) {
           'a call the bot scored a win where the room lost money means it came too late to act on.',
       },
       {
-        name: '✅ CASH AT PROFIT — take the win',
-        value: 'The move played out. **Close it in profit.** The call is scored a win at this price.',
-      },
-      {
         name: '❌ CUT LOSS — get out',
         value:
-          '**The call is wrong. Close it and take the loss.** ' +
+          '**The call is wrong. Sell the whole position and take the loss.** ' +
           'This goes on the analyst\'s record as a loss — that is the point. Do not average down.',
       },
       {
@@ -396,14 +306,13 @@ export function simpleAnnouncement(pick) {
 }
 
 /** The short version of an exit. */
-export function simpleExit({ pick, percent, closed, outcome }) {
-  const what = closed
-    ? outcome === 'win'
-      ? '✅ **CLOSED — profit**'
+export function simpleExit({ pick, outcome }) {
+  const what =
+    outcome === 'win'
+      ? '💸 **CRASH OUT — everything out, in profit**'
       : outcome === 'loss'
-        ? '❌ **CLOSED — loss**'
-        : '➖ **CLOSED — flat**'
-    : `💰 **TAKE ${percent}% OFF** — rest stays on`;
+        ? '❌ **CUT LOSS — everything out**'
+        : '➖ **CLOSED — flat**';
   return { content: `${what} · **${pick.asset}** ${pick.minutes}m` };
 }
 

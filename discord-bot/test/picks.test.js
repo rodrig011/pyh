@@ -307,7 +307,6 @@ test('command registration survives a config with no picks block', () => {
 // on a public leaderboard, so it is driven end to end here rather than trusted.
 
 import {
-  ACTION_PERCENT,
   analystPanel,
   parseSize,
   guideMessage,
@@ -320,7 +319,7 @@ import { castVote, emptyVote, tallyVote } from '../src/picks/vote.js';
 
 test('panel button ids map to actions, and nothing else does', () => {
   assert.equal(panelAction('pick:panel:up'), PANEL_ACTIONS.UP);
-  assert.equal(panelAction('pick:panel:cash_profit'), PANEL_ACTIONS.CASH_PROFIT);
+  assert.equal(panelAction('pick:panel:crash_out'), PANEL_ACTIONS.CRASH_OUT);
   assert.equal(panelAction('pick:panel:nonsense'), null);
   assert.equal(panelAction('vip:buy:1'), null);
   assert.equal(panelAction(undefined), null);
@@ -328,15 +327,14 @@ test('panel button ids map to actions, and nothing else does', () => {
 
 test('a management message names the call it belongs to', () => {
   const message = managementMessage({
-    action: PANEL_ACTIONS.CASH_PERCENT,
+    action: PANEL_ACTIONS.CRASH_OUT,
     analystId: 'a1',
     pick: { asset: 'BTC', minutes: 15, entry: 97000 },
-    percent: 50,
     price: '$97,500.00',
   });
 
   const embed = message.embeds[0].toJSON();
-  assert.match(embed.title, /50%/);
+  assert.match(embed.title, /Crash out/i);
   assert.match(embed.description, /BTC/);
   assert.ok(embed.fields.some((field) => field.name === 'Price now'));
 });
@@ -514,12 +512,7 @@ test('the console offers every action, cutting losses included', () => {
   assert.deepEqual(ids, [
     'pick:panel:up',
     'pick:panel:down',
-    'pick:panel:cash_25',
-    'pick:panel:cash_50',
-    'pick:panel:cash_75',
-    'pick:panel:all_out',
-    'pick:panel:cash_percent',
-    'pick:panel:cash_profit',
+    'pick:panel:crash_out',
     'pick:panel:cut_loss',
     'pick:panel:hold',
   ]);
@@ -592,7 +585,7 @@ test('cashing out in profit closes the call there and then', async (t) => {
   const pick = openCallIn(store, { direction: DIRECTIONS.DOWN, entry: 63297.58 });
   withPrice(t, 63281.84);
 
-  const { interaction, replies } = panelPress('cash_profit');
+  const { interaction, replies } = panelPress('crash_out');
   await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
 
   const closed = store.getPick(pick.id);
@@ -607,7 +600,7 @@ test('a call the analyst cashed is never regraded when the window runs out', asy
   const pick = openCallIn(store, { direction: DIRECTIONS.DOWN, entry: 63297.58 });
   withPrice(t, 63281.84);
 
-  const press = panelPress('cash_profit');
+  const press = panelPress('crash_out');
   await handleInteraction(press.interaction, { store, config: routingConfig, client: press.interaction.client });
 
   // Price then runs the other way and the window expires — the exact sequence
@@ -651,7 +644,7 @@ test('holding leaves the call running', async (t) => {
 
 test('cashing out with nothing open says so instead of inventing a message', async (t) => {
   const store = routingStore(t);
-  const { interaction, replies, posted } = panelPress('cash_profit');
+  const { interaction, replies, posted } = panelPress('crash_out');
 
   await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
 
@@ -663,7 +656,7 @@ test('a member who is not an analyst cannot press anything', async (t) => {
   const store = routingStore(t);
   openCallIn(store);
 
-  const { interaction, replies, posted } = panelPress('cash_profit', 'random-member');
+  const { interaction, replies, posted } = panelPress('crash_out', 'random-member');
   interaction.memberPermissions = { has: () => false };
 
   await handleInteraction(interaction, {
@@ -749,35 +742,25 @@ test('a non-mod cannot wipe a record', async (t) => {
 // Sizing. "Take 50% off" and "get everything out" are the same word to somebody
 // who has not traded before, so the two must not behave the same way.
 
-test('a partial take leaves the call running', async (t) => {
-  const store = routingStore(t);
-  const pick = openCallIn(store);
-  withPrice(t, 63400);
-
-  const { interaction, posted } = panelPress('cash_50');
-  await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
-
-  assert.equal(store.getPick(pick.id).outcome, null, 'still open — half is still on');
-  assert.match(posted[0].embeds[0].toJSON().title, /50%/);
-});
-
-test('ALL OUT closes the call and scores it', async (t) => {
+test('crashing out closes the call and takes the whole position', async (t) => {
   const store = routingStore(t);
   const pick = openCallIn(store, { direction: DIRECTIONS.UP, entry: 63300 });
   withPrice(t, 63400);
 
-  const { interaction, posted } = panelPress('all_out');
+  const { interaction, posted } = panelPress('crash_out');
   await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
 
   assert.equal(store.getPick(pick.id).outcome, OUTCOMES.WIN);
   assert.equal(store.getPick(pick.id).closedBy, 'exit');
-  assert.match(posted[0].embeds[0].toJSON().title, /full port/i);
+  assert.match(posted[0].embeds[0].toJSON().title, /Crash out/i);
+  assert.match(posted[0].embeds[0].toJSON().description, /everything/i);
 });
 
-test('every sizing button carries the share it takes off', () => {
-  assert.equal(ACTION_PERCENT[PANEL_ACTIONS.CASH_25], 25);
-  assert.equal(ACTION_PERCENT[PANEL_ACTIONS.ALL_OUT], 100);
-  assert.equal(ACTION_PERCENT[PANEL_ACTIONS.HOLD], undefined, 'holding takes nothing off');
+test('there is no partial exit, because Kalshi has none', () => {
+  assert.equal(PANEL_ACTIONS.CASH_25, undefined);
+  assert.equal(PANEL_ACTIONS.ALL_OUT, undefined);
+  assert.equal(PANEL_ACTIONS.CASH_PERCENT, undefined);
+  assert.ok(PANEL_ACTIONS.CRASH_OUT, 'the exit is one button that takes everything');
 });
 
 test('the console comes back after a call closes', async (t) => {
@@ -785,7 +768,7 @@ test('the console comes back after a call closes', async (t) => {
   openCallIn(store, { direction: DIRECTIONS.UP, entry: 63300 });
   withPrice(t, 63400);
 
-  const { interaction, posted } = panelPress('cash_profit');
+  const { interaction, posted } = panelPress('crash_out');
   await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
 
   const panels = posted.filter((message) =>
@@ -799,7 +782,7 @@ test('the console does not come back when that is switched off', async (t) => {
   openCallIn(store, { direction: DIRECTIONS.UP, entry: 63300 });
   withPrice(t, 63400);
 
-  const { interaction, posted } = panelPress('cash_profit');
+  const { interaction, posted } = panelPress('crash_out');
   await handleInteraction(interaction, {
     store,
     config: { ...routingConfig, picks: { ...routingConfig.picks, repostPanel: false } },
@@ -816,7 +799,7 @@ test('the guide explains every button the console has', () => {
   const guide = guideMessage(routingConfig, pickSettings(routingConfig));
   const text = JSON.stringify(guide.embeds[0].toJSON());
 
-  for (const phrase of ['LONG', 'SHORT', '25%', 'full port', 'CASH AT PROFIT', 'CUT LOSS', 'HOLD']) {
+  for (const phrase of ['LONG', 'SHORT', 'of port', 'CRASH OUT', 'CUT LOSS', 'HOLD']) {
     assert.ok(text.includes(phrase), `the guide never mentions ${phrase}`);
   }
   assert.match(text, /own money and your own size/, 'and says whose risk it is');
@@ -997,7 +980,7 @@ test('closing a call opens the vote', async (t) => {
   const pick = openCallIn(store, { direction: DIRECTIONS.UP, entry: 63300 });
   withPrice(t, 63400);
 
-  const { interaction } = panelPress('cash_profit');
+  const { interaction } = panelPress('crash_out');
   await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
 
   const vote = store.getVote(pick.id);

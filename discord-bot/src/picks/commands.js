@@ -11,8 +11,6 @@ import {
 import { COLORS } from '../lib/brand.js';
 import { postPermissionHelp } from '../lib/channelAccess.js';
 import {
-  ACTION_PERCENT,
-  CASH_MODAL,
   CLOSING_ACTIONS,
   DIRECTION_FOR_ACTION,
   PANEL_ACTIONS,
@@ -20,7 +18,6 @@ import {
   SIZE_PREFIX,
   VOTE_PREFIX,
   analystPanel,
-  cashPercentModal,
   entrySizeRow,
   guideMessage,
   managementMessage,
@@ -659,12 +656,6 @@ export async function handlePanelButton(interaction, { store, config }) {
     });
   }
 
-  // "Cash at a percent" needs the percent, and a modal must be the first reply
-  // to the interaction — so it cannot be deferred first.
-  if (action === PANEL_ACTIONS.CASH_PERCENT) {
-    return interaction.showModal(cashPercentModal());
-  }
-
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   if (action === PANEL_ACTIONS.UP || action === PANEL_ACTIONS.DOWN) {
@@ -676,10 +667,7 @@ export async function handlePanelButton(interaction, { store, config }) {
     });
   }
 
-  return postManagement(interaction, { store, config }, {
-    action,
-    percent: ACTION_PERCENT[action] ?? null,
-  });
+  return postManagement(interaction, { store, config }, { action });
 }
 
 /** The second tap: the size, which is what actually sends the call. */
@@ -748,39 +736,18 @@ export async function handleVoteButton(interaction, { store }) {
   });
 }
 
-export async function handleCashModal(interaction, { store, config }) {
-  if (!isAnalyst(interaction, config)) {
-    return interaction.reply({ content: 'Only the analysts can send calls.', flags: MessageFlags.Ephemeral });
-  }
-
-  const raw = interaction.fields.getTextInputValue('percent');
-  const percent = Number.parseFloat(String(raw).replace('%', '').trim());
-  if (!Number.isFinite(percent) || percent <= 0 || percent > 100) {
-    return interaction.reply({
-      content: `**${raw}** is not a percentage between 0 and 100.`,
-      flags: MessageFlags.Ephemeral,
-    });
-  }
-
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  return postManagement(interaction, { store, config }, {
-    action: PANEL_ACTIONS.CASH_PERCENT,
-    percent,
-    note: interaction.fields.getTextInputValue('note')?.trim() || null,
-  });
-}
-
 /**
- * Cash out, cut the loss, or hold.
+ * Crashing out, cutting a loss, or holding.
  *
- * Cashing out and cutting a loss END the call: the exit is the moment the
- * analyst says get out, not fifteen minutes later. Grading on the window while
- * ignoring the exit marks a call the analyst took profit on as a loss because
- * price kept going — which is what happened, and it is the whole complaint.
+ * Both exits END the call, and both take the whole position — on Kalshi you
+ * sell the contracts you hold, not a quarter of them. The exit is the moment
+ * the analyst says get out, not fifteen minutes later: grading on the window
+ * while ignoring the exit marks a call somebody took profit on as a loss
+ * because price kept going, which is exactly what went wrong before.
  *
  * Holding changes nothing, so it leaves the call running.
  */
-async function postManagement(interaction, { store, config }, { action, percent = null, note = null }) {
+async function postManagement(interaction, { store, config }, { action, note = null }) {
   const settings = pickSettings(config);
 
   const open = store
@@ -804,7 +771,6 @@ async function postManagement(interaction, { store, config }, { action, percent 
 
   const quote = await fetchSpotPrice(open?.asset ?? settings.defaultAsset);
 
-  // A partial take leaves the position on; only a full exit closes the call.
   const closes = CLOSING_ACTIONS.has(action);
   let verdict = null;
 
@@ -833,7 +799,6 @@ async function postManagement(interaction, { store, config }, { action, percent 
       action,
       analystId: interaction.user.id,
       pick: open ? { ...open, entryLabel: open.entry == null ? null : formatPrice(open.entry) } : null,
-      percent,
       note,
       price: quote.price === null ? null : formatPrice(quote.price),
       verdict,
@@ -843,15 +808,12 @@ async function postManagement(interaction, { store, config }, { action, percent 
   });
 
   if (!closes) {
-    await announce(interaction.client, config, simpleExit({ pick: open, percent, closed: false }));
     return interaction.editReply(
       open ? `Sent to ${channel}, on your open **${open.asset}** call.` : `Sent to ${channel}.`,
     );
   }
 
-  await announce(interaction.client, config, simpleExit({
-    pick: open, percent, closed: true, outcome: verdict.outcome,
-  }));
+  await announce(interaction.client, config, simpleExit({ pick: open, outcome: verdict.outcome }));
   await openVote(interaction.client, store, config, open);
   await repostPanel(interaction.client, config, channel.id);
 
@@ -1074,9 +1036,7 @@ export async function promptDueSettlements(client, store, config, now = Date.now
         })
         .catch(() => null);
 
-      await announce(client, config, simpleExit({
-        pick, percent: null, closed: true, outcome: verdict.outcome,
-      }));
+      await announce(client, config, simpleExit({ pick, outcome: verdict.outcome }));
       await openVote(client, store, config, pick);
       await repostPanel(client, config, channel.id);
       graded += 1;

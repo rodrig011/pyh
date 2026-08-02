@@ -213,16 +213,19 @@ the signal is worth less the longer it takes to send.
 
 | Button | What the room gets |
 | --- | --- |
-| 🟢 **BUY UP** / 🔴 **BUY DOWN** | A call opens, stamped with the live price |
+| 🟢 **BUY UP** / 🔴 **BUY DOWN** | Asks how much of the port goes in, then opens the call at the live price |
 | 💰 **CASH AT %** | Asks for the percentage, then tells the room to take that much off |
-| ✅ **CASH AT PROFIT** | Close it out in profit |
-| 💰 **25% / 50% / 75%** | Take that share off — **the call stays open** |
-| 💯 **ALL OUT (full port)** | Close the whole position; the call ends and is scored |
-| ❌ **CUT LOSS** | The call is wrong — get out and take the loss |
+
+| 💸 **CRASH OUT** | Everything out with the profit; the call ends and is scored |
+| ❌ **CUT LOSS** | Everything out at a loss |
 | ✋ **HOLD** | Stay in, nothing has changed |
 
 Cutting a loss is a button because a console that can only announce wins teaches the
 room to sit through the losers.
+
+**There is no partial exit**, because Kalshi has none: you sell the contracts you hold,
+not a quarter of them. The percentages belong to the *entry* — how much of the book goes
+in — and the exit is one button that takes everything.
 
 Cash-out and hold messages are posted as replies to the analyst's own open call, since a
 bare "cash out" is unreadable in a channel where three calls are running.
