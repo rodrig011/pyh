@@ -574,3 +574,63 @@ test('the member-facing commands stay private and gain no toggle', () => {
 
   assert.deepEqual(leaked, [], 'buyers must never publish their own order');
 });
+
+// Matching by name is dead if the alert carries no payer, so sync has to say
+// which of the two is happening rather than reporting a healthy-looking tick.
+
+test('/vip-admin sync shows the payer name it extracted', async (t) => {
+  const store = freshStore(t);
+  const watcher = {
+    imap: liveImap,
+    diagnose: () => [],
+    poll: async () => ({ checked: 0, payments: 0 }),
+    inspect: async () => ({
+      total: 1,
+      seen: [
+        {
+          from: 'HuntingtonOnline@email.huntington.com',
+          subject: 'Zelle® Activity Alert',
+          isPayment: true,
+          amountCents: 10000,
+          senderName: 'CHRISTOPHER SWAILS',
+          codes: [],
+        },
+      ],
+    }),
+  };
+  const { interaction, replies } = syncInteraction(watcher);
+
+  await handleInteraction(interaction, { store, config, client: fakeClient, watcher });
+
+  assert.match(replies[0], /CHRISTOPHER SWAILS/);
+});
+
+test('/vip-admin sync quotes the wording when no payer name was found', async (t) => {
+  const store = freshStore(t);
+  const watcher = {
+    imap: liveImap,
+    diagnose: () => [],
+    poll: async () => ({ checked: 0, payments: 0 }),
+    inspect: async () => ({
+      total: 1,
+      seen: [
+        {
+          from: 'HuntingtonOnline@email.huntington.com',
+          subject: 'Zelle® Activity Alert',
+          isPayment: true,
+          amountCents: 10000,
+          senderName: null,
+          codes: [],
+          excerpt: 'A Zelle payment of $100.00 was deposited into your account ending 1234.',
+        },
+      ],
+    }),
+  };
+  const { interaction, replies } = syncInteraction(watcher);
+
+  await handleInteraction(interaction, { store, config, client: fakeClient, watcher });
+
+  assert.match(replies[0], /not found/, 'the missing field is named');
+  assert.match(replies[0], /deposited into your account/, 'the wording is quoted');
+  assert.match(replies[0], /need a mod to assign/, 'and the consequence is spelled out');
+});

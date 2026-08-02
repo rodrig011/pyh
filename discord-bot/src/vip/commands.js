@@ -1239,16 +1239,34 @@ async function handleAdminSync(interaction, { watcher }) {
       } else {
         for (const mail of seen) {
           const subject = (mail.subject || '(no subject)').slice(0, 60);
+          if (!mail.isPayment) {
+            lines.push(`❌ \`${mail.from}\` — ${subject}\n   ↳ ${mail.reason ?? 'not recognised as a payment'}`);
+            continue;
+          }
+
           lines.push(
-            mail.isPayment
-              ? `✅ \`${mail.from}\` — ${subject} → **${formatMoney(mail.amountCents ?? 0)}**, codes: ${mail.codes.join(', ') || 'none'}${mail.alreadyProcessed ? ' _(already handled)_' : ''}`
-              : `❌ \`${mail.from}\` — ${subject}\n   ↳ ${mail.reason ?? 'not recognised as a payment'}`,
+            `✅ \`${mail.from}\` — ${subject} → **${formatMoney(mail.amountCents ?? 0)}**` +
+              `, payer: ${mail.senderName ? `**${mail.senderName}**` : '**not found**'}` +
+              `, codes: ${mail.codes.join(', ') || 'none'}` +
+              `${mail.alreadyProcessed ? ' _(already handled)_' : ''}`,
           );
+
+          // Without the payer name, matching by name cannot fire at all. The
+          // bank's exact wording is what the parser has to be taught, so it is
+          // put in front of whoever can act on it.
+          if (mail.excerpt) {
+            lines.push(`   ↳ no payer name in: _${mail.excerpt}_`);
+          }
         }
+
+        const nameless = seen.filter((mail) => mail.isPayment && !mail.senderName);
         lines.push(
           '',
-          'If a real Zelle alert is listed with **Untrusted sender**, copy the address shown above ' +
-            'into `IMAP_ALLOWED_SENDERS` — that is the one thing the bot cannot guess.',
+          nameless.length > 0
+            ? '⚠️ Alerts arrived with **no payer name**, so payments cannot be matched to a buyer by name — ' +
+              'they will need a mod to assign them. Send the quoted wording above to whoever maintains the bot.'
+            : 'If a real Zelle alert is listed with **Untrusted sender**, copy the address shown above ' +
+              'into `IMAP_ALLOWED_SENDERS` — that is the one thing the bot cannot guess.',
         );
       }
     }

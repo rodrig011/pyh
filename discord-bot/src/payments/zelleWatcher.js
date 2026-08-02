@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import { createLogger } from '../lib/logger.js';
-import { parsePaymentEmail } from './parseZelle.js';
+import { htmlToText, parsePaymentEmail } from './parseZelle.js';
 
 const log = createLogger('zelle');
 
@@ -181,6 +181,11 @@ export class ZelleWatcher extends EventEmitter {
             codeLength: this.codeLength,
           });
 
+          // When a payment parses but the payer does not, the wording is the
+          // only thing that can fix it — matching by name is dead without that
+          // field, and no amount of guessing at the regex substitutes for
+          // seeing what the bank actually wrote.
+          const body = email.text?.trim() || htmlToText(email.html);
           seen.push({
             from: email.from,
             subject: email.subject,
@@ -188,7 +193,12 @@ export class ZelleWatcher extends EventEmitter {
             isPayment: parsed.isPayment,
             reason: parsed.reason ?? null,
             amountCents: parsed.amountCents,
+            senderName: parsed.senderName,
             codes: parsed.codes ?? [],
+            excerpt:
+              parsed.isPayment && !parsed.senderName
+                ? body.replace(/\s+/g, ' ').slice(0, 220)
+                : null,
             alreadyProcessed: this.store?.isEmailProcessed(email.messageId) ?? false,
           });
         }
