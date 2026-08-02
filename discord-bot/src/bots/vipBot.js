@@ -135,7 +135,11 @@ export function createVipBot(config = loadVipConfig()) {
       await handleInteraction(interaction, { store, config, client, watcher, stripe });
     } catch (error) {
       log.error(`Interaction error: ${error.stack ?? error.message}`);
-      const payload = { content: 'Something went wrong while handling that command.' };
+      // "Something went wrong" tells a mod nothing and leaves them guessing at a
+      // permission they cannot see. Discord's own wording is the actual lead.
+      const payload = {
+        content: `Something went wrong while handling that command:\n\`\`\`\n${error.message}\n\`\`\`\nIf it mentions permissions, check what the bot is allowed to do in this channel.`,
+      };
       if (interaction.deferred) await interaction.editReply(payload).catch(() => {});
       else if (!interaction.replied) {
         await interaction.reply({ ...payload, flags: MessageFlags.Ephemeral }).catch(() => {});

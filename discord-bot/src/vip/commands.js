@@ -668,8 +668,53 @@ async function handleButton(interaction, context) {
   return undefined;
 }
 
+/** Permissions the bot must hold in a channel before it can post the storefront. */
+const PANEL_PERMISSIONS = [
+  { flag: PermissionFlagsBits.ViewChannel, name: 'View Channel' },
+  { flag: PermissionFlagsBits.SendMessages, name: 'Send Messages' },
+  { flag: PermissionFlagsBits.EmbedLinks, name: 'Embed Links' },
+];
+
 async function handleAdminPanel(interaction, { config }) {
-  await interaction.channel.send(storefrontMessage(config));
+  const channel = interaction.channel;
+  if (!channel) {
+    await interaction.editReply('Run this inside the channel where the panel should live.');
+    return;
+  }
+
+  // A "how to buy" channel is normally locked so members cannot post in it, and
+  // that deny lands on the bot too. Naming the missing permission and the
+  // channel beats a generic failure the mod has to guess at.
+  const me = interaction.guild?.members?.me;
+  const mine = me ? channel.permissionsFor(me) : null;
+  const missing = mine
+    ? PANEL_PERMISSIONS.filter((permission) => !mine.has(permission.flag)).map((p) => p.name)
+    : [];
+
+  if (missing.length > 0) {
+    await interaction.editReply(
+      [
+        `I cannot post in ${channel}. Missing: **${missing.join('", "')}**.`,
+        '',
+        `Fix it in **${channel.name} → Edit Channel → Permissions → add the VIP bot's role**, turn those on, then run this again.`,
+      ].join('\n'),
+    );
+    return;
+  }
+
+  try {
+    await channel.send(storefrontMessage(config));
+  } catch (error) {
+    await interaction.editReply(
+      [
+        `Discord refused the post in ${channel}: **${error.message}**`,
+        '',
+        'Give the bot "Send Messages" and "Embed Links" on that channel specifically, then try again.',
+      ].join('\n'),
+    );
+    return;
+  }
+
   await interaction.editReply(
     'Panel posted — members buy and check their membership from the buttons, no commands needed. Pin it. ' +
       'The bot needs "Manage Channels" for the ticket button to work.',

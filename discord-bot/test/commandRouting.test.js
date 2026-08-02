@@ -209,3 +209,56 @@ test('the status button answers without a command', async (t) => {
 
   assert.match(replies[0].content, /no membership yet/);
 });
+
+// The panel posts into whatever channel the mod ran it in, and a "how to buy"
+// channel is usually locked so members cannot type. That deny applies to the
+// bot too, which is exactly how this failed in production with nothing but
+// "Something went wrong" to go on.
+function panelInteraction({ allowed = true, sendThrows = null } = {}) {
+  const { interaction, replies } = fakeInteraction('vip-admin', 'panel');
+  const sent = [];
+  const channel = {
+    name: 'how-to-buy-vip',
+    toString: () => '#how-to-buy-vip',
+    permissionsFor: () => ({ has: () => allowed }),
+    send: async (payload) => {
+      if (sendThrows) throw new Error(sendThrows);
+      sent.push(payload);
+    },
+  };
+  interaction.channel = channel;
+  interaction.guild = { members: { me: { id: 'bot' } } };
+  return { interaction, replies, sent };
+}
+
+test('/vip-admin panel posts the storefront when the bot may speak', async (t) => {
+  const store = freshStore(t);
+  const { interaction, replies, sent } = panelInteraction();
+
+  await handleInteraction(interaction, { store, config, client: fakeClient });
+
+  assert.equal(sent.length, 1, 'the panel was posted');
+  assert.ok(sent[0].embeds?.[0], 'it carries the storefront embed');
+  assert.ok(sent[0].components.length >= 1, 'it carries the buy buttons');
+  assert.match(replies[0], /Panel posted/);
+});
+
+test('/vip-admin panel names the missing permission instead of failing blankly', async (t) => {
+  const store = freshStore(t);
+  const { interaction, replies, sent } = panelInteraction({ allowed: false });
+
+  await handleInteraction(interaction, { store, config, client: fakeClient });
+
+  assert.equal(sent.length, 0, 'nothing was posted');
+  assert.match(replies[0], /Send Messages/);
+  assert.match(replies[0], /how-to-buy-vip/, 'it says which channel to fix');
+});
+
+test('/vip-admin panel quotes Discord when the post is refused anyway', async (t) => {
+  const store = freshStore(t);
+  const { interaction, replies } = panelInteraction({ sendThrows: 'Missing Permissions' });
+
+  await handleInteraction(interaction, { store, config, client: fakeClient });
+
+  assert.match(replies[0], /Missing Permissions/);
+});
