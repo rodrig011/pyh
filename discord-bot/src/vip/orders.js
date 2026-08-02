@@ -107,6 +107,12 @@ export function matchPayment(store, payment, config, now = Date.now()) {
 
   const orders = codes.map((code) => store.getOrder(code)).filter(Boolean);
   if (orders.length === 0) {
+    // The text looked like a code but belongs to no order: either the payer
+    // mistyped it, or the scanner caught a phrase shaped like one ("VIP 2
+    // payment" reads as VIP-2PAYME). Neither is a reason to give up while the
+    // amount can still identify the buyer on its own.
+    const byAmount = matchByAmount(store, payment, config, now);
+    if (byAmount.status === 'match' || byAmount.status === 'ambiguous_amount') return byAmount;
     return { status: 'unknown_code', reason: `No order matches code(s): ${codes.join(', ')}` };
   }
 

@@ -118,6 +118,45 @@ test('a personal transfer nobody is waiting for stays a no_code', (t) => {
   assert.equal(matchPayment(store, { codes: [], amountCents: 7500 }, byAmount).status, 'no_code');
 });
 
+test('a mistyped code still lands if the amount points at one order', (t) => {
+  const store = freshStore(t);
+  const order = createOrder(store, { userId: '1', guildId: 'g', tier: 3, config });
+
+  const result = matchPayment(store, { codes: ['VIP-ZZZZ99'], amountCents: 20000 }, byAmount);
+  assert.equal(result.status, 'match');
+  assert.equal(result.order.code, order.code);
+  assert.equal(result.matchedBy, 'amount');
+});
+
+test('a phrase that only looks like a code does not block the amount match', (t) => {
+  const store = freshStore(t);
+  // "Your VIP 2 payment is pending" scans as VIP-2PAYME.
+  const order = createOrder(store, { userId: '1', guildId: 'g', tier: 2, config });
+
+  const result = matchPayment(store, { codes: ['VIP-2PAYME'], amountCents: 10000 }, byAmount);
+  assert.equal(result.status, 'match');
+  assert.equal(result.order.code, order.code);
+});
+
+test('a code nobody can place and an amount nobody awaits is still unknown_code', (t) => {
+  const store = freshStore(t);
+  const result = matchPayment(store, { codes: ['VIP-ZZZZ99'], amountCents: 7500 }, byAmount);
+  assert.equal(result.status, 'unknown_code');
+});
+
+test('a real code beats the amount and keeps its own tier', (t) => {
+  const store = freshStore(t);
+  const tier1 = createOrder(store, { userId: '1', guildId: 'g', tier: 1, config });
+  createOrder(store, { userId: '2', guildId: 'g', tier: 1, config });
+
+  // Two orders sit at $50, so the amount alone would be ambiguous. The code
+  // settles it.
+  const result = matchPayment(store, { codes: [tier1.code], amountCents: 5000 }, byAmount);
+  assert.equal(result.status, 'match');
+  assert.equal(result.matchedBy, 'code');
+  assert.equal(result.order.userId, '1');
+});
+
 test('an order older than the window is not matched by amount alone', (t) => {
   const store = freshStore(t);
   // Still pending (48h TTL) but placed four hours ago: too stale to assume the
