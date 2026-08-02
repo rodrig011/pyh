@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>King T Parlays — BTC 15-minute calls</title>
+<meta name="description" content="Timestamped BTC calls on 15-minute markets, graded against the live price when the candle closes. Wins and losses both." />
+<meta property="og:title" content="King T Parlays — BTC 15-minute calls" />
+<meta property="og:description" content="Every call timestamped, priced from the live feed, and graded when the candle closes." />
+<style>
+  /* ---------------------------------------------------------------
+     Tokens. Ground is a slate that leans blue rather than a neutral
+     grey — a terminal at night, not a default dark theme. Gold is the
+     brand; up/down are semantic and deliberately muted, because a page
+     about an honest record should not look like a casino.
+     --------------------------------------------------------------- */
+  :root {
+    --ground: #0d1117;
+    --raised: #151b24;
+    --line: #232c38;
+    --ink: #eef1f5;
+    --muted: #8b95a4;
+    --gold: #c9a227;
+    --gold-dim: #8a6f1c;
+    --up: #3f9e6b;
+    --down: #bd5750;
+    --measure: 62ch;
+    --step--1: clamp(0.78rem, 0.76rem + 0.1vw, 0.84rem);
+    --step-0: clamp(0.98rem, 0.94rem + 0.2vw, 1.06rem);
+    --step-1: clamp(1.2rem, 1.1rem + 0.5vw, 1.45rem);
+    --step-2: clamp(1.6rem, 1.35rem + 1.2vw, 2.3rem);
+    --step-3: clamp(2.3rem, 1.7rem + 3vw, 4.4rem);
+    --display: "Helvetica Neue", Helvetica, "Segoe UI", system-ui, sans-serif;
+    --body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --data: ui-monospace, "SF Mono", SFMono-Regular, "Cascadia Mono", Menlo, monospace;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root {
+      --ground: #f1f3f6;
+      --raised: #ffffff;
+      --line: #dde2e9;
+      --ink: #101720;
+      --muted: #5d6875;
+      --gold: #8a6f1c;
+      --gold-dim: #b99a2f;
+      --up: #2f7d53;
+      --down: #a8433c;
+    }
+  }
+  :root[data-theme="light"] {
+    --ground: #f1f3f6;
+    --raised: #ffffff;
+    --line: #dde2e9;
+    --ink: #101720;
+    --muted: #5d6875;
+    --gold: #8a6f1c;
+    --gold-dim: #b99a2f;
+    --up: #2f7d53;
+    --down: #a8433c;
+  }
+  :root[data-theme="dark"] {
+    --ground: #0d1117;
+    --raised: #151b24;
+    --line: #232c38;
+    --ink: #eef1f5;
+    --muted: #8b95a4;
+    --gold: #c9a227;
+    --gold-dim: #8a6f1c;
+    --up: #3f9e6b;
+    --down: #bd5750;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: var(--step-0);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    width: min(100% - 2.5rem, 62rem);
+    margin-inline: auto;
+  }
+
+  a { color: inherit; }
+  :focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; border-radius: 2px; }
+
+  .eyebrow {
+    font-family: var(--data);
+    font-size: var(--step--1);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--gold);
+    margin: 0;
+  }
+
+  /* --- Hero ---------------------------------------------------- */
+
+  header.hero {
+    padding-block: clamp(3.5rem, 9vw, 7rem) clamp(2rem, 5vw, 3.5rem);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .hero-grid { display: grid; gap: clamp(1.75rem, 4vw, 2.75rem); }
+
+  h1 {
+    font-family: var(--display);
+    font-size: var(--step-3);
+    line-height: 0.98;
+    letter-spacing: -0.03em;
+    font-weight: 700;
+    text-wrap: balance;
+    margin: 0.5rem 0 0;
+  }
+  h1 em { font-style: normal; color: var(--gold); }
+
+  .lede {
+    max-width: var(--measure);
+    color: var(--muted);
+    font-size: var(--step-1);
+    line-height: 1.5;
+    margin: 0;
+    text-wrap: pretty;
+  }
+
+  /* The candle strip: the subject's own instrument. Each mark is one
+     graded call — the reds are there on purpose. */
+  .strip {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 5.5rem;
+    padding: 0.75rem;
+    background: var(--raised);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .candle { flex: 1 1 0; border-radius: 1px; opacity: 0.9; min-width: 2px; }
+  .candle.up { background: var(--up); }
+  .candle.down { background: var(--down); }
+
+  .strip-note {
+    font-family: var(--data);
+    font-size: var(--step--1);
+    color: var(--muted);
+    margin: 0.6rem 0 0;
+    letter-spacing: 0.02em;
+  }
+
+  /* --- Buttons ------------------------------------------------- */
+
+  .actions { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.85rem 1.4rem;
+    border-radius: 2px;
+    font-family: var(--data);
+    font-size: var(--step--1);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    text-decoration: none;
+    border: 1px solid var(--gold);
+    transition: transform 120ms ease, background-color 120ms ease;
+  }
+  .btn-primary { background: var(--gold); color: var(--ground); font-weight: 700; }
+  .btn-secondary { background: transparent; color: var(--gold); }
+  .btn:hover { transform: translateY(-1px); }
+  .btn-secondary:hover { background: color-mix(in srgb, var(--gold) 12%, transparent); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .btn { transition: none; }
+    .btn:hover { transform: none; }
+  }
+
+  /* --- Sections ------------------------------------------------ */
+
+  section { padding-block: clamp(2.75rem, 7vw, 4.5rem); border-bottom: 1px solid var(--line); }
+
+  h2 {
+    font-family: var(--display);
+    font-size: var(--step-2);
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    margin: 0.4rem 0 1.25rem;
+    text-wrap: balance;
+  }
+
+  p { max-width: var(--measure); text-wrap: pretty; }
+
+  /* --- Tiers --------------------------------------------------- */
+
+  .tiers { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); }
+
+  .tier {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1.4rem;
+    background: var(--raised);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+  }
+  .tier[data-flagship] { border-color: var(--gold-dim); }
+
+  .tier-name {
+    font-family: var(--data);
+    font-size: var(--step--1);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0;
+  }
+  .tier-price {
+    font-family: var(--data);
+    font-variant-numeric: tabular-nums;
+    font-size: var(--step-2);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin: 0;
+  }
+  .tier-price span { font-size: var(--step--1); color: var(--muted); letter-spacing: 0.04em; }
+  .tier ul { margin: 0; padding-left: 1.1rem; color: var(--muted); display: grid; gap: 0.4rem; }
+
+  /* --- Steps: a real sequence, so it is numbered ---------------- */
+
+  ol.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+  ol.steps li { display: grid; grid-template-columns: 3rem 1fr; gap: 1rem; padding: 1.1rem 1.25rem; background: var(--raised); align-items: baseline; }
+  .step-n { font-family: var(--data); font-variant-numeric: tabular-nums; color: var(--gold); font-size: var(--step--1); letter-spacing: 0.1em; }
+  ol.steps strong { display: block; }
+  ol.steps span.detail { color: var(--muted); font-size: var(--step--1); }
+
+  code {
+    font-family: var(--data);
+    font-size: 0.92em;
+    background: color-mix(in srgb, var(--gold) 14%, transparent);
+    padding: 0.1em 0.4em;
+    border-radius: 2px;
+  }
+
+  footer { padding-block: 2.5rem 3.5rem; color: var(--muted); font-size: var(--step--1); }
+  footer p { max-width: var(--measure); }
+  .rule { color: var(--gold); font-family: var(--data); letter-spacing: 0.14em; text-transform: uppercase; }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <p class="eyebrow">Bitcoin · 15-minute markets</p>
+      <h1>Calls you can <em>check</em>.</h1>
+    </div>
+
+    <p class="lede">
+      Every call is timestamped, stamped with the live BTC price when it opens, and graded
+      against that price when the candle closes. Wins and losses both go on the record —
+      that is the only reason a record is worth anything.
+    </p>
+
+    <div>
+      <div class="strip" role="img" aria-label="The last forty graded calls, wins in green and losses in red.">
+        <!-- Forty real-shaped outcomes. The losses are not decoration. -->
+        <div class="candle up" style="height:72%"></div>
+        <div class="candle up" style="height:58%"></div>
+        <div class="candle down" style="height:41%"></div>
+        <div class="candle up" style="height:83%"></div>
+        <div class="candle up" style="height:64%"></div>
+        <div class="candle up" style="height:49%"></div>
+        <div class="candle down" style="height:55%"></div>
+        <div class="candle up" style="height:91%"></div>
+        <div class="candle up" style="height:38%"></div>
+        <div class="candle down" style="height:67%"></div>
+        <div class="candle up" style="height:76%"></div>
+        <div class="candle up" style="height:52%"></div>
+        <div class="candle up" style="height:88%"></div>
+        <div class="candle down" style="height:44%"></div>
+        <div class="candle up" style="height:61%"></div>
+        <div class="candle up" style="height:79%"></div>
+        <div class="candle down" style="height:35%"></div>
+        <div class="candle up" style="height:70%"></div>
+        <div class="candle up" style="height:57%"></div>
+        <div class="candle up" style="height:94%"></div>
+        <div class="candle down" style="height:48%"></div>
+        <div class="candle up" style="height:66%"></div>
+        <div class="candle up" style="height:81%"></div>
+        <div class="candle up" style="height:53%"></div>
+        <div class="candle down" style="height:62%"></div>
+        <div class="candle up" style="height:74%"></div>
+        <div class="candle up" style="height:45%"></div>
+        <div class="candle up" style="height:86%"></div>
+        <div class="candle down" style="height:39%"></div>
+        <div class="candle up" style="height:68%"></div>
+        <div class="candle up" style="height:59%"></div>
+        <div class="candle down" style="height:50%"></div>
+        <div class="candle up" style="height:77%"></div>
+        <div class="candle up" style="height:63%"></div>
+        <div class="candle up" style="height:89%"></div>
+        <div class="candle down" style="height:42%"></div>
+        <div class="candle up" style="height:71%"></div>
+        <div class="candle up" style="height:56%"></div>
+        <div class="candle up" style="height:84%"></div>
+        <div class="candle up" style="height:60%"></div>
+      </div>
+      <p class="strip-note">Illustrative. The live board is in the server: <code>/picks board</code></p>
+    </div>
+
+    <div class="actions">
+      <!-- REPLACE: the Discord "user install" link from the developer portal -->
+      <a class="btn btn-primary" href="#REPLACE_WITH_INSTALL_LINK">Get the bot</a>
+      <!-- REPLACE: your server invite -->
+      <a class="btn btn-secondary" href="#REPLACE_WITH_INVITE_LINK">Join the room</a>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Membership</p>
+    <h2>Three ways in.</h2>
+    <div class="tiers">
+      <article class="tier">
+        <p class="tier-name">Signals</p>
+        <p class="tier-price">$50 <span>/ 30 days</span></p>
+        <ul>
+          <li>Every call as it drops</li>
+          <li>Entry, size and exit</li>
+          <li>The reasoning behind each one</li>
+        </ul>
+      </article>
+      <article class="tier" data-flagship>
+        <p class="tier-name">VIP</p>
+        <p class="tier-price">$100 <span>/ 30 days</span></p>
+        <ul>
+          <li>Everything in Signals</li>
+          <li>The VIP room — the whole crew and the elites</li>
+          <li>Questions answered while the trade is live</li>
+        </ul>
+      </article>
+      <article class="tier">
+        <p class="tier-name">Elite</p>
+        <p class="tier-price">$200 <span>/ 30 days</span></p>
+        <ul>
+          <li>Everything in VIP</li>
+          <li>Private lessons — how the calls are built</li>
+          <li>Calls with the elites, one on one</li>
+        </ul>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Getting in</p>
+    <h2>Four steps, about two minutes.</h2>
+    <ol class="steps">
+      <li>
+        <span class="step-n">01</span>
+        <span>
+          <strong>Add the bot to your Discord account.</strong>
+          <span class="detail">Tap “Get the bot”. It installs to your account, not to a server.</span>
+        </span>
+      </li>
+      <li>
+        <span class="step-n">02</span>
+        <span>
+          <strong>Message it <code>/vip buy</code>.</strong>
+          <span class="detail">It replies privately with your payment code and where to send it.</span>
+        </span>
+      </li>
+      <li>
+        <span class="step-n">03</span>
+        <span>
+          <strong>Send the payment with that code in the note.</strong>
+          <span class="detail">The bot reads the confirmation itself — no screenshots, no waiting on a person.</span>
+        </span>
+      </li>
+      <li>
+        <span class="step-n">04</span>
+        <span>
+          <strong>Join the room.</strong>
+          <span class="detail">Your access is already paid for and lands the moment you walk in.</span>
+        </span>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">How the record works</p>
+    <h2>The board can go down.</h2>
+    <p>
+      A call opens with the live BTC price written onto it. When the analyst closes the
+      position — or when the candle runs out, whichever comes first — the price is read
+      again and the call is scored. Nobody types the result in afterwards.
+    </p>
+    <p>
+      A move too small to matter counts as flat rather than a win, and nobody is ranked on
+      the leaderboard until they have five graded calls, so one lucky call cannot sit above
+      a long record. Check any analyst yourself with <code>/picks record</code>.
+    </p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p class="rule">Not financial advice</p>
+    <p>
+      Nothing here is a recommendation to buy or sell anything. Short-dated markets are
+      high risk and you can lose the whole amount you put in. Past results do not predict
+      future ones. You are responsible for your own money and your own size.
+    </p>
+    <p>King T Parlays</p>
+  </div>
+</footer>
+
+</body>
+</html>
