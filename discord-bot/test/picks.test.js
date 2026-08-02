@@ -308,13 +308,22 @@ test('command registration survives a config with no picks block', () => {
 
 import {
   analystPanel,
+  entrySizeRow,
   parseSize,
+  readPercent,
   guideMessage,
   managementMessage,
   panelAction,
   PANEL_ACTIONS,
 } from '../src/picks/panel.js';
-import { pickEmbed, pickSettings, promptDueSettlements, publishVoteResults } from '../src/picks/commands.js';
+import {
+  gradeQuote,
+  pickEmbed,
+  pickSettings,
+  priceLabel,
+  promptDueSettlements,
+  publishVoteResults,
+} from '../src/picks/commands.js';
 import { castVote, emptyVote, tallyVote } from '../src/picks/vote.js';
 
 test('panel button ids map to actions, and nothing else does', () => {
@@ -1040,4 +1049,89 @@ test('the result publishes both answers and closes the vote', async (t) => {
   assert.ok(store.getVote(pick.id).resultPostedAt, 'not published twice');
 
   assert.equal(await publishVoteResults(client, store, routingConfig), 0);
+});
+
+// Custom entry size, contract pricing and who gets tagged for the vote.
+
+test('the size row offers an escape from the presets', () => {
+  const ids = entrySizeRow(DIRECTIONS.UP).toJSON().components.map((c) => c.custom_id);
+  assert.deepEqual(ids, [
+    'pick:size:up:25',
+    'pick:size:up:50',
+    'pick:size:up:75',
+    'pick:size:up:100',
+    'pick:size:up:custom',
+  ]);
+});
+
+test('the custom button is recognised as custom, not as a percentage', () => {
+  assert.deepEqual(parseSize('pick:size:up:custom'), { direction: 'up', percent: null, custom: true });
+  assert.equal(parseSize('pick:size:up:50').custom, false);
+});
+
+test('a typed percentage is read, and nonsense is refused', () => {
+  assert.equal(readPercent('15'), 15);
+  assert.equal(readPercent(' 12.5 % '), 12.5);
+  assert.equal(readPercent('0'), null);
+  assert.equal(readPercent('150'), null);
+  assert.equal(readPercent('a lot'), null);
+  assert.equal(readPercent(null), null);
+});
+
+test('a typed size opens the call at that size', async (t) => {
+  const store = routingStore(t);
+  withPrice(t, 63300);
+
+  const { interaction, replies } = panelPress('x');
+  interaction.customId = 'pick:sizemodal:up';
+  interaction.isButton = () => false;
+  interaction.isModalSubmit = () => true;
+  interaction.fields = { getTextInputValue: (key) => (key === 'percent' ? '15' : '') };
+
+  await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
+
+  assert.equal(store.listPicks()[0].sizePercent, 15);
+  assert.match(replies[0], /15% of port/);
+});
+
+test('a call priced in cents is graded on the contract, not on spot', () => {
+  const pick = buildPick({
+    analystId: 'a1', guildId: 'g', direction: DIRECTIONS.UP, asset: 'BTC', minutes: 15,
+    entry: 80, now: Date.now(),
+  });
+  pick.priceUnit = 'cents';
+
+  // The direction was right but the contract was bought expensive: on a scalp
+  // that is a loss, and spot would have called it a win.
+  assert.equal(gradeQuote(pick, 55).outcome, OUTCOMES.LOSS);
+  assert.equal(gradeQuote(pick, 95).outcome, OUTCOMES.WIN);
+});
+
+test('prices are shown in the unit the call was opened in', () => {
+  const cents = { priceUnit: 'cents' };
+  const usd = { priceUnit: 'usd' };
+  assert.equal(priceLabel(cents, 47), '47¢');
+  assert.equal(priceLabel(usd, 63300), '$63,300.00');
+  assert.equal(priceLabel(cents, null), '—');
+});
+
+test('the vote tags the tiers that are in the room to answer it', async (t) => {
+  const store = routingStore(t);
+  const pick = openCallIn(store, { direction: DIRECTIONS.UP, entry: 63300 });
+  withPrice(t, 63400);
+
+  const config = {
+    ...routingConfig,
+    picks: { ...routingConfig.picks, votePingRoleIds: ['tier2', 'tier3'] },
+  };
+
+  const { interaction, posted } = panelPress('crash_out');
+  await handleInteraction(interaction, { store, config, client: interaction.client });
+
+  const ask = posted.find((message) => /Did you make money/.test(message.content ?? ''));
+  assert.ok(ask, 'the room was asked');
+  assert.match(ask.content, /<@&tier2>/);
+  assert.match(ask.content, /<@&tier3>/);
+  assert.deepEqual(ask.allowedMentions.roles, ['tier2', 'tier3']);
+  assert.ok(store.getVote(pick.id));
 });

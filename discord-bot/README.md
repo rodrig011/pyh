@@ -262,6 +262,29 @@ Windows **snap to the candle**: a 15-minute call opened at 3:41 closes at 3:45, 
 3:56, so the bot's clock is the clock the room is trading. A boundary less than a minute
 away is skipped, since a call with eleven seconds left in it is not a call.
 
+### Scoring the contract, not the chart
+
+A scalp is a contract trade: bought at 47¢, sold at 61¢ is **+29.8%** whatever BTC did
+in between, and a call that was right at the candle close is still a loss if the
+contract went in at 80¢. Spot answers whether the direction was right; it does not
+answer whether the trade made money.
+
+With `KALSHI_ENABLED=true` every call is stamped with the **contract price** when it
+opens and scored on that when it closes. Spot remains the fallback, so a feed that is
+down costs automatic grading rather than the call.
+
+**It ships off.** Kalshi's response shape could not be verified from where this was
+written — the network there blocks the host — so the parsing is pinned to fixtures in
+`test/kalshi.test.js` and there is a command that prints what the API actually returned:
+
+```
+/picks kalshi
+```
+
+Run it once with `KALSHI_ENABLED=true` and `KALSHI_SERIES_TICKER` set. It shows the
+market it found, the price it read, and the **raw JSON body** — which is what turns a
+guess about the field names into a fix.
+
 ### Calls grade themselves
 
 Kalshi is where these get traded, but a 15-minute "up or down" is settled by the

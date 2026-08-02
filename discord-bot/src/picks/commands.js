@@ -15,21 +15,33 @@ import {
   DIRECTION_FOR_ACTION,
   PANEL_ACTIONS,
   PANEL_PREFIX,
+  SIZE_MODAL,
   SIZE_PREFIX,
   VOTE_PREFIX,
   analystPanel,
+  customSizeModal,
   entrySizeRow,
   guideMessage,
   managementMessage,
   panelAction,
   parseSize,
+  parseSizeModal,
   parseVote,
+  readPercent,
   simpleAnnouncement,
   simpleExit,
   voteResultMessage,
   voteRow,
 } from './panel.js';
 import { castVote, emptyVote, formatShare, shareBar, tallyVote, votesDue } from './vote.js';
+import {
+  currentContract,
+  fetchMarkets,
+  formatCents,
+  gradeByContract,
+  openMarkets,
+  readMarketPrice,
+} from './kalshi.js';
 import { fetchSpotPrice, formatChange, formatPrice, gradeByPrice } from './price.js';
 import {
   DIRECTIONS,
@@ -61,6 +73,8 @@ export const PICK_DEFAULTS = {
   announceChannelId: null,
   resultChannelId: null,
   voteMinutes: 20,
+  votePingRoleIds: [],
+  kalshi: { enabled: false },
 };
 
 /**
@@ -171,6 +185,9 @@ export function buildPickCommands(config) {
       sub.setName('guide').setDescription('Post the announcement explaining what each signal means'),
     )
     .addSubcommand((sub) =>
+      sub.setName('kalshi').setDescription('Check the Kalshi contract feed and show what it returned'),
+    )
+    .addSubcommand((sub) =>
       sub
         .setName('edit')
         .setDescription('Change the result of a call (mods only)')
@@ -250,11 +267,18 @@ export function pickEmbed(pick, config) {
   // Every price goes through one formatter. Raw floats put `63297.575` next to
   // `$63,281.84` in the same embed, which reads as two different numbers.
   if (pick.entry != null) {
-    fields.push({ name: 'Entry', value: formatPrice(pick.entry), inline: true });
+    fields.push({
+      name: pick.priceUnit === 'cents' ? 'Contract in' : 'Entry',
+      value: priceLabel(pick, pick.entry),
+      inline: true,
+    });
   }
-  if (pick.target != null) fields.push({ name: 'Target', value: formatPrice(pick.target), inline: true });
+  if (pick.sizePercent) {
+    fields.push({ name: 'Size', value: `**${pick.sizePercent}% of port**`, inline: true });
+  }
+  if (pick.target != null) fields.push({ name: 'Target', value: priceLabel(pick, pick.target), inline: true });
   if (pick.stop != null) {
-    fields.push({ name: 'Invalidation', value: formatPrice(pick.stop), inline: true });
+    fields.push({ name: 'Invalidation', value: priceLabel(pick, pick.stop), inline: true });
   }
 
   if (settled) {
@@ -262,7 +286,7 @@ export function pickEmbed(pick, config) {
       name: 'Result',
       value:
         `${OUTCOME_LABEL[pick.outcome]}` +
-        (pick.exit != null ? ` at ${formatPrice(pick.exit)}` : '') +
+        (pick.exit != null ? ` at ${priceLabel(pick, pick.exit)}` : '') +
         (Number.isFinite(pick.changePercent) ? ` · ${formatChange(pick.changePercent)}` : ''),
     });
   }
@@ -304,6 +328,49 @@ export function settleRow(pickId) {
   );
 }
 
+/**
+ * What the call is priced against right now.
+ *
+ * The Kalshi contract when it is switched on, BTC spot otherwise. A scalp is a
+ * contract trade — bought at 47¢, sold at 61¢ — so grading it on where spot
+ * ended answers a question nobody asked. Spot stays as the fallback because a
+ * feed that is down must cost automatic grading, not the call itself.
+ */
+export async function quoteFor(config, asset) {
+  const settings = pickSettings(config);
+
+  if (settings.kalshi?.enabled) {
+    const contract = await currentContract(settings.kalshi);
+    if (contract.price !== null) {
+      return {
+        price: contract.price,
+        unit: 'cents',
+        source: `kalshi:${contract.market?.ticker ?? 'market'}`,
+        label: formatCents(contract.price),
+      };
+    }
+  }
+
+  const spot = await fetchSpotPrice(asset);
+  return spot.price === null
+    ? { price: null, unit: null, source: null, label: '—' }
+    : { price: spot.price, unit: 'usd', source: spot.source, label: formatPrice(spot.price) };
+}
+
+/** Formats a price in whatever unit the call was opened in. */
+export function priceLabel(pick, value) {
+  if (value == null) return '—';
+  return pick.priceUnit === 'cents' ? formatCents(value) : formatPrice(value);
+}
+
+/** Grades a call the same way it was priced. */
+export function gradeQuote(pick, exitPrice) {
+  if (pick.entry == null || exitPrice == null) return null;
+  return pick.priceUnit === 'cents'
+    ? gradeByContract(pick.entry, exitPrice)
+    : gradeByPrice(pick.direction, pick.entry, exitPrice);
+}
+
 /** Mirrors a one-line version into the chat channel, when one is configured. */
 async function announce(client, config, payload) {
   const settings = pickSettings(config);
@@ -331,10 +398,12 @@ export async function openCall(interaction, { store, config }, overrides = {}) {
   // grading, and the analyst can still settle it by hand.
   let entry = overrides.entry ?? null;
   let priceSource = null;
+  let priceUnit = 'usd';
   if (entry === null) {
-    const quote = await fetchSpotPrice(asset);
+    const quote = await quoteFor(config, asset);
     entry = quote.price;
     priceSource = quote.source;
+    priceUnit = quote.unit ?? 'usd';
   }
 
   const pick = buildPick({
@@ -351,6 +420,7 @@ export async function openCall(interaction, { store, config }, overrides = {}) {
     note: overrides.note ?? null,
   });
   pick.entrySource = priceSource;
+  pick.priceUnit = priceUnit;
 
   const channel = settings.channelId
     ? await interaction.client.channels.fetch(settings.channelId).catch(() => null)
@@ -571,6 +641,57 @@ export async function handlePicks(interaction, { store, config }) {
     return interaction.editReply('Guide posted. **Pin it** — the buttons only work if the room reads them the same way.');
   }
 
+  // The response shape was never verified against a live account, so this
+  // prints what came back rather than only whether it worked. That raw body is
+  // what turns a guess into a fix.
+  if (sub === 'kalshi') {
+    const settings = pickSettings(config);
+    if (!settings.kalshi?.enabled) {
+      return interaction.editReply(
+        '❌ **Kalshi scoring is off** (`KALSHI_ENABLED` is not `true`). Calls are graded on BTC spot instead.',
+      );
+    }
+
+    const { markets, error, url } = await fetchMarkets(settings.kalshi);
+    if (error) {
+      return interaction.editReply(
+        [
+          `❌ **Could not read Kalshi:** ${error}`,
+          `\`${url}\``,
+          '',
+          'A 401 means the endpoint needs a key. A 404 usually means `KALSHI_SERIES_TICKER` is wrong.',
+        ].join('\n'),
+      );
+    }
+
+    const open = openMarkets(markets);
+    if (open.length === 0) {
+      return interaction.editReply(
+        `Reached Kalshi but no open markets came back for \`${settings.kalshi.seriesTicker ?? '(no series set)'}\`.\n` +
+          `\`${url}\`\nSet \`KALSHI_SERIES_TICKER\` to the BTC series you trade.`,
+      );
+    }
+
+    const market = open[0];
+    const price = readMarketPrice(market, settings.kalshi.side ?? 'yes');
+    const body = JSON.stringify(market, null, 1).slice(0, 900);
+
+    return interaction.editReply(
+      [
+        price
+          ? `✅ **${market.ticker}** — **${formatCents(price.cents)}** (from \`${price.source}\`)`
+          : `⚠️ **${market.ticker}** came back with no usable price.`,
+        `${open.length} open market(s). Closes ${market.close_time ?? 'unknown'}.`,
+        '',
+        'What the API returned for that market:',
+        `\`\`\`json\n${body}\n\`\`\``,
+        price ? '' : 'Send this to whoever maintains the bot — the field names are what the parser needs.',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    );
+  }
+
   if (sub === 'price') {
     const settings = pickSettings(config);
     const quote = await fetchSpotPrice(settings.defaultAsset);
@@ -682,6 +803,9 @@ export async function handleSizeButton(interaction, { store, config }) {
     });
   }
 
+  // A modal has to be the first reply, so it cannot come after a deferral.
+  if (chosen.custom) return interaction.showModal(customSizeModal(chosen.direction));
+
   await interaction.deferUpdate();
 
   const { pick, channel } = await openCall(interaction, { store, config }, {
@@ -704,6 +828,39 @@ export async function handleSizeButton(interaction, { store, config }) {
         : ` at **${formatPrice(pick.entry)}**.`),
     components: [],
   });
+}
+
+/** The size an analyst typed because the presets did not cover it. */
+export async function handleSizeModal(interaction, { store, config }) {
+  const direction = parseSizeModal(interaction.customId);
+  if (!direction) return undefined;
+
+  if (!isAnalyst(interaction, config)) {
+    return interaction.reply({ content: 'Only the analysts can send calls.', flags: MessageFlags.Ephemeral });
+  }
+
+  const percent = readPercent(interaction.fields.getTextInputValue('percent'));
+  if (percent === null) {
+    return interaction.reply({
+      content: `**${interaction.fields.getTextInputValue('percent')}** is not a percentage between 0 and 100.`,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  const { pick, channel } = await openCall(interaction, { store, config }, {
+    direction,
+    sizePercent: percent,
+    note: interaction.fields.getTextInputValue('note')?.trim() || null,
+  });
+
+  if (!pick) return interaction.editReply('I could not post that — check where calls go.');
+
+  return interaction.editReply(
+    `${DIRECTION_LABEL[pick.direction]} **${pick.asset}** at **${percent}% of port** sent to ${channel}` +
+      (pick.entry === null ? ' (no live price).' : ` at ${priceLabel(pick, pick.entry)}.`),
+  );
 }
 
 /** A member saying whether they actually made money on a closed call. */
@@ -769,7 +926,7 @@ async function postManagement(interaction, { store, config }, { action, note = n
     );
   }
 
-  const quote = await fetchSpotPrice(open?.asset ?? settings.defaultAsset);
+  const quote = await quoteFor(config, open?.asset ?? settings.defaultAsset);
 
   const closes = CLOSING_ACTIONS.has(action);
   let verdict = null;
@@ -777,7 +934,7 @@ async function postManagement(interaction, { store, config }, { action, note = n
   if (closes && open) {
     verdict =
       quote.price !== null && open.entry !== null
-        ? gradeByPrice(open.direction, open.entry, quote.price)
+        ? gradeQuote(open, quote.price)
         : {
             outcome: action === PANEL_ACTIONS.CUT_LOSS ? OUTCOMES.LOSS : OUTCOMES.WIN,
             changePercent: null,
@@ -800,7 +957,7 @@ async function postManagement(interaction, { store, config }, { action, note = n
       analystId: interaction.user.id,
       pick: open ? { ...open, entryLabel: open.entry == null ? null : formatPrice(open.entry) } : null,
       note,
-      price: quote.price === null ? null : formatPrice(quote.price),
+      price: quote.price === null ? null : quote.label,
       verdict,
     }),
     allowedMentions: { roles: settings.pingRoleIds ?? [] },
@@ -820,7 +977,7 @@ async function postManagement(interaction, { store, config }, { action, note = n
   const record = computeRecord(store.listPicks(), { analystId: interaction.user.id });
   return interaction.editReply(
     `Closed your **${open.asset}** call as **${OUTCOME_LABEL[verdict.outcome]}**` +
-      (quote.price === null ? ' (no price available).' : ` at ${formatPrice(quote.price)}.`) +
+      (quote.price === null ? ' (no price available).' : ` at ${quote.label}.`) +
       ` You are now **${formatWinRate(record.winRate)}** (${record.wins}W ${record.losses}L).`,
   );
 }
@@ -849,10 +1006,14 @@ export async function openVote(client, store, config, pick) {
   const vote = emptyVote(pick.id, { closesAt: Date.now() + settings.voteMinutes * 60 * 1000 });
   vote.channelId = channel.id;
 
+  const roleIds = settings.votePingRoleIds ?? [];
   const posted = await channel
     .send({
-      content: `Did you make money on the **${pick.asset}** ${pick.minutes}m call?`,
+      content:
+        `${roleIds.map((roleId) => `<@&${roleId}>`).join(' ')}\n`.trimStart() +
+        `Did you make money on the **${pick.asset}** ${pick.minutes}m call?`,
       components: [voteRow(pick.id)],
+      allowedMentions: { roles: roleIds },
     })
     .catch(() => null);
 
@@ -1014,9 +1175,8 @@ export async function promptDueSettlements(client, store, config, now = Date.now
       .catch(() => null);
     if (!channel?.isTextBased()) continue;
 
-    const quote = pick.entry === null ? { price: null } : await fetchSpotPrice(pick.asset);
-    const verdict =
-      quote.price === null ? null : gradeByPrice(pick.direction, pick.entry, quote.price);
+    const quote = pick.entry === null ? { price: null, label: '—' } : await quoteFor(config, pick.asset);
+    const verdict = quote.price === null ? null : gradeQuote(pick, quote.price);
 
     if (verdict) {
       settlePick(pick, { outcome: verdict.outcome, settledBy: 'price-feed', exit: quote.price, now });
@@ -1029,7 +1189,7 @@ export async function promptDueSettlements(client, store, config, now = Date.now
         .send({
           content:
             `${OUTCOME_LABEL[verdict.outcome]} — <@${pick.analystId}>'s **${pick.asset}** ${pick.minutes}m call closed at ` +
-            `**${formatPrice(quote.price)}** (${formatChange(verdict.changePercent)} from ${formatPrice(pick.entry)}). ` +
+            `**${quote.label}** (${formatChange(verdict.changePercent)} from ${priceLabel(pick, pick.entry)}). ` +
             `Now **${formatWinRate(record.winRate)}** (${record.wins}W ${record.losses}L).`,
           embeds: [pickEmbed(pick, config)],
           allowedMentions: { users: [] },

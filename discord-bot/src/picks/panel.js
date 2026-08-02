@@ -13,6 +13,7 @@ import { DIRECTIONS } from './picks.js';
 export const PANEL_PREFIX = 'pick:panel:';
 export const SIZE_PREFIX = 'pick:size:';
 export const VOTE_PREFIX = 'pick:vote:';
+export const SIZE_MODAL = 'pick:sizemodal:';
 
 /**
  * How much of the portfolio to put in when the call opens.
@@ -247,23 +248,72 @@ export function guideMessage(config, settings) {
 /** The size picker shown after a direction is chosen. Ephemeral, one tap. */
 export function entrySizeRow(direction) {
   return new ActionRowBuilder().addComponents(
-    ENTRY_SIZES.map((size) =>
+    ...ENTRY_SIZES.map((size) =>
       new ButtonBuilder()
         .setCustomId(`${SIZE_PREFIX}${direction}:${size.percent}`)
         .setStyle(size.percent === 100 ? ButtonStyle.Primary : ButtonStyle.Secondary)
         .setLabel(size.label),
     ),
+    // The four presets cover most calls and none of the interesting ones. An
+    // analyst who wants 15% should not have to round to 25.
+    new ButtonBuilder()
+      .setCustomId(`${SIZE_PREFIX}${direction}:custom`)
+      .setStyle(ButtonStyle.Secondary)
+      .setLabel('Other %')
+      .setEmoji('✏️'),
   );
+}
+
+/** Asks for a size the presets do not cover. */
+export function customSizeModal(direction) {
+  return new ModalBuilder()
+    .setCustomId(`${SIZE_MODAL}${direction}`)
+    .setTitle(`${direction === DIRECTIONS.UP ? 'LONG' : 'SHORT'} — how much of the port?`)
+    .addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('percent')
+          .setLabel('Percentage of your portfolio')
+          .setPlaceholder('e.g. 15')
+          .setStyle(TextInputStyle.Short)
+          .setMaxLength(6)
+          .setRequired(true),
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('note')
+          .setLabel('Why (optional)')
+          .setStyle(TextInputStyle.Short)
+          .setMaxLength(120)
+          .setRequired(false),
+      ),
+    );
+}
+
+/** "pick:sizemodal:up" -> "up". */
+export function parseSizeModal(customId) {
+  if (!customId?.startsWith(SIZE_MODAL)) return null;
+  const direction = customId.slice(SIZE_MODAL.length);
+  return Object.values(DIRECTIONS).includes(direction) ? direction : null;
 }
 
 /** "pick:size:up:50" -> { direction: 'up', percent: 50 }. */
 export function parseSize(customId) {
   if (!customId?.startsWith(SIZE_PREFIX)) return null;
   const [direction, raw] = customId.slice(SIZE_PREFIX.length).split(':');
-  const percent = Number(raw);
   if (!Object.values(DIRECTIONS).includes(direction)) return null;
+  if (raw === 'custom') return { direction, percent: null, custom: true };
+
+  const percent = Number(raw);
   if (!Number.isFinite(percent) || percent <= 0 || percent > 100) return null;
-  return { direction, percent };
+  return { direction, percent, custom: false };
+}
+
+/** A typed percentage, or null when it is not one. */
+export function readPercent(raw) {
+  const percent = Number.parseFloat(String(raw ?? '').replace('%', '').trim());
+  if (!Number.isFinite(percent) || percent <= 0 || percent > 100) return null;
+  return Math.round(percent * 10) / 10;
 }
 
 /** Did you make money on this one? Asked of the room, not the price feed. */

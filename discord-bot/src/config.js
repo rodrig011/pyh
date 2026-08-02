@@ -183,6 +183,21 @@ export function loadVipConfig() {
       // Where the room's own verdict is published once the voting closes.
       resultChannelId: str('PICKS_RESULT_CHANNEL_ID', str('PICKS_CHANNEL_ID')),
       voteMinutes: int('PICKS_VOTE_MINUTES', 20),
+      // Who gets tagged when the room is asked how it went. Defaults to the
+      // tiers that are in the room to answer — tier 1 buys signals, not chat.
+      votePingRoleIds: list('PICKS_VOTE_PING_ROLE_IDS', [
+        str('ROLE_TIER_2'),
+        str('ROLE_TIER_3'),
+      ].filter(Boolean)),
+      // Scoring against the Kalshi contract rather than BTC spot. Off until the
+      // response shape is confirmed against a live account with /picks kalshi.
+      kalshi: {
+        enabled: bool('KALSHI_ENABLED', false),
+        apiBase: str('KALSHI_API_BASE'),
+        seriesTicker: str('KALSHI_SERIES_TICKER'),
+        side: str('KALSHI_SIDE', 'yes'),
+        apiKeyId: str('KALSHI_API_KEY_ID'),
+      },
     },
     // Card payments. Zelle is a one-off 30 days; Stripe bills again by itself
     // every period until the member cancels.

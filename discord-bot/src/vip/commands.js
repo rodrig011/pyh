@@ -47,11 +47,12 @@ import {
   handlePanelButton,
   handlePickAutocomplete,
   handleSizeButton,
+  handleSizeModal,
   handleVoteButton,
   handlePicks,
   handleSettleButton,
 } from '../picks/commands.js';
-import { PANEL_PREFIX, SIZE_PREFIX, VOTE_PREFIX } from '../picks/panel.js';
+import { PANEL_PREFIX, SIZE_MODAL, SIZE_PREFIX, VOTE_PREFIX } from '../picks/panel.js';
 
 const commandLog = createLogger('commands');
 
@@ -1422,6 +1423,9 @@ export async function handleInteraction(interaction, context) {
   if (interaction.isUserSelectMenu?.()) return handleAssignSelect(interaction, context);
   if (interaction.isModalSubmit?.() && interaction.customId?.startsWith(NAME_MODAL_PREFIX)) {
     return handleNameModal(interaction, context);
+  }
+  if (interaction.isModalSubmit?.() && interaction.customId?.startsWith(SIZE_MODAL)) {
+    return handleSizeModal(interaction, context);
   }
   if (!interaction.isChatInputCommand()) return;
 
