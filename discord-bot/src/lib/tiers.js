@@ -68,6 +68,26 @@ export function highestTierCoveredBy(amountCents, tiersConfig, toleranceCents = 
 }
 
 /**
+ * The tier an amount is exactly the price of, or null.
+ *
+ * Some banks — Huntington among them — send a Zelle alert that names the payer
+ * and the amount and drops the memo entirely, so the buyer's code never
+ * arrives. An amount landing exactly on a tier price is the only remaining
+ * signal that the money is a purchase and not the owner's own transfer, which
+ * is why this insists on an exact match rather than "covered by".
+ *
+ * Only sellable tiers count: matching a tier whose role does not exist would
+ * promise access the bot cannot hand out.
+ */
+export function tierPricedAt(amountCents, tiersConfig) {
+  if (amountCents === null || amountCents === undefined) return null;
+  const match = availableTiers(tiersConfig).find(
+    (tier) => tiersConfig[tier].priceCents === amountCents,
+  );
+  return match ?? null;
+}
+
+/**
  * Decides whether a payment covers an order and which tier to grant.
  * @param {{tier: number}} order
  * @param {number} amountCents amount detected in the Zelle email

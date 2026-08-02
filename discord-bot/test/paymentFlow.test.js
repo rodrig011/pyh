@@ -173,3 +173,67 @@ test('paying again extends the membership instead of restarting it', async (t) =
   assert.equal(subscription.expiresAt, firstExpiry + 30 * DAY_MS);
   assert.equal(subscription.renewals, 1);
 });
+
+// Huntington's Zelle alert drops the memo, confirmed against live mail: real
+// customer payments arrive with codes=[]. Silently filing those as personal
+// transfers loses paying members.
+
+/** A client whose log channel actually accepts messages, so posts are visible. */
+function loggingClient() {
+  const { client, state } = fakeClient();
+  const posted = [];
+  client.channels.fetch = async () => ({ isTextBased: () => true, send: async (p) => posted.push(p) });
+  return { client, state, posted };
+}
+
+const logging = { ...config, logChannelId: 'log', modRoleIds: ['mod'] };
+
+test('a codeless payment worth exactly a tier price goes to the mods to assign', async (t) => {
+  const store = freshStore(t);
+  const { client, posted } = loggingClient();
+
+  const result = await processPayment(client, store, logging, {
+    codes: [],
+    amountCents: 10000,
+    senderName: 'CHRISTOPHER SWAILS',
+    source: 'zelle-email',
+  });
+
+  assert.equal(result.status, 'needs_assignment');
+  assert.equal(result.tier, 2);
+  assert.equal(posted.length, 1, 'the mods were told');
+  assert.ok(posted[0].components?.length, 'with a member picker attached');
+  assert.equal(store.data.unassigned.length, 1);
+  assert.equal(store.data.unassigned[0].senderName, 'CHRISTOPHER SWAILS');
+});
+
+test('a codeless payment that matches no tier price stays silent', async (t) => {
+  const store = freshStore(t);
+  const { client, posted } = loggingClient();
+
+  // $73.40 is nobody's price: this is the owner's own Zelle activity.
+  const result = await processPayment(client, store, logging, {
+    codes: [],
+    amountCents: 7340,
+    source: 'zelle-email',
+  });
+
+  assert.equal(result.status, 'no_code');
+  assert.equal(posted.length, 0, 'personal transfers are never posted');
+  assert.equal(store.data.unassigned.length, 0);
+});
+
+test('a codeless payment for a tier with no role configured is not offered', async (t) => {
+  const store = freshStore(t);
+  const { client, posted } = loggingClient();
+
+  const noTier3 = { ...logging, tiers: { ...config.tiers, 3: { ...config.tiers[3], roleId: null } } };
+  const result = await processPayment(client, store, noTier3, {
+    codes: [],
+    amountCents: 20000,
+    source: 'zelle-email',
+  });
+
+  assert.equal(result.status, 'no_code');
+  assert.equal(posted.length, 0);
+});

@@ -10,7 +10,7 @@ const log = createLogger('notify');
  * allowedMentions is set explicitly so the bot can only ever ping those roles,
  * never @everyone, whatever ends up inside an embed.
  */
-export async function sendLog(client, config, embed, { ping = false } = {}) {
+export async function sendLog(client, config, embed, { ping = false, components = [] } = {}) {
   if (!config.logChannelId) return false;
 
   const roleIds = ping && config.pingModsOnPayment !== false ? config.modRoleIds ?? [] : [];
@@ -21,6 +21,7 @@ export async function sendLog(client, config, embed, { ping = false } = {}) {
     await channel.send({
       content: roleIds.map((roleId) => `<@&${roleId}>`).join(' ') || undefined,
       embeds: [embed],
+      components,
       allowedMentions: { roles: roleIds },
     });
     return true;

@@ -22,7 +22,7 @@ import { createSubscriptionCheckout } from '../payments/stripe.js';
 import { normalizeCode } from '../lib/codes.js';
 import { SUBSCRIPTION_STATUS, daysLeft } from '../lib/subscriptions.js';
 import { ORDER_STATUS, createOrder, expireStaleOrders } from './orders.js';
-import { processPayment } from './paymentFlow.js';
+import { ASSIGN_PREFIX, processPayment } from './paymentFlow.js';
 import { grantTierRoles, revokeTierRoles } from './roles.js';
 import {
   activeSubscriptions,
@@ -1199,9 +1199,103 @@ async function handleAdminSync(interaction, { watcher }) {
   }
 }
 
+/**
+ * A mod picking who a codeless payment belongs to. Grants the tier the amount
+ * paid for and closes the record, so the same payment cannot be spent twice on
+ * a message that stays clickable forever.
+ */
+async function handleAssignSelect(interaction, { store, config, client }) {
+  if (!interaction.customId?.startsWith(ASSIGN_PREFIX)) return undefined;
+
+  if (!isMod(interaction, config)) {
+    return interaction.reply({
+      content: 'Only the mods can assign payments.',
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  const record = store.getUnassignedPayment(interaction.customId.slice(ASSIGN_PREFIX.length));
+  if (!record) {
+    return interaction.editReply('That payment is no longer on record.');
+  }
+  if (record.assignedTo) {
+    return interaction.editReply(
+      `Already assigned to <@${record.assignedTo}> — one payment, one membership.`,
+    );
+  }
+
+  const userId = interaction.values[0];
+  const guild = await client.guilds.fetch(config.guildId);
+
+  let roles;
+  try {
+    roles = await grantTierRoles(guild, userId, record.tier, config);
+  } catch (error) {
+    return interaction.editReply(`Could not give <@${userId}> the roles: ${error.message}`);
+  }
+
+  store.markPaymentAssigned(record.id, userId);
+  store.recordPayment({
+    code: null,
+    userId,
+    tier: record.tier,
+    amountCents: record.amountCents,
+    source: record.source,
+    senderName: record.senderName,
+    reference: record.reference,
+    at: Date.now(),
+  });
+
+  const subscription = upsertSubscription(store, {
+    guildId: config.guildId,
+    userId,
+    tier: record.tier,
+    days: config.subscriptionDays,
+  });
+  const expiresAt = Math.floor(subscription.expiresAt / 1000);
+
+  await sendDm(
+    client,
+    userId,
+    new EmbedBuilder()
+      .setColor(COLORS.success)
+      .setTitle('Payment confirmed!')
+      .setDescription(
+        [
+          `Your payment of **${formatMoney(record.amountCents)}** is in.`,
+          `You now have **${tierTitle(record.tier, config.tiers)}**.`,
+          '',
+          `This is a **${config.subscriptionDays}-day membership**, ending ${time(expiresAt, 'R')}.`,
+        ].join('\n'),
+      )
+      .setTimestamp(),
+  );
+
+  await sendLog(
+    client,
+    config,
+    new EmbedBuilder()
+      .setColor(COLORS.success)
+      .setTitle('Payment assigned by hand')
+      .setDescription(
+        `<@${interaction.user.id}> gave <@${userId}> **${tierTitle(record.tier, config.tiers)}** ` +
+          `for ${formatMoney(record.amountCents)} from ${record.senderName ?? 'an unnamed sender'}.`,
+      )
+      .setTimestamp(),
+  );
+
+  return interaction.editReply(
+    `Done — <@${userId}> has **${tierTitle(record.tier, config.tiers)}** until ${time(expiresAt, 'f')}. ` +
+      `Roles added: ${roles.added.length}, already had: ${roles.already.length}.`,
+  );
+}
+
 /** Routes every command interaction of the VIP bot. */
 export async function handleInteraction(interaction, context) {
   if (interaction.isButton()) return handleButton(interaction, context);
+  if (interaction.isUserSelectMenu?.()) return handleAssignSelect(interaction, context);
   if (!interaction.isChatInputCommand()) return;
   const sub = interaction.options.getSubcommand();
 

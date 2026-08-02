@@ -385,3 +385,99 @@ test('/vip-admin sync does not dig through the mailbox when payments were found'
   assert.equal(inspected, false);
   assert.match(replies[0], /1 payment\(s\) detected/);
 });
+
+// The assign picker sits in a channel message that stays clickable forever, so
+// the guard that matters is that one payment cannot buy two memberships.
+
+function assignInteraction(unassignedId, chosenUserId = 'buyer1') {
+  const replies = [];
+  return {
+    replies,
+    interaction: {
+      customId: `vip:assign:${unassignedId}`,
+      values: [chosenUserId],
+      guildId: 'g',
+      user: { id: 'mod1', tag: 'mod#0001' },
+      deferred: false,
+      replied: false,
+      isButton: () => false,
+      isUserSelectMenu: () => true,
+      isChatInputCommand: () => false,
+      memberPermissions: { has: (flag) => flag === PermissionFlagsBits.Administrator },
+      deferReply: async function () {
+        this.deferred = true;
+      },
+      reply: async (payload) => replies.push(payload),
+      editReply: async (payload) => replies.push(payload),
+    },
+  };
+}
+
+const assignClient = {
+  guilds: {
+    fetch: async () => ({
+      id: 'g',
+      roles: { fetch: async (id) => ({ id, name: id }), cache: { get: (id) => ({ id, name: id }) } },
+      members: {
+        fetch: async () => ({ roles: { cache: { has: () => false }, add: async () => {} } }),
+      },
+    }),
+  },
+  users: { fetch: async () => ({ send: async () => {} }) },
+  channels: { fetch: async () => null },
+};
+
+test('assigning a codeless payment grants the tier it paid for', async (t) => {
+  const store = freshStore(t);
+  const record = store.recordUnassignedPayment({
+    amountCents: 10000,
+    tier: 2,
+    senderName: 'CHRISTOPHER SWAILS',
+    source: 'zelle-email',
+    at: Date.now(),
+  });
+
+  const { interaction, replies } = assignInteraction(record.id);
+  await handleInteraction(interaction, {
+    store,
+    config: { ...config, guildId: 'g', subscriptionDays: 30 },
+    client: assignClient,
+  });
+
+  assert.match(replies[0], /buyer1/);
+  assert.equal(store.getUnassignedPayment(record.id).assignedTo, 'buyer1');
+  assert.equal(store.listSubscriptions().length, 1);
+  assert.equal(store.data.payments.length, 1);
+});
+
+test('the same payment cannot be assigned twice', async (t) => {
+  const store = freshStore(t);
+  const record = store.recordUnassignedPayment({ amountCents: 5000, tier: 1, at: Date.now() });
+  const ctx = { store, config: { ...config, guildId: 'g', subscriptionDays: 30 }, client: assignClient };
+
+  const first = assignInteraction(record.id, 'buyer1');
+  await handleInteraction(first.interaction, ctx);
+
+  const second = assignInteraction(record.id, 'buyer2');
+  await handleInteraction(second.interaction, ctx);
+
+  assert.match(second.replies[0], /Already assigned/);
+  assert.equal(store.listSubscriptions().length, 1, 'no second membership was created');
+});
+
+test('a non-mod cannot assign a payment', async (t) => {
+  const store = freshStore(t);
+  const record = store.recordUnassignedPayment({ amountCents: 5000, tier: 1, at: Date.now() });
+
+  const { interaction, replies } = assignInteraction(record.id);
+  interaction.memberPermissions = { has: () => false };
+
+  await handleInteraction(interaction, {
+    store,
+    config: { ...config, guildId: 'g', modRoleIds: ['mod-role'] },
+    client: assignClient,
+  });
+
+  assert.match(replies[0].content, /Only the mods/);
+  assert.equal(store.getUnassignedPayment(record.id).assignedTo, null);
+});

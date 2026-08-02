@@ -1,13 +1,26 @@
-import { EmbedBuilder, time } from 'discord.js';
+import { ActionRowBuilder, EmbedBuilder, UserSelectMenuBuilder, time } from 'discord.js';
 import { COLORS } from '../lib/brand.js';
 import { createLogger } from '../lib/logger.js';
-import { TIER_NAMES, formatMoney, includedTiers } from '../lib/tiers.js';
+import { TIER_NAMES, formatMoney, includedTiers, tierPricedAt } from '../lib/tiers.js';
 import { markOrderPaid, matchPayment } from './orders.js';
 import { sendDm, sendLog } from './notify.js';
 import { grantTierRoles } from './roles.js';
 import { upsertSubscription } from './subscriptions.js';
 
 const log = createLogger('payments');
+
+export const ASSIGN_PREFIX = 'vip:assign:';
+
+/** The member picker a mod uses to attach a codeless payment to whoever paid. */
+export function assignRow(unassignedId, tier) {
+  return new ActionRowBuilder().addComponents(
+    new UserSelectMenuBuilder()
+      .setCustomId(`${ASSIGN_PREFIX}${unassignedId}`)
+      .setPlaceholder(`Who paid? They get ${TIER_NAMES[tier]}`)
+      .setMinValues(1)
+      .setMaxValues(1),
+  );
+}
 
 /**
  * Takes a detected payment (from email or confirmed by hand), matches it to an
@@ -26,6 +39,40 @@ export async function processPayment(client, store, config, payment) {
     // to a mod channel would leak private transfers and drown the entries that
     // do matter, so they stay out of Discord entirely unless asked for.
     if (match.status === 'no_code' && !config.logUnmatchedPayments) {
+      // Huntington's Zelle alert drops the memo, so a paying customer whose
+      // order has already aged out arrives looking exactly like a personal
+      // transfer. An amount landing exactly on a tier price is the difference:
+      // nobody sends a friend $100.00 to the cent on the day a tier costs that.
+      const tier = tierPricedAt(payment.amountCents, config.tiers);
+      if (tier) {
+        const record = store.recordUnassignedPayment({
+          amountCents: payment.amountCents,
+          tier,
+          senderName: payment.senderName ?? null,
+          source: payment.source ?? 'zelle-email',
+          reference: payment.reference ?? null,
+          at: payment.receivedAt ?? Date.now(),
+        });
+
+        await sendLog(
+          client,
+          config,
+          new EmbedBuilder()
+            .setColor(COLORS.warning)
+            .setTitle('💵 Payment received with no code')
+            .setDescription(
+              `**${payment.senderName ?? 'Someone'}** sent **${formatMoney(payment.amountCents)}** — exactly the ${TIER_NAMES[tier]} price.\n` +
+                'The bank did not forward the note, so the buyer cannot be identified automatically. Pick who it was below.',
+            )
+            .setFooter({ text: 'Ignore this if it was a personal transfer — nothing happens until you choose.' })
+            .setTimestamp(),
+          { ping: true, components: [assignRow(record.id, tier)] },
+        );
+
+        log.info(`Payment of ${payment.amountCents} cents with no code awaits assignment (${record.id})`);
+        return { ...match, status: 'needs_assignment', unassignedId: record.id, tier };
+      }
+
       log.info(`Ignoring a payment with no code (${payment.amountCents} cents) — assumed personal`);
       return match;
     }

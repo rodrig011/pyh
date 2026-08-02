@@ -10,6 +10,7 @@ const EMPTY = {
   processedEmails: [],
   payments: [],
   welcomes: [],
+  unassigned: [],
 };
 
 /**
@@ -109,6 +110,34 @@ export function createStore(filePath) {
 
     listWelcomes(filter = () => true) {
       return data.welcomes.filter(filter);
+    },
+
+    /**
+     * A real payment that arrived with no code and no order to tie it to, kept
+     * so a mod can attach it to a member later. Stored rather than left in the
+     * Discord message alone, because the message stays clickable forever and
+     * one payment must not be able to buy two people a membership.
+     */
+    recordUnassignedPayment(entry, { keep = 200 } = {}) {
+      const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+      const record = { id, assignedTo: null, assignedAt: null, ...entry };
+      data.unassigned.push(record);
+      if (data.unassigned.length > keep) data.unassigned = data.unassigned.slice(-keep);
+      save();
+      return record;
+    },
+
+    getUnassignedPayment(id) {
+      return data.unassigned.find((entry) => entry.id === id) ?? null;
+    },
+
+    markPaymentAssigned(id, userId) {
+      const entry = data.unassigned.find((item) => item.id === id);
+      if (!entry) return null;
+      entry.assignedTo = userId;
+      entry.assignedAt = Date.now();
+      save();
+      return entry;
     },
   };
 }
