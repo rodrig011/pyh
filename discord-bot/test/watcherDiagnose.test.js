@@ -45,3 +45,52 @@ test('several problems are all reported at once, not one per redeploy', () => {
   const problems = watcher({ enabled: false, password: '', providers: [] }).diagnose();
   assert.ok(problems.length >= 3, `expected several, got ${problems.length}`);
 });
+
+// "Command failed" is ImapFlow's generic wording; the server's real complaint
+// lives in fields the default message discards. Losing them means a mod is told
+// nothing and goes checking the wrong setting.
+
+test('the server response is put back into the message', () => {
+  const error = Object.assign(new Error('Command failed'), {
+    responseText: 'Invalid credentials (Failure)',
+    serverResponseCode: 'AUTHENTICATIONFAILED',
+  });
+
+  const described = ZelleWatcher.describeError(error, 'auth');
+  assert.match(described, /Invalid credentials/);
+  assert.match(described, /AUTHENTICATIONFAILED/);
+  assert.match(described, /signing in/);
+});
+
+test('an error with no detail still reads as a sentence', () => {
+  assert.match(ZelleWatcher.describeError(new Error('Command failed'), 'search'), /searching for new mail/);
+});
+
+test('a rejected password is reported as sign-in, not as a connection problem', async () => {
+  const error = Object.assign(new Error('Command failed'), { authenticationFailed: true });
+
+  await assert.rejects(
+    () => ZelleWatcher.at('connect', () => Promise.reject(error)),
+    (thrown) => {
+      assert.equal(thrown.stage, 'auth');
+      assert.match(thrown.described, /signing in/);
+      return true;
+    },
+  );
+});
+
+test('at() tags the stage and leaves the error otherwise intact', async () => {
+  await assert.rejects(
+    () => ZelleWatcher.at('mailbox', () => Promise.reject(new Error('No such mailbox'))),
+    (thrown) => {
+      assert.equal(thrown.stage, 'mailbox');
+      assert.equal(thrown.message, 'No such mailbox');
+      return true;
+    },
+  );
+});
+
+test('at() passes the value straight through when nothing fails', async () => {
+  const value = await ZelleWatcher.at('search', () => Promise.resolve([1, 2, 3]));
+  assert.equal(value.length, 3);
+});

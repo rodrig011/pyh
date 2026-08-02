@@ -87,6 +87,46 @@ export class ZelleWatcher extends EventEmitter {
     this.timer = null;
   }
 
+  /**
+   * IMAP failures arrive as a bare "Command failed": the server's actual
+   * complaint sits in fields the default message throws away. This puts the
+   * stage and the server's own words back together, because "it failed" is not
+   * something anyone can act on.
+   */
+  static describeError(error, stage) {
+    const detail = [
+      error.responseText,
+      error.serverResponseCode ? `code ${error.serverResponseCode}` : null,
+      error.code && error.code !== error.serverResponseCode ? error.code : null,
+    ]
+      .filter(Boolean)
+      .join(' — ');
+
+    const where = {
+      connect: 'connecting to the mail server',
+      auth: 'signing in',
+      mailbox: `opening the mailbox`,
+      search: 'searching for new mail',
+    }[stage];
+
+    const message = detail ? `${error.message} (${detail})` : error.message;
+    return where ? `while ${where}: ${message}` : message;
+  }
+
+  /** Tags an error with the step that produced it, then rethrows. */
+  static async at(stage, run) {
+    try {
+      return await run();
+    } catch (error) {
+      // ImapFlow signs in inside connect(), so a rejected password arrives
+      // tagged as a connection problem and sends people to check the hostname.
+      const actual = error.authenticationFailed ? 'auth' : stage;
+      error.stage = actual;
+      error.described = ZelleWatcher.describeError(error, actual);
+      throw error;
+    }
+  }
+
   /** One pass over the mailbox. Can be triggered by hand (/vip-admin sync). */
   async poll() {
     if (this.running || this.stopped) return { checked: 0, payments: 0 };
@@ -104,11 +144,19 @@ export class ZelleWatcher extends EventEmitter {
     let payments = 0;
 
     try {
-      await client.connect();
-      const lock = await client.getMailboxLock(this.imap.mailbox);
+      await ZelleWatcher.at('connect', () => client.connect());
+      const lock = await ZelleWatcher.at('mailbox', () =>
+        client.getMailboxLock(this.imap.mailbox),
+      );
       try {
         const since = new Date(Date.now() - this.imap.sinceDays * 86400 * 1000);
-        const uids = await client.search({ since, seen: false });
+        // `{ uid: true }` is not optional: without it IMAP answers with sequence
+        // numbers, which renumber as the mailbox changes, and every fetch below
+        // asks by UID. Mixing the two reads the wrong message or none at all —
+        // and a payment that is silently never read looks like no payment.
+        const uids = await ZelleWatcher.at('search', () =>
+          client.search({ since, seen: false }, { uid: true }),
+        );
         for (const uid of uids ?? []) {
           const message = await client.fetchOne(uid, { source: true, envelope: true }, { uid: true });
           if (!message) continue;

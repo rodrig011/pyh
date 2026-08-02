@@ -1091,11 +1091,23 @@ async function handleAdminSync(interaction, { watcher }) {
         .join('\n'),
     );
   } catch (error) {
+    const hints = {
+      connect: 'Check `IMAP_HOST` and `IMAP_PORT`. For Gmail: `imap.gmail.com` on port `993`.',
+      auth:
+        'The app password is wrong, or IMAP is switched off for that account: ' +
+        'Gmail → Settings → See all settings → Forwarding and POP/IMAP → **Enable IMAP**.',
+      mailbox: `The mailbox \`${watcher.imap.mailbox}\` does not exist under that name. Try \`INBOX\`.`,
+      search: 'The server refused the search. Lower `IMAP_SINCE_DAYS` and try again.',
+    };
+
+    // A raw "Command failed" sends people hunting for the wrong problem, so the
+    // step that failed and the server's own words go in front.
     await interaction.editReply(
       [
-        `❌ **The mailbox check failed:** ${error.message}`,
+        `❌ **The mailbox check failed** ${error.described ?? error.message}`,
         '',
-        'Usually this means the app password is wrong, or IMAP is switched off in that Gmail account.',
+        hints[error.stage] ??
+          'If it mentions credentials, the app password is wrong or IMAP is off for that account.',
       ].join('\n'),
     );
   }
