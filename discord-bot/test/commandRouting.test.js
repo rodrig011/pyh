@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { PermissionFlagsBits } from 'discord.js';
+import { MessageFlags, PermissionFlagsBits } from 'discord.js';
 import { createStore } from '../src/lib/store.js';
-import { handleInteraction } from '../src/vip/commands.js';
+import { buildCommands, handleInteraction } from '../src/vip/commands.js';
 import { createOrder } from '../src/vip/orders.js';
 import { upsertSubscription } from '../src/vip/subscriptions.js';
 
@@ -58,8 +58,9 @@ function fakeInteraction(commandName, subcommand, options = {}) {
         getBoolean: (name) => options[name] ?? null,
         getUser: (name) => options[name] ?? null,
       },
-      deferReply: async function () {
+      deferReply: async function (options) {
         this.deferred = true;
+        this.deferOptions = options ?? {};
       },
       reply: async (payload) => replies.push(payload),
       editReply: async (payload) => replies.push(payload),
@@ -522,4 +523,54 @@ test('a non-mod cannot assign a payment', async (t) => {
 
   assert.match(replies[0].content, /Only the mods/);
   assert.equal(store.getUnassignedPayment(record.id).assignedTo, null);
+});
+
+// Admin answers are private by default. Screenshotting your own invisible reply
+// is not a way to show the other mods anything.
+
+test('an admin reply is ephemeral unless asked otherwise', async (t) => {
+  const store = freshStore(t);
+  const { interaction } = fakeInteraction('vip-admin', 'stats');
+
+  await handleInteraction(interaction, { store, config, client: fakeClient });
+
+  assert.equal(interaction.deferOptions.flags, MessageFlags.Ephemeral);
+});
+
+test('share:true posts the answer where the other mods can read it', async (t) => {
+  const store = freshStore(t);
+  const { interaction, replies } = fakeInteraction('vip-admin', 'stats', { share: true });
+
+  await handleInteraction(interaction, { store, config, client: fakeClient });
+
+  assert.equal(interaction.deferOptions.flags, undefined, 'not ephemeral');
+  assert.ok(replies[0].embeds?.[0], 'still a real answer');
+});
+
+test('share:false is the same as not asking', async (t) => {
+  const store = freshStore(t);
+  const { interaction } = fakeInteraction('vip-admin', 'members', { share: false });
+
+  await handleInteraction(interaction, { store, config, client: fakeClient });
+
+  assert.equal(interaction.deferOptions.flags, MessageFlags.Ephemeral);
+});
+
+test('every admin subcommand except panel offers the share toggle', () => {
+  const [, admin] = buildCommands(config);
+  const missing = admin.options
+    .filter((sub) => sub.name !== 'panel')
+    .filter((sub) => !(sub.options ?? []).some((option) => option.name === 'share'))
+    .map((sub) => sub.name);
+
+  assert.deepEqual(missing, [], `these cannot be shared: ${missing.join(', ')}`);
+});
+
+test('the member-facing commands stay private and gain no toggle', () => {
+  const [vip] = buildCommands(config);
+  const leaked = vip.options
+    .filter((sub) => (sub.options ?? []).some((option) => option.name === 'share'))
+    .map((sub) => sub.name);
+
+  assert.deepEqual(leaked, [], 'buyers must never publish their own order');
 });

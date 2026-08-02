@@ -40,6 +40,23 @@ import { STATUS_BUTTON, storefrontMessage, tierFromButton } from './storefront.j
 
 const commandLog = createLogger('commands');
 
+/**
+ * The "let the rest of the channel see this" toggle.
+ *
+ * Admin answers are ephemeral by default, which is right for confirming a
+ * payment and wrong for showing the numbers to the other mods — screenshotting
+ * your own invisible reply is not a workflow. Off unless asked for, since these
+ * replies carry member names and payment history.
+ */
+function withShare(sub) {
+  return sub.addBooleanOption((option) =>
+    option
+      .setName('share')
+      .setDescription('Post the answer in the channel so the other mods can see it')
+      .setRequired(false),
+  );
+}
+
 export function buildCommands(config) {
   // Only tiers with a role configured can be bought; the rest read as "coming soon".
   const sellable = availableTiers(config.tiers);
@@ -87,7 +104,7 @@ export function buildCommands(config) {
       config.modRoleIds.length > 0 ? null : PermissionFlagsBits.ManageRoles,
     )
     .addSubcommand((sub) =>
-      sub
+      withShare(sub
         .setName('confirm')
         .setDescription('Confirm a payment by hand and hand out the roles')
         .addStringOption((option) =>
@@ -101,44 +118,46 @@ export function buildCommands(config) {
         )
         .addStringOption((option) =>
           option.setName('note').setDescription('Reference or name of who paid').setRequired(false),
-        ),
+        )),
     )
     .addSubcommand((sub) =>
-      sub
+      withShare(sub
         .setName('lookup')
         .setDescription('Look up an order by code')
         .addStringOption((option) =>
           option.setName('code').setDescription('Order code').setRequired(true),
-        ),
+        )),
     )
-    .addSubcommand((sub) => sub.setName('pending').setDescription('List the orders awaiting payment'))
     .addSubcommand((sub) =>
-      sub
+      withShare(sub.setName('pending').setDescription('List the orders awaiting payment')),
+    )
+    .addSubcommand((sub) =>
+      withShare(sub
         .setName('cancel')
         .setDescription("Cancel any user's order")
         .addStringOption((option) =>
           option.setName('code').setDescription('Order code').setRequired(true),
-        ),
+        )),
     )
     .addSubcommand((sub) =>
-      sub.setName('sync').setDescription('Check the Zelle mailbox right now'),
+      withShare(sub.setName('sync').setDescription('Check the Zelle mailbox right now')),
     )
     .addSubcommand((sub) =>
-      sub.setName('members').setDescription('List active VIP memberships and when they expire'),
+      withShare(sub.setName('members').setDescription('List active VIP memberships and when they expire')),
     )
     .addSubcommand((sub) =>
       sub.setName('panel').setDescription('Post the ticket panel members click when a payment is missing'),
     )
     .addSubcommand((sub) =>
-      sub.setName('stats').setDescription('Members, revenue and who is about to expire'),
+      withShare(sub.setName('stats').setDescription('Members, revenue and who is about to expire')),
     )
     .addSubcommand((sub) =>
-      sub
+      withShare(sub
         .setName('preview')
-        .setDescription('DM yourself the exact welcome message new members get'),
+        .setDescription('DM yourself the exact welcome message new members get')),
     )
     .addSubcommand((sub) =>
-      sub
+      withShare(sub
         .setName('notify')
         .setDescription('DM a tier that their membership period is running, with their expiry date')
         .addIntegerOption((option) =>
@@ -156,10 +175,10 @@ export function buildCommands(config) {
             .setName('resend')
             .setDescription('Send again to members already notified (default: skip them)')
             .setRequired(false),
-        ),
+        )),
     )
     .addSubcommand((sub) =>
-      sub
+      withShare(sub
         .setName('adopt')
         .setDescription('Start tracking members who already hold a tier role but have no membership')
         .addIntegerOption((option) =>
@@ -171,10 +190,10 @@ export function buildCommands(config) {
         )
         .addIntegerOption((option) =>
           option.setName('days').setDescription('Days to give them (defaults to the usual period)').setRequired(false),
-        ),
+        )),
     )
     .addSubcommand((sub) =>
-      sub
+      withShare(sub
         .setName('grant')
         .setDescription('Give someone a membership without a payment (migrations, comps)')
         .addUserOption((option) =>
@@ -192,10 +211,10 @@ export function buildCommands(config) {
         )
         .addStringOption((option) =>
           option.setName('reason').setDescription('Why (kept in the log)').setRequired(false),
-        ),
+        )),
     )
     .addSubcommand((sub) =>
-      sub
+      withShare(sub
         .setName('revoke')
         .setDescription('End a membership now and take the roles back')
         .addUserOption((option) =>
@@ -203,7 +222,7 @@ export function buildCommands(config) {
         )
         .addStringOption((option) =>
           option.setName('reason').setDescription('Why (kept in the log)').setRequired(false),
-        ),
+        )),
     );
 
   return [vip.toJSON(), admin.toJSON()];
@@ -1386,7 +1405,12 @@ export async function handleInteraction(interaction, context) {
         flags: MessageFlags.Ephemeral,
       });
     }
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    // Ephemeral unless the mod asked to show the room. Decided here, once, so
+    // no handler can forget it — and off by default, since these replies carry
+    // member names and payment history.
+    const share = interaction.options.getBoolean('share') ?? false;
+    await interaction.deferReply(share ? {} : { flags: MessageFlags.Ephemeral });
+
     if (sub === 'confirm') return handleAdminConfirm(interaction, context);
     if (sub === 'lookup') return handleAdminLookup(interaction, context);
     if (sub === 'pending') return handleAdminPending(interaction, context);

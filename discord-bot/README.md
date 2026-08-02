@@ -116,6 +116,12 @@ passes, so a server owner cannot lock themselves out of their own bot.
 While `VIP_MOD_ROLE_IDS` is empty the bot falls back to the *Manage Roles* permission,
 so it stays usable before you configure it — set the variable to lock it down.
 
+Admin answers are **ephemeral**: only the mod who ran the command sees them. Add
+`share:true` to any of them to post the answer in the channel instead, for when the
+point is to show the rest of the team — the numbers, who is expiring, what a payment
+looked like. It is off unless asked for, because these replies carry member names and
+payment history.
+
 ## How the payment flow works
 
 ```
