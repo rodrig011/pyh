@@ -176,8 +176,13 @@ channel; it names whichever is missing rather than failing halfway.
 A room full of "up" and "down" is only worth paying for if somebody is counting.
 
 ```
-/call direction:🟢 UP minutes:15 entry:97200 note:reclaimed the range low
+/call direction:🟢 UP size:50 minutes:15 note:reclaimed the range low
 ```
+
+**`size` is required**, on the command and on the console alike. A call without one is
+half an instruction: the room can act on "long BTC with a quarter of your book", not on
+"long BTC" — and left optional it is the field that quietly goes missing under time
+pressure.
 
 The call is posted with its direction, window and levels. When the window closes the
 bot comes back and asks the analyst to grade it — Win, Loss, Break even or Void — and
@@ -214,6 +219,7 @@ the signal is worth less the longer it takes to send.
 | Button | What the room gets |
 | --- | --- |
 | 🟢 **BUY UP** / 🔴 **BUY DOWN** | Asks how much of the port goes in, then opens the call at the live price |
+| ✏️ **Other %** | A size the four presets do not cover — 15, 12.5, anything |
 | 💰 **CASH AT %** | Asks for the percentage, then tells the room to take that much off |
 
 | 💸 **CRASH OUT** | Everything out with the profit; the call ends and is scored |

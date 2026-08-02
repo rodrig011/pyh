@@ -257,7 +257,7 @@ function callInteraction(name, options = {}, { subcommand = null, isAdmin = true
 
 test('/call is routed without ever asking for a subcommand', async (t) => {
   const store = routingStore(t);
-  const { interaction, replies, posted } = callInteraction('call', { direction: 'up' });
+  const { interaction, replies, posted } = callInteraction('call', { direction: 'up', size: 50 });
 
   await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
 
@@ -309,6 +309,7 @@ test('command registration survives a config with no picks block', () => {
 import {
   analystPanel,
   entrySizeRow,
+  simpleAnnouncement,
   parseSize,
   readPercent,
   guideMessage,
@@ -484,7 +485,7 @@ test('allowedMentions is always set, so @everyone can never be reached', () => {
 
 test('the call posted to the channel carries the ping', async (t) => {
   const store = routingStore(t);
-  const { interaction, posted } = callInteraction('call', { direction: 'up' });
+  const { interaction, posted } = callInteraction('call', { direction: 'up', size: 50 });
 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => ({ ok: true, json: async () => ({ data: { amount: '97000' } }) });
@@ -1134,4 +1135,59 @@ test('the vote tags the tiers that are in the room to answer it', async (t) => {
   assert.match(ask.content, /<@&tier3>/);
   assert.deepEqual(ask.allowedMentions.roles, ['tier2', 'tier3']);
   assert.ok(store.getVote(pick.id));
+});
+
+// A call without a size is half an instruction: the room can act on "long BTC
+// with a quarter of your book", not on "long BTC". Every path has to insist.
+
+test('/call will not register without a size', () => {
+  const call = buildCommands(routingConfig).find((command) => command.name === 'call');
+  const size = call.options.find((option) => option.name === 'size');
+
+  assert.ok(size, 'the option exists');
+  assert.equal(size.required, true);
+  assert.equal(size.min_value, 1);
+  assert.equal(size.max_value, 100);
+});
+
+test('/call sends the size the analyst gave', async (t) => {
+  const store = routingStore(t);
+  withPrice(t, 63300);
+
+  const { interaction, posted } = callInteraction('call', { direction: 'up', size: 35 });
+  await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
+
+  assert.equal(store.listPicks()[0].sizePercent, 35);
+  assert.match(posted[0].embeds[0].toJSON().fields.find((f) => f.name === 'Size').value, /35%/);
+});
+
+test('a call with no size is refused rather than posted half-formed', async (t) => {
+  const store = routingStore(t);
+  withPrice(t, 63300);
+
+  const { interaction, replies, posted } = callInteraction('call', { direction: 'up' });
+  await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
+
+  assert.equal(store.listPicks().length, 0);
+  assert.equal(posted.length, 0);
+  assert.match(replies[0], /needs a size/i);
+});
+
+test('a size outside 0–100 never becomes a call', async (t) => {
+  const store = routingStore(t);
+  withPrice(t, 63300);
+
+  for (const size of [0, -5, 150]) {
+    const { interaction } = callInteraction('call', { direction: 'up', size });
+    await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
+  }
+
+  assert.equal(store.listPicks().length, 0);
+});
+
+test('the one-line announcement always carries the size', () => {
+  const line = simpleAnnouncement({
+    direction: DIRECTIONS.UP, asset: 'BTC', minutes: 15, sizePercent: 50, entry: null,
+  });
+  assert.match(line.content, /50% of port/);
 });

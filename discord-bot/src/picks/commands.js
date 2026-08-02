@@ -126,6 +126,14 @@ export function buildPickCommands(config) {
     )
     .addIntegerOption((option) =>
       option
+        .setName('size')
+        .setDescription('How much of the portfolio goes in, as a percentage')
+        .setRequired(true)
+        .setMinValue(1)
+        .setMaxValue(100),
+    )
+    .addIntegerOption((option) =>
+      option
         .setName('minutes')
         .setDescription(`How long the call runs (default ${settings.defaultMinutes})`)
         .setMinValue(1)
@@ -273,9 +281,11 @@ export function pickEmbed(pick, config) {
       inline: true,
     });
   }
-  if (pick.sizePercent) {
-    fields.push({ name: 'Size', value: `**${pick.sizePercent}% of port**`, inline: true });
-  }
+  fields.push({
+    name: 'Size',
+    value: pick.sizePercent ? `**${pick.sizePercent}% of port**` : '—',
+    inline: true,
+  });
   if (pick.target != null) fields.push({ name: 'Target', value: priceLabel(pick, pick.target), inline: true });
   if (pick.stop != null) {
     fields.push({ name: 'Invalidation', value: priceLabel(pick, pick.stop), inline: true });
@@ -393,6 +403,14 @@ export async function openCall(interaction, { store, config }, overrides = {}) {
   const settings = pickSettings(config);
   const asset = overrides.asset ?? settings.defaultAsset;
 
+  // A call without a size is half an instruction. The room can act on "long
+  // BTC with a quarter of your book"; it cannot act on "long BTC", and left
+  // optional this is the field that quietly goes missing under time pressure.
+  const sizePercent = overrides.sizePercent ?? null;
+  if (!Number.isFinite(sizePercent) || sizePercent <= 0 || sizePercent > 100) {
+    return { pick: null, channel: null, reason: 'no_size' };
+  }
+
   // The price at the moment of the call is what makes it gradeable later. A
   // feed that is down must not block the call — it only costs automatic
   // grading, and the analyst can still settle it by hand.
@@ -413,7 +431,7 @@ export async function openCall(interaction, { store, config }, overrides = {}) {
     direction: overrides.direction,
     asset,
     minutes: overrides.minutes ?? settings.defaultMinutes,
-    sizePercent: overrides.sizePercent ?? null,
+    sizePercent,
     entry,
     target: overrides.target ?? null,
     stop: overrides.stop ?? null,
@@ -426,7 +444,7 @@ export async function openCall(interaction, { store, config }, overrides = {}) {
     ? await interaction.client.channels.fetch(settings.channelId).catch(() => null)
     : interaction.channel;
 
-  if (!channel?.isTextBased()) return { pick: null, channel: null };
+  if (!channel?.isTextBased()) return { pick: null, channel: null, reason: 'no_channel' };
 
   const posted = await channel.send({
     ...pingFor(settings),
@@ -454,8 +472,9 @@ export async function handleCall(interaction, { store, config }) {
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  const { pick, channel } = await openCall(interaction, { store, config }, {
+  const { pick, channel, reason } = await openCall(interaction, { store, config }, {
     direction: interaction.options.getString('direction'),
+    sizePercent: interaction.options.getInteger('size'),
     asset: interaction.options.getString('asset'),
     minutes: interaction.options.getInteger('minutes'),
     entry: interaction.options.getNumber('entry'),
@@ -466,7 +485,9 @@ export async function handleCall(interaction, { store, config }) {
 
   if (!pick) {
     return interaction.editReply(
-      'I cannot post the call — check `PICKS_CHANNEL_ID` and that I can write there.',
+      reason === 'no_size'
+        ? 'Every call needs a size — say what percentage of the portfolio goes in.'
+        : 'I cannot post the call — check `PICKS_CHANNEL_ID` and that I can write there.',
     );
   }
 

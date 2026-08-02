@@ -70,7 +70,8 @@ export function analystPanel(config, settings) {
         'with the live price stamped on it — so it grades itself when the window closes.',
         '',
 '__Opening__',
-        '🟢 **BUY UP** / 🔴 **BUY DOWN** — then pick **how much of the port** goes in.',
+        '🟢 **BUY UP** / 🔴 **BUY DOWN** — then say **how much of the port** goes in.',
+        '_Every call carries a size. The room cannot act on a direction alone._',
         '',
         '__Closing__ — a position comes out whole, never in pieces',
         '💸 **CRASH OUT** — everything out with the profit. The call closes and is scored.',
@@ -349,7 +350,7 @@ export function parseVote(customId) {
  */
 export function simpleAnnouncement(pick) {
   const side = pick.direction === DIRECTIONS.UP ? '🟢 **UP**' : '🔴 **DOWN**';
-  const size = pick.sizePercent ? ` · **${pick.sizePercent}% of port**` : '';
+  const size = ` · **${pick.sizePercent}% of port**`;
   return {
     content: `${side} **${pick.asset}** ${pick.minutes}m${size}${pick.entry != null ? ` @ ${pick.entryLabel ?? pick.entry}` : ''}`,
   };
