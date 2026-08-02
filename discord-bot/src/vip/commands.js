@@ -41,9 +41,12 @@ import {
   SETTLE_PREFIX,
   buildPickCommands,
   handleCall,
+  handleCashModal,
+  handlePanelButton,
   handlePicks,
   handleSettleButton,
 } from '../picks/commands.js';
+import { CASH_MODAL, PANEL_PREFIX } from '../picks/panel.js';
 
 const commandLog = createLogger('commands');
 
@@ -1405,10 +1408,16 @@ export async function handleInteraction(interaction, context) {
   if (interaction.isButton() && interaction.customId?.startsWith(SETTLE_PREFIX)) {
     return handleSettleButton(interaction, context);
   }
+  if (interaction.isButton() && interaction.customId?.startsWith(PANEL_PREFIX)) {
+    return handlePanelButton(interaction, context);
+  }
   if (interaction.isButton()) return handleButton(interaction, context);
   if (interaction.isUserSelectMenu?.()) return handleAssignSelect(interaction, context);
   if (interaction.isModalSubmit?.() && interaction.customId?.startsWith(NAME_MODAL_PREFIX)) {
     return handleNameModal(interaction, context);
+  }
+  if (interaction.isModalSubmit?.() && interaction.customId?.startsWith(CASH_MODAL)) {
+    return handleCashModal(interaction, context);
   }
   if (!interaction.isChatInputCommand()) return;
 

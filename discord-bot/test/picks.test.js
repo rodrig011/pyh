@@ -263,3 +263,143 @@ test('command registration survives a config with no picks block', () => {
   const { picks, ...without } = routingConfig;
   assert.doesNotThrow(() => buildCommands(without), 'one unset variable must not cost every command');
 });
+
+// The console and automatic grading. Grading is the part that decides what goes
+// on a public leaderboard, so it is driven end to end here rather than trusted.
+
+import { panelAction, PANEL_ACTIONS, managementMessage } from '../src/picks/panel.js';
+import { promptDueSettlements } from '../src/picks/commands.js';
+
+test('panel button ids map to actions, and nothing else does', () => {
+  assert.equal(panelAction('pick:panel:up'), PANEL_ACTIONS.UP);
+  assert.equal(panelAction('pick:panel:cash_profit'), PANEL_ACTIONS.CASH_PROFIT);
+  assert.equal(panelAction('pick:panel:nonsense'), null);
+  assert.equal(panelAction('vip:buy:1'), null);
+  assert.equal(panelAction(undefined), null);
+});
+
+test('a management message names the call it belongs to', () => {
+  const message = managementMessage({
+    action: PANEL_ACTIONS.CASH_PERCENT,
+    analystId: 'a1',
+    pick: { asset: 'BTC', minutes: 15, entry: 97000 },
+    percent: 50,
+    price: '$97,500.00',
+  });
+
+  const embed = message.embeds[0].toJSON();
+  assert.match(embed.title, /50%/);
+  assert.match(embed.description, /BTC/);
+  assert.ok(embed.fields.some((field) => field.name === 'Price now'));
+});
+
+function settlingClient(posted) {
+  return {
+    channels: {
+      fetch: async () => ({ isTextBased: () => true, send: async (p) => posted.push(p) }),
+    },
+  };
+}
+
+test('a call with a live entry grades itself from the price', async (t) => {
+  const store = routingStore(t);
+  const pick = buildPick({
+    analystId: 'a1',
+    guildId: 'g',
+    direction: DIRECTIONS.UP,
+    asset: 'BTC',
+    minutes: 15,
+    entry: 97000,
+    now: Date.now() - 16 * 60000,
+  });
+  pick.channelId = 'c1';
+  store.recordPick(pick);
+
+  const posted = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ data: { amount: '97500.00' } }) });
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const result = await promptDueSettlements(settlingClient(posted), store, routingConfig);
+
+  assert.equal(result.graded, 1);
+  assert.equal(result.asked, 0, 'nobody was asked to confirm what the tape already said');
+  assert.equal(store.getPick(pick.id).outcome, OUTCOMES.WIN);
+  assert.equal(store.getPick(pick.id).exit, 97500);
+  assert.match(posted[0].content, /97,500/);
+});
+
+test('a down call that went up is graded a loss, not skipped', async (t) => {
+  const store = routingStore(t);
+  const pick = buildPick({
+    analystId: 'a1',
+    guildId: 'g',
+    direction: DIRECTIONS.DOWN,
+    asset: 'BTC',
+    minutes: 15,
+    entry: 97000,
+    now: Date.now() - 16 * 60000,
+  });
+  pick.channelId = 'c1';
+  store.recordPick(pick);
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ data: { amount: '98000.00' } }) });
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  await promptDueSettlements(settlingClient([]), store, routingConfig);
+  assert.equal(store.getPick(pick.id).outcome, OUTCOMES.LOSS);
+});
+
+test('with no price the analyst is asked instead of the call being lost', async (t) => {
+  const store = routingStore(t);
+  const pick = buildPick({
+    analystId: 'a1',
+    guildId: 'g',
+    direction: DIRECTIONS.UP,
+    asset: 'BTC',
+    minutes: 15,
+    entry: null,
+    now: Date.now() - 16 * 60000,
+  });
+  pick.channelId = 'c1';
+  store.recordPick(pick);
+
+  const posted = [];
+  const result = await promptDueSettlements(settlingClient(posted), store, routingConfig);
+
+  assert.equal(result.asked, 1);
+  assert.equal(store.getPick(pick.id).outcome, null, 'still open until a human says');
+  assert.ok(posted[0].components?.length, 'the grading buttons were offered');
+});
+
+test('a call is only ever settled once', async (t) => {
+  const store = routingStore(t);
+  const pick = buildPick({
+    analystId: 'a1',
+    guildId: 'g',
+    direction: DIRECTIONS.UP,
+    asset: 'BTC',
+    minutes: 15,
+    entry: 97000,
+    now: Date.now() - 16 * 60000,
+  });
+  pick.channelId = 'c1';
+  store.recordPick(pick);
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ data: { amount: '97500.00' } }) });
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  await promptDueSettlements(settlingClient([]), store, routingConfig);
+  const second = await promptDueSettlements(settlingClient([]), store, routingConfig);
+
+  assert.equal(second.graded, 0);
+  assert.equal(second.asked, 0);
+});

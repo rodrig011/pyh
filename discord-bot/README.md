@@ -176,6 +176,45 @@ Three decisions worth knowing, because they are what make the numbers mean anyth
   step in when someone is away, since an ungraded call sits in "open" forever and
   quietly flatters whoever made it.
 
+### The analyst console
+
+```
+/picks panel
+```
+
+Posts a button console and pins-worthy. Typing `/call direction:… minutes:… entry:…` is
+four decisions at the exact moment there is no time to make them; on a 15-minute market
+the signal is worth less the longer it takes to send.
+
+| Button | What the room gets |
+| --- | --- |
+| 🟢 **BUY UP** / 🔴 **BUY DOWN** | A call opens, stamped with the live price |
+| 💰 **CASH AT %** | Asks for the percentage, then tells the room to take that much off |
+| ✅ **CASH AT PROFIT** | Close it out in profit |
+| ✋ **HOLD** | Stay in, nothing has changed |
+
+Cash-out and hold messages are posted as replies to the analyst's own open call, since a
+bare "cash out" is unreadable in a channel where three calls are running.
+
+### Calls grade themselves
+
+Kalshi is where these get traded, but a 15-minute "up or down" is settled by the
+underlying price, so that is what is wired in. Every call is stamped with the spot price
+when it opens; when the window closes the bot reads the price again and posts the result
+itself.
+
+Three exchanges are tried in turn — Coinbase, Kraken, Binance — because a call that
+cannot be graded on account of one venue having a bad minute is worse than asking a
+second. A move under 0.02% counts as **break even** rather than a win: settling a drift
+of a few dollars as a correct call would inflate every record on the board.
+
+If no price can be read at all, the call falls back to the analyst pressing a button.
+Nothing is silently dropped. Check the feed any time with:
+
+```
+/picks price
+```
+
 Set `PICKS_ANALYST_ROLE_IDS` to the roles allowed to post calls. `PICKS_CHANNEL_ID`
 sends every call to one channel; without it they land wherever the command was run.
 

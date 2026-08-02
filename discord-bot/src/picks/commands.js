@@ -10,6 +10,17 @@ import {
 } from 'discord.js';
 import { COLORS } from '../lib/brand.js';
 import {
+  CASH_MODAL,
+  DIRECTION_FOR_ACTION,
+  PANEL_ACTIONS,
+  PANEL_PREFIX,
+  analystPanel,
+  cashPercentModal,
+  managementMessage,
+  panelAction,
+} from './panel.js';
+import { fetchSpotPrice, formatChange, formatPrice, gradeByPrice } from './price.js';
+import {
   DIRECTIONS,
   DIRECTION_LABEL,
   OUTCOMES,
@@ -116,7 +127,13 @@ export function buildPickCommands(config) {
           option.setName('days').setDescription('Only the last N days').setRequired(false),
         ),
     )
-    .addSubcommand((sub) => sub.setName('open').setDescription('Calls still running'));
+    .addSubcommand((sub) => sub.setName('open').setDescription('Calls still running'))
+    .addSubcommand((sub) =>
+      sub.setName('panel').setDescription('Post the analyst console (analysts only can press it)'),
+    )
+    .addSubcommand((sub) =>
+      sub.setName('price').setDescription('Check the live price feed the bot grades calls with'),
+    );
 
   return [call.toJSON(), picks.toJSON()];
 }
@@ -187,6 +204,53 @@ export function settleRow(pickId) {
   );
 }
 
+/**
+ * Opens a call and posts it. Shared by `/call` and the console buttons, so the
+ * two can never drift into recording different things.
+ */
+export async function openCall(interaction, { store, config }, overrides = {}) {
+  const settings = pickSettings(config);
+  const asset = overrides.asset ?? settings.defaultAsset;
+
+  // The price at the moment of the call is what makes it gradeable later. A
+  // feed that is down must not block the call — it only costs automatic
+  // grading, and the analyst can still settle it by hand.
+  let entry = overrides.entry ?? null;
+  let priceSource = null;
+  if (entry === null) {
+    const quote = await fetchSpotPrice(asset);
+    entry = quote.price;
+    priceSource = quote.source;
+  }
+
+  const pick = buildPick({
+    analystId: interaction.user.id,
+    analystTag: interaction.user.tag,
+    guildId: interaction.guildId ?? config.guildId,
+    direction: overrides.direction,
+    asset,
+    minutes: overrides.minutes ?? settings.defaultMinutes,
+    entry,
+    target: overrides.target ?? null,
+    stop: overrides.stop ?? null,
+    note: overrides.note ?? null,
+  });
+  pick.entrySource = priceSource;
+
+  const channel = settings.channelId
+    ? await interaction.client.channels.fetch(settings.channelId).catch(() => null)
+    : interaction.channel;
+
+  if (!channel?.isTextBased()) return { pick: null, channel: null };
+
+  const posted = await channel.send({ embeds: [pickEmbed(pick, config)] });
+  pick.messageId = posted.id;
+  pick.channelId = channel.id;
+  store.recordPick(pick);
+
+  return { pick, channel };
+}
+
 export async function handleCall(interaction, { store, config }) {
   if (!isAnalyst(interaction, config)) {
     return interaction.reply({
@@ -195,41 +259,29 @@ export async function handleCall(interaction, { store, config }) {
     });
   }
 
-  const pick = buildPick({
-    analystId: interaction.user.id,
-    analystTag: interaction.user.tag,
-    guildId: interaction.guildId ?? config.guildId,
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  const { pick, channel } = await openCall(interaction, { store, config }, {
     direction: interaction.options.getString('direction'),
-    asset: interaction.options.getString('asset') ?? pickSettings(config).defaultAsset,
-    minutes: interaction.options.getInteger('minutes') ?? pickSettings(config).defaultMinutes,
+    asset: interaction.options.getString('asset'),
+    minutes: interaction.options.getInteger('minutes'),
     entry: interaction.options.getNumber('entry'),
     target: interaction.options.getNumber('target'),
     stop: interaction.options.getNumber('stop'),
     note: interaction.options.getString('note'),
   });
 
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-  const settings = pickSettings(config);
-  const channelId = settings.channelId;
-  const channel = channelId
-    ? await interaction.client.channels.fetch(channelId).catch(() => null)
-    : interaction.channel;
-
-  if (!channel?.isTextBased()) {
+  if (!pick) {
     return interaction.editReply(
       'I cannot post the call — check `PICKS_CHANNEL_ID` and that I can write there.',
     );
   }
 
-  const posted = await channel.send({ embeds: [pickEmbed(pick, config)] });
-  pick.messageId = posted.id;
-  pick.channelId = channel.id;
-  store.recordPick(pick);
-
   return interaction.editReply(
-    `Call posted in ${channel}. When it closes ${time(Math.floor(pick.closesAt / 1000), 'R')} ` +
-      'I will ask you to grade it — a record only means something if the losses go in too.',
+    `Call posted in ${channel}. ` +
+      (pick.entry === null
+        ? 'No live price was available, so you will be asked to grade it by hand.'
+        : `Stamped at **${formatPrice(pick.entry)}** — it grades itself when the window closes.`),
   );
 }
 
@@ -314,6 +366,29 @@ export async function handlePicks(interaction, { store, config }) {
     });
   }
 
+  if (sub === 'panel') {
+    if (!isAnalyst(interaction, config)) {
+      return interaction.editReply('Only the analysts can post the console.');
+    }
+    const settings = pickSettings(config);
+    await interaction.channel.send(analystPanel(config, settings));
+    return interaction.editReply('Console posted. Pin it — only analysts can press the buttons.');
+  }
+
+  if (sub === 'price') {
+    const settings = pickSettings(config);
+    const quote = await fetchSpotPrice(settings.defaultAsset);
+    return interaction.editReply(
+      quote.price === null
+        ? [
+            `❌ **No live price for ${settings.defaultAsset}.** Calls will have to be graded by hand.`,
+            ...quote.problems.map((problem) => `• ${problem}`),
+          ].join('\n')
+        : `✅ **${settings.defaultAsset} ${formatPrice(quote.price)}** via \`${quote.source}\`.` +
+          (quote.problems.length > 0 ? `\n_Fell back after: ${quote.problems.join('; ')}_` : ''),
+    );
+  }
+
   if (sub === 'open') {
     const open = picks
       .filter((pick) => !pick.outcome)
@@ -342,6 +417,99 @@ export async function handlePicks(interaction, { store, config }) {
   }
 
   return interaction.editReply('Unknown subcommand.');
+}
+
+/** The analyst console. Every button is gated on the analyst check. */
+export async function handlePanelButton(interaction, { store, config }) {
+  const action = panelAction(interaction.customId);
+  if (!action) return undefined;
+
+  if (!isAnalyst(interaction, config)) {
+    return interaction.reply({
+      content: 'Only the analysts can send calls.',
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  // "Cash at a percent" needs the percent, and a modal must be the first reply
+  // to the interaction — so it cannot be deferred first.
+  if (action === PANEL_ACTIONS.CASH_PERCENT) {
+    return interaction.showModal(cashPercentModal());
+  }
+
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  if (action === PANEL_ACTIONS.UP || action === PANEL_ACTIONS.DOWN) {
+    const { pick, channel } = await openCall(interaction, { store, config }, {
+      direction: DIRECTION_FOR_ACTION[action],
+    });
+    if (!pick) return interaction.editReply('I could not post that — check where calls go.');
+    return interaction.editReply(
+      `${DIRECTION_LABEL[pick.direction]} **${pick.asset}** sent to ${channel}` +
+        (pick.entry === null ? ' (no live price — you will grade it by hand).' : ` at **${formatPrice(pick.entry)}**.`),
+    );
+  }
+
+  return postManagement(interaction, { store, config }, { action });
+}
+
+export async function handleCashModal(interaction, { store, config }) {
+  if (!isAnalyst(interaction, config)) {
+    return interaction.reply({ content: 'Only the analysts can send calls.', flags: MessageFlags.Ephemeral });
+  }
+
+  const raw = interaction.fields.getTextInputValue('percent');
+  const percent = Number.parseFloat(String(raw).replace('%', '').trim());
+  if (!Number.isFinite(percent) || percent <= 0 || percent > 100) {
+    return interaction.reply({
+      content: `**${raw}** is not a percentage between 0 and 100.`,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  return postManagement(interaction, { store, config }, {
+    action: PANEL_ACTIONS.CASH_PERCENT,
+    percent,
+    note: interaction.fields.getTextInputValue('note')?.trim() || null,
+  });
+}
+
+/** Posts a cash-out or hold against the analyst's most recent open call. */
+async function postManagement(interaction, { store, config }, { action, percent = null, note = null }) {
+  const settings = pickSettings(config);
+
+  const open = store
+    .listPicks((pick) => pick.analystId === interaction.user.id && !pick.outcome)
+    .sort((a, b) => b.createdAt - a.createdAt)[0];
+
+  const channel = open?.channelId
+    ? await interaction.client.channels.fetch(open.channelId).catch(() => null)
+    : settings.channelId
+      ? await interaction.client.channels.fetch(settings.channelId).catch(() => null)
+      : interaction.channel;
+
+  if (!channel?.isTextBased()) return interaction.editReply('I could not find where to post that.');
+
+  const quote = await fetchSpotPrice(open?.asset ?? settings.defaultAsset);
+
+  await channel.send({
+    ...managementMessage({
+      action,
+      analystId: interaction.user.id,
+      pick: open ?? null,
+      percent,
+      note,
+      price: quote.price === null ? null : formatPrice(quote.price),
+    }),
+    reply: open?.messageId ? { messageReference: open.messageId, failIfNotExists: false } : undefined,
+  });
+
+  return interaction.editReply(
+    open
+      ? `Sent to ${channel}, attached to your open **${open.asset}** call.`
+      : `Sent to ${channel}. You have no open call, so it went out on its own.`,
+  );
 }
 
 export async function handleSettleButton(interaction, { store, config }) {
@@ -392,17 +560,56 @@ export async function handleSettleButton(interaction, { store, config }) {
  * Prompting once and recording that is deliberate: a bot that re-asks every
  * minute gets muted, and a muted bot collects no record at all.
  */
+/**
+ * Closes out every call whose window has run out.
+ *
+ * A call stamped with a live entry price grades itself: the price is what
+ * settles a 15-minute "up or down", and asking a human to confirm what the tape
+ * already says is how records end up half-finished and flattering. Only calls
+ * with no usable price fall back to the buttons.
+ */
 export async function promptDueSettlements(client, store, config, now = Date.now()) {
   const due = dueForSettlement(store.listPicks(), now).filter((pick) => !pick.promptedAt);
-  let prompted = 0;
+  const settings = pickSettings(config);
+  let graded = 0;
+  let asked = 0;
 
   for (const pick of due) {
-    const channel = await client.channels.fetch(pick.channelId ?? pickSettings(config).channelId).catch(() => null);
+    const channel = await client.channels
+      .fetch(pick.channelId ?? settings.channelId)
+      .catch(() => null);
     if (!channel?.isTextBased()) continue;
 
+    const quote = pick.entry === null ? { price: null } : await fetchSpotPrice(pick.asset);
+    const verdict =
+      quote.price === null ? null : gradeByPrice(pick.direction, pick.entry, quote.price);
+
+    if (verdict) {
+      settlePick(pick, { outcome: verdict.outcome, settledBy: 'price-feed', exit: quote.price, now });
+      pick.promptedAt = now;
+      pick.changePercent = verdict.changePercent;
+      store.putPick(pick);
+
+      const record = computeRecord(store.listPicks(), { analystId: pick.analystId });
+      await channel
+        .send({
+          content:
+            `${OUTCOME_LABEL[verdict.outcome]} — <@${pick.analystId}>'s **${pick.asset}** ${pick.minutes}m call closed at ` +
+            `**${formatPrice(quote.price)}** (${formatChange(verdict.changePercent)} from ${formatPrice(pick.entry)}). ` +
+            `Now **${formatWinRate(record.winRate)}** (${record.wins}W ${record.losses}L).`,
+          embeds: [pickEmbed(pick, config)],
+          allowedMentions: { users: [] },
+        })
+        .catch(() => null);
+
+      graded += 1;
+      continue;
+    }
+
+    // No price to settle it with, so the analyst has to say.
     await channel
       .send({
-        content: `<@${pick.analystId}> your **${pick.asset}** ${pick.minutes}m call is up. How did it go?`,
+        content: `<@${pick.analystId}> your **${pick.asset}** ${pick.minutes}m call is up, and I could not read a price. How did it go?`,
         embeds: [pickEmbed(pick, config)],
         components: [settleRow(pick.id)],
         allowedMentions: { users: [pick.analystId] },
@@ -411,8 +618,8 @@ export async function promptDueSettlements(client, store, config, now = Date.now
 
     pick.promptedAt = now;
     store.putPick(pick);
-    prompted += 1;
+    asked += 1;
   }
 
-  return prompted;
+  return { graded, asked, prompted: graded + asked };
 }
