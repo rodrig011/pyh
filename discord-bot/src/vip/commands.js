@@ -1136,17 +1136,42 @@ async function handleAdminSync(interaction, { watcher }) {
 
   try {
     const result = await watcher.poll();
-    await interaction.editReply(
-      [
-        `✅ **Automatic detection is live**, reading \`${watcher.imap.user}\` every ${watcher.imap.pollSeconds}s.`,
-        `Check finished: ${result.checked} new email(s), ${result.payments} payment(s) detected.`,
-        result.checked === 0
-          ? '_No new mail. That is normal — already-read alerts are skipped._'
-          : '',
-      ]
-        .filter(Boolean)
-        .join('\n'),
-    );
+    const lines = [
+      `✅ **Automatic detection is live**, reading \`${watcher.imap.user}\` every ${watcher.imap.pollSeconds}s.`,
+      `Check finished: ${result.checked} new email(s), ${result.payments} payment(s) detected.`,
+    ];
+
+    // Finding nothing is the complaint, not the answer. poll() only reads unread
+    // mail and marks it seen, so a second run always looks empty — the mailbox
+    // has to be re-read to show what is in it and why each message was refused.
+    if (result.payments === 0) {
+      const { total, seen } = await watcher.inspect();
+      lines.push('', `**What is in the mailbox** (last ${watcher.imap.sinceDays} days: ${total} email(s))`);
+
+      if (seen.length === 0) {
+        lines.push(
+          '_Nothing at all._ The alerts are not reaching this inbox — check that the bank sends them here, ' +
+            'or set up forwarding from the account that does receive them.',
+        );
+      } else {
+        for (const mail of seen) {
+          const subject = (mail.subject || '(no subject)').slice(0, 60);
+          lines.push(
+            mail.isPayment
+              ? `✅ \`${mail.from}\` — ${subject} → **${formatMoney(mail.amountCents ?? 0)}**, codes: ${mail.codes.join(', ') || 'none'}${mail.alreadyProcessed ? ' _(already handled)_' : ''}`
+              : `❌ \`${mail.from}\` — ${subject}\n   ↳ ${mail.reason ?? 'not recognised as a payment'}`,
+          );
+        }
+        lines.push(
+          '',
+          'If a real Zelle alert is listed with **Untrusted sender**, copy the address shown above ' +
+            'into `IMAP_ALLOWED_SENDERS` — that is the one thing the bot cannot guess.',
+        );
+      }
+    }
+
+    const body = lines.join('\n');
+    await interaction.editReply(body.length > 1900 ? `${body.slice(0, 1900)}\n…` : body);
   } catch (error) {
     const hints = {
       connect: 'Check `IMAP_HOST` and `IMAP_PORT`. For Gmail: `imap.gmail.com` on port `993`.',

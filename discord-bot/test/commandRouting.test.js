@@ -311,3 +311,77 @@ test('/vip-admin preview does not pretend to send when WELCOME_DM is off', async
   assert.equal(sent.length, 0);
   assert.match(replies[0], /switched off/);
 });
+
+// "It is not detecting payments" is unanswerable without seeing the mailbox.
+// These pin the shape of that answer.
+
+function syncInteraction(watcher) {
+  const { interaction, replies } = fakeInteraction('vip-admin', 'sync');
+  return { interaction, replies, watcher };
+}
+
+const liveImap = { user: 'investotecho@gmail.com', pollSeconds: 60, sinceDays: 3, mailbox: 'INBOX' };
+
+test('/vip-admin sync shows why each email was refused when nothing is detected', async (t) => {
+  const store = freshStore(t);
+  const watcher = {
+    imap: liveImap,
+    diagnose: () => [],
+    poll: async () => ({ checked: 0, payments: 0 }),
+    inspect: async () => ({
+      total: 2,
+      seen: [
+        {
+          from: 'alerts@huntingtonbank.com',
+          subject: 'You received a Zelle payment',
+          isPayment: false,
+          reason: 'Zelle: Untrusted sender alerts@huntingtonbank.com',
+          codes: [],
+        },
+        { from: 'noreply@spam.com', subject: 'Sale!', isPayment: false, reason: 'no provider matched', codes: [] },
+      ],
+    }),
+  };
+  const { interaction, replies } = syncInteraction(watcher);
+
+  await handleInteraction(interaction, { store, config, client: fakeClient, watcher });
+
+  assert.match(replies[0], /huntingtonbank\.com/, 'the real sending address is shown');
+  assert.match(replies[0], /Untrusted sender/);
+  assert.match(replies[0], /IMAP_ALLOWED_SENDERS/, 'it says what to do about it');
+});
+
+test('/vip-admin sync says plainly when the inbox is empty', async (t) => {
+  const store = freshStore(t);
+  const watcher = {
+    imap: liveImap,
+    diagnose: () => [],
+    poll: async () => ({ checked: 0, payments: 0 }),
+    inspect: async () => ({ total: 0, seen: [] }),
+  };
+  const { interaction, replies } = syncInteraction(watcher);
+
+  await handleInteraction(interaction, { store, config, client: fakeClient, watcher });
+
+  assert.match(replies[0], /not reaching this inbox/);
+});
+
+test('/vip-admin sync does not dig through the mailbox when payments were found', async (t) => {
+  const store = freshStore(t);
+  let inspected = false;
+  const watcher = {
+    imap: liveImap,
+    diagnose: () => [],
+    poll: async () => ({ checked: 3, payments: 1 }),
+    inspect: async () => {
+      inspected = true;
+      return { total: 0, seen: [] };
+    },
+  };
+  const { interaction, replies } = syncInteraction(watcher);
+
+  await handleInteraction(interaction, { store, config, client: fakeClient, watcher });
+
+  assert.equal(inspected, false);
+  assert.match(replies[0], /1 payment\(s\) detected/);
+});

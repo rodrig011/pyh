@@ -127,6 +127,81 @@ export class ZelleWatcher extends EventEmitter {
     }
   }
 
+  /**
+   * Read-only look at what is actually in the mailbox and what the parser makes
+   * of each message.
+   *
+   * poll() is deliberately blind for diagnosis: it only looks at unread mail,
+   * skips anything already processed, and marks what it reads as seen — so once
+   * a payment has gone by, re-running it shows an empty mailbox no matter what
+   * went wrong. This looks at everything in the window, marks nothing, and
+   * keeps the rejection reason for each message. That reason is the whole
+   * answer when a bank's real sending domain is not the one in the allowlist:
+   * every alert is dropped, and silence looks identical to no payments.
+   */
+  async inspect({ limit = 8 } = {}) {
+    const client = new ImapFlow({
+      host: this.imap.host,
+      port: this.imap.port,
+      secure: this.imap.secure,
+      auth: { user: this.imap.user, pass: this.imap.password },
+      logger: false,
+    });
+
+    const seen = [];
+    let total = 0;
+
+    try {
+      await ZelleWatcher.at('connect', () => client.connect());
+      const lock = await ZelleWatcher.at('mailbox', () =>
+        client.getMailboxLock(this.imap.mailbox),
+      );
+      try {
+        const since = new Date(Date.now() - this.imap.sinceDays * 86400 * 1000);
+        const uids = (await ZelleWatcher.at('search', () => client.search({ since }, { uid: true }))) ?? [];
+        total = uids.length;
+
+        for (const uid of uids.slice(-limit).reverse()) {
+          const message = await client.fetchOne(uid, { source: true }, { uid: true });
+          if (!message) continue;
+
+          const parsedMail = await simpleParser(message.source);
+          const email = {
+            from: parsedMail.from?.value?.[0]?.address ?? parsedMail.from?.text ?? '',
+            subject: parsedMail.subject ?? '',
+            text: parsedMail.text ?? '',
+            html: typeof parsedMail.html === 'string' ? parsedMail.html : '',
+            messageId: parsedMail.messageId ?? `uid:${this.imap.mailbox}:${uid}`,
+            date: parsedMail.date ?? new Date(),
+          };
+
+          const parsed = parsePaymentEmail(email, {
+            providers: this.imap.providers,
+            codePrefix: this.codePrefix,
+            codeLength: this.codeLength,
+          });
+
+          seen.push({
+            from: email.from,
+            subject: email.subject,
+            date: email.date,
+            isPayment: parsed.isPayment,
+            reason: parsed.reason ?? null,
+            amountCents: parsed.amountCents,
+            codes: parsed.codes ?? [],
+            alreadyProcessed: this.store?.isEmailProcessed(email.messageId) ?? false,
+          });
+        }
+      } finally {
+        lock.release();
+      }
+    } finally {
+      await client.logout().catch(() => {});
+    }
+
+    return { total, seen };
+  }
+
   /** One pass over the mailbox. Can be triggered by hand (/vip-admin sync). */
   async poll() {
     if (this.running || this.stopped) return { checked: 0, payments: 0 };
