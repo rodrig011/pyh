@@ -156,6 +156,9 @@ export function buildPickCommands(config) {
       sub.setName('price').setDescription('Check the live price feed the bot grades calls with'),
     )
     .addSubcommand((sub) =>
+      sub.setName('guide').setDescription('Post the announcement explaining what each signal means'),
+    )
+    .addSubcommand((sub) =>
       sub
         .setName('reset')
         .setDescription('Wipe a record the bot got wrong (mods only)')
