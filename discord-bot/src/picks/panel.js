@@ -16,6 +16,7 @@ export const PANEL_ACTIONS = {
   DOWN: 'down',
   CASH_PERCENT: 'cash_percent',
   CASH_PROFIT: 'cash_profit',
+  CUT_LOSS: 'cut_loss',
   HOLD: 'hold',
 };
 export const CASH_MODAL = 'pick:cash:';
@@ -47,6 +48,7 @@ export function analystPanel(config, settings) {
         '🟢 **BUY UP** / 🔴 **BUY DOWN** — open a call',
         '💰 **CASH AT %** — tell the room to take a set percentage off',
         '✅ **CASH AT PROFIT** — close it out in profit',
+        '❌ **CUT LOSS** — the call is wrong, get out',
         '✋ **HOLD** — stay in, nothing has changed',
       ].join('\n'),
     )
@@ -78,6 +80,13 @@ export function analystPanel(config, settings) {
           .setStyle(ButtonStyle.Primary)
           .setLabel('CASH AT PROFIT')
           .setEmoji('✅'),
+        // The counterpart to cashing out. A console that can only announce
+        // wins teaches the room to sit through the losers.
+        new ButtonBuilder()
+          .setCustomId(`${PANEL_PREFIX}${PANEL_ACTIONS.CUT_LOSS}`)
+          .setStyle(ButtonStyle.Danger)
+          .setLabel('CUT LOSS')
+          .setEmoji('❌'),
         new ButtonBuilder()
           .setCustomId(`${PANEL_PREFIX}${PANEL_ACTIONS.HOLD}`)
           .setStyle(ButtonStyle.Secondary)
@@ -133,6 +142,11 @@ export function managementMessage({ action, analystId, pick, percent = null, not
       colour: COLORS.success,
       title: '✅ Cash out in profit',
       body: `<@${analystId}> is closing ${subject} in profit. Take it.`,
+    },
+    [PANEL_ACTIONS.CUT_LOSS]: {
+      colour: COLORS.danger,
+      title: '❌ Cut the loss',
+      body: `<@${analystId}> is getting out of ${subject}. The call is wrong — take the loss and move on.`,
     },
     [PANEL_ACTIONS.HOLD]: {
       colour: COLORS.warning,

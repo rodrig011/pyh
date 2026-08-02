@@ -157,6 +157,13 @@ export function loadVipConfig() {
       defaultMinutes: int('PICKS_DEFAULT_MINUTES', 15),
       defaultAsset: str('PICKS_DEFAULT_ASSET', 'BTC'),
       minimumForBoard: int('PICKS_BOARD_MINIMUM', 5),
+      // Roles pinged on every call. Defaults to every tier that has a role, so
+      // the people paying for signals are the ones who get them.
+      pingRoleIds: list('PICKS_PING_ROLE_IDS', [
+        str('ROLE_TIER_1'),
+        str('ROLE_TIER_2'),
+        str('ROLE_TIER_3'),
+      ].filter(Boolean)),
       disclaimer: str('PICKS_DISCLAIMER', 'Not financial advice'),
     },
     // Card payments. Zelle is a one-off 30 days; Stripe bills again by itself

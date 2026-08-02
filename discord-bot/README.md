@@ -191,7 +191,11 @@ the signal is worth less the longer it takes to send.
 | 🟢 **BUY UP** / 🔴 **BUY DOWN** | A call opens, stamped with the live price |
 | 💰 **CASH AT %** | Asks for the percentage, then tells the room to take that much off |
 | ✅ **CASH AT PROFIT** | Close it out in profit |
+| ❌ **CUT LOSS** | The call is wrong — get out and take the loss |
 | ✋ **HOLD** | Stay in, nothing has changed |
+
+Cutting a loss is a button because a console that can only announce wins teaches the
+room to sit through the losers.
 
 Cash-out and hold messages are posted as replies to the analyst's own open call, since a
 bare "cash out" is unreadable in a channel where three calls are running.
@@ -214,6 +218,12 @@ Nothing is silently dropped. Check the feed any time with:
 ```
 /picks price
 ```
+
+**Every call pings the VIP tier roles**, and so does every cash-out, cut-loss and hold —
+the people paying for signals are the ones who have to see them. This defaults to
+whichever `ROLE_TIER_n` are configured; `PICKS_PING_ROLE_IDS` overrides it, and setting
+it empty turns pinging off. `allowedMentions` is always set explicitly, so whatever ends
+up inside an embed the bot can never reach `@everyone`.
 
 Set `PICKS_ANALYST_ROLE_IDS` to the roles allowed to post calls. `PICKS_CHANNEL_ID`
 sends every call to one channel; without it they land wherever the command was run.

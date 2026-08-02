@@ -44,7 +44,23 @@ export const PICK_DEFAULTS = {
   defaultAsset: 'BTC',
   minimumForBoard: 5,
   disclaimer: 'Not financial advice',
+  pingRoleIds: [],
 };
+
+/**
+ * The roles told about a call, as a mention line plus the allowedMentions that
+ * permits exactly those and nothing else.
+ *
+ * Set explicitly rather than left to Discord: whatever ends up inside an embed,
+ * the bot must never be able to reach @everyone.
+ */
+export function pingFor(settings) {
+  const roleIds = settings.pingRoleIds ?? [];
+  return {
+    content: roleIds.map((roleId) => `<@&${roleId}>`).join(' ') || undefined,
+    allowedMentions: { roles: roleIds },
+  };
+}
 
 /**
  * Pick settings with defaults filled in.
@@ -244,7 +260,10 @@ export async function openCall(interaction, { store, config }, overrides = {}) {
 
   if (!channel?.isTextBased()) return { pick: null, channel: null };
 
-  const posted = await channel.send({ embeds: [pickEmbed(pick, config)] });
+  const posted = await channel.send({
+    ...pingFor(settings),
+    embeds: [pickEmbed(pick, config)],
+  });
   pick.messageId = posted.id;
   pick.channelId = channel.id;
   store.recordPick(pick);
@@ -502,6 +521,7 @@ async function postManagement(interaction, { store, config }, { action, percent 
   const quote = await fetchSpotPrice(open?.asset ?? settings.defaultAsset);
 
   await channel.send({
+    ...pingFor(settings),
     ...managementMessage({
       action,
       analystId: interaction.user.id,
@@ -510,6 +530,7 @@ async function postManagement(interaction, { store, config }, { action, percent 
       note,
       price: quote.price === null ? null : formatPrice(quote.price),
     }),
+    allowedMentions: { roles: pickSettings(config).pingRoleIds ?? [] },
     reply: open?.messageId ? { messageReference: open.messageId, failIfNotExists: false } : undefined,
   });
 

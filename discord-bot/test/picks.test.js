@@ -267,7 +267,7 @@ test('command registration survives a config with no picks block', () => {
 // The console and automatic grading. Grading is the part that decides what goes
 // on a public leaderboard, so it is driven end to end here rather than trusted.
 
-import { panelAction, PANEL_ACTIONS, managementMessage } from '../src/picks/panel.js';
+import { analystPanel, panelAction, PANEL_ACTIONS, managementMessage } from '../src/picks/panel.js';
 import { promptDueSettlements } from '../src/picks/commands.js';
 
 test('panel button ids map to actions, and nothing else does', () => {
@@ -402,4 +402,73 @@ test('a call is only ever settled once', async (t) => {
 
   assert.equal(second.graded, 0);
   assert.equal(second.asked, 0);
+});
+
+// Pinging: the people paying for signals are the ones who have to see them, and
+// the bot must never be able to reach past those roles.
+import { pingFor, pickSettings } from '../src/picks/commands.js';
+
+const pinging = {
+  ...routingConfig,
+  picks: { ...routingConfig.picks, pingRoleIds: ['tier1', 'tier2', 'tier3'] },
+};
+
+test('a call mentions every VIP tier and permits exactly those roles', () => {
+  const ping = pingFor(pickSettings(pinging));
+
+  assert.equal(ping.content, '<@&tier1> <@&tier2> <@&tier3>');
+  assert.deepEqual(ping.allowedMentions, { roles: ['tier1', 'tier2', 'tier3'] });
+});
+
+test('allowedMentions is always set, so @everyone can never be reached', () => {
+  const ping = pingFor(pickSettings(routingConfig));
+
+  assert.equal(ping.content, undefined, 'nothing to mention');
+  assert.deepEqual(ping.allowedMentions, { roles: [] }, 'and nothing is permitted');
+});
+
+test('the call posted to the channel carries the ping', async (t) => {
+  const store = routingStore(t);
+  const { interaction, posted } = callInteraction('call', { direction: 'up' });
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ data: { amount: '97000' } }) });
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  await handleInteraction(interaction, { store, config: pinging, client: interaction.client });
+
+  assert.match(posted[0].content, /<@&tier1>/);
+  assert.deepEqual(posted[0].allowedMentions.roles, ['tier1', 'tier2', 'tier3']);
+});
+
+test('CUT LOSS is a real action with its own message', () => {
+  assert.equal(panelAction('pick:panel:cut_loss'), PANEL_ACTIONS.CUT_LOSS);
+
+  const message = managementMessage({
+    action: PANEL_ACTIONS.CUT_LOSS,
+    analystId: 'a1',
+    pick: { asset: 'BTC', minutes: 15, entry: 97000 },
+  });
+
+  const embed = message.embeds[0].toJSON();
+  assert.match(embed.title, /Cut the loss/);
+  assert.match(embed.description, /take the loss/i);
+});
+
+test('the console offers every action, cutting losses included', () => {
+  const panel = analystPanel(pinging, pickSettings(pinging));
+  const ids = panel.components.flatMap((row) =>
+    row.toJSON().components.map((component) => component.custom_id),
+  );
+
+  assert.deepEqual(ids, [
+    'pick:panel:up',
+    'pick:panel:down',
+    'pick:panel:cash_percent',
+    'pick:panel:cash_profit',
+    'pick:panel:cut_loss',
+    'pick:panel:hold',
+  ]);
 });
