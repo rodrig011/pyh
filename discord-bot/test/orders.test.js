@@ -251,3 +251,96 @@ test('a processed email is only recorded once', (t) => {
   assert.equal(store.isEmailProcessed('<a@b>'), true);
   assert.equal(store.data.processedEmails.length, 1);
 });
+
+// The name on the bank alert is the only identifying thing left once the memo
+// is gone. It is what turns "a mod clicks a button" back into "it just works".
+
+test('the payer name matches an order the amount window has already aged out of', (t) => {
+  const store = freshStore(t);
+  const order = createOrder(store, {
+    userId: '1',
+    guildId: 'g',
+    tier: 2,
+    payerName: 'Chris Swails',
+    config,
+    // A day old: far outside the 3-hour amount window, still inside the TTL.
+    now: Date.now() - 24 * 3600 * 1000,
+  });
+
+  const result = matchPayment(
+    store,
+    { codes: [], amountCents: 10000, senderName: 'CHRISTOPHER SWAILS' },
+    byAmount,
+  );
+
+  assert.equal(result.status, 'match');
+  assert.equal(result.order.code, order.code);
+  assert.equal(result.matchedBy, 'name');
+});
+
+test('the name picks the right buyer when two are waiting on the same amount', (t) => {
+  const store = freshStore(t);
+  createOrder(store, { userId: '1', guildId: 'g', tier: 2, payerName: 'Maria Gomez', config });
+  const mine = createOrder(store, {
+    userId: '2',
+    guildId: 'g',
+    tier: 2,
+    payerName: 'Christopher Swails',
+    config,
+  });
+
+  const result = matchPayment(
+    store,
+    { codes: [], amountCents: 10000, senderName: 'CHRISTOPHER SWAILS' },
+    byAmount,
+  );
+
+  assert.equal(result.status, 'match');
+  assert.equal(result.order.code, mine.code);
+  assert.equal(result.order.userId, '2');
+});
+
+test('a name nobody claimed does not steal a fresh order', (t) => {
+  const store = freshStore(t);
+  createOrder(store, { userId: '1', guildId: 'g', tier: 2, payerName: 'Maria Gomez', config });
+
+  // The order is fresh, so the amount window would have matched it — but a
+  // different person's name is on the payment, which rules it out.
+  const result = matchPayment(
+    store,
+    { codes: [], amountCents: 10000, senderName: 'CHRISTOPHER SWAILS' },
+    byAmount,
+  );
+
+  assert.equal(result.status, 'no_code');
+});
+
+test('two buyers who gave the same name are sent to the mods, not guessed', (t) => {
+  const store = freshStore(t);
+  createOrder(store, { userId: '1', guildId: 'g', tier: 1, payerName: 'Chris Swails', config });
+  createOrder(store, { userId: '2', guildId: 'g', tier: 1, payerName: 'Christopher Swails', config });
+
+  const result = matchPayment(
+    store,
+    { codes: [], amountCents: 5000, senderName: 'CHRISTOPHER SWAILS' },
+    byAmount,
+  );
+
+  assert.equal(result.status, 'ambiguous_amount');
+  assert.equal(result.candidates.length, 2);
+});
+
+test('an order with no name still matches on amount while it is fresh', (t) => {
+  const store = freshStore(t);
+  const order = createOrder(store, { userId: '1', guildId: 'g', tier: 3, config });
+
+  const result = matchPayment(
+    store,
+    { codes: [], amountCents: 20000, senderName: 'SOMEONE ELSE' },
+    byAmount,
+  );
+
+  assert.equal(result.status, 'match');
+  assert.equal(result.order.code, order.code);
+  assert.equal(result.matchedBy, 'amount');
+});

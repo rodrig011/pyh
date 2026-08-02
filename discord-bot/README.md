@@ -141,15 +141,26 @@ Plenty of banks — Huntington among them — say who paid and how much and neve
 the note the payer typed. The code never reaches the bot, so it falls back to the
 amount:
 
-| What the bot sees | What it does |
-| --- | --- |
-| Exactly one pending order waiting for that exact amount | Applies it and grants the roles |
-| Two or more orders at that price | Posts both to the log channel and pings the mods to pick |
-| No order at that amount | Ignores it — that is the owner's own Zelle activity |
+The alert still names the payer, so the buyer is asked for that name when they pick a
+tier — one short modal, before the code is issued. Matching then runs in this order:
 
-The order also has to be recent (`AMOUNT_MATCH_WINDOW_MINUTES`, 3 h by default), so a
-personal transfer cannot land on a code somebody generated two days ago and abandoned.
-Set `MATCH_BY_AMOUNT=false` to require the code and nothing else.
+| What the bot has | What it does |
+| --- | --- |
+| The code, in the memo | Applies it. Always wins when the bank forwards the note |
+| A payer name matching one waiting order | Applies it, however old the order is |
+| Several orders claiming that name | Posts them to the log channel for a mod to pick |
+| No name given, one order for that exact amount placed minutes ago | Applies it |
+| A payment worth exactly a tier price that fits none of the above | Posts it with a member picker so a mod assigns it in one click |
+| Anything else | Ignores it — that is the owner's own Zelle activity |
+
+Names are compared forgivingly enough for "Chris Swails" to match `CHRISTOPHER SWAILS`
+and strictly enough that a differing surname never matches. A name that is given and
+does not match rules an order out rather than leaving it merely unproven, so one
+person's payment can never be handed to another.
+
+Amount-only matching stays deliberately short-lived (`AMOUNT_MATCH_WINDOW_MINUTES`,
+3 h by default): over days an amount stops being evidence of anything. Set
+`MATCH_BY_AMOUNT=false` to require the code and nothing else.
 
 ### Safeguards the bot applies
 

@@ -1,4 +1,5 @@
 import { generateCode } from '../lib/codes.js';
+import { nameMatches } from '../lib/names.js';
 import { resolveGrantedTier } from '../lib/tiers.js';
 
 export const ORDER_STATUS = {
@@ -11,7 +12,7 @@ export const ORDER_STATUS = {
 /**
  * Creates a pending order with a unique random code.
  */
-export function createOrder(store, { userId, userTag, guildId, tier, config, now = Date.now() }) {
+export function createOrder(store, { userId, userTag, guildId, tier, payerName, config, now = Date.now() }) {
   const tierConfig = config.tiers[tier];
   if (!tierConfig) throw new Error(`Invalid tier: ${tier}`);
 
@@ -27,6 +28,9 @@ export function createOrder(store, { userId, userTag, guildId, tier, config, now
     userTag: userTag ?? null,
     guildId,
     tier,
+    // The name the payment will arrive under. Banks that drop the memo still
+    // name the payer, so this is what turns an anonymous alert back into a buyer.
+    payerName: payerName ?? null,
     amountCents: tierConfig.priceCents,
     status: ORDER_STATUS.PENDING,
     createdAt: now,
@@ -70,25 +74,56 @@ function matchByAmount(store, payment, config, now) {
   if (!config.matchByAmount) return noCode;
   if (payment.amountCents === null || payment.amountCents === undefined) return noCode;
 
-  const windowMs = Math.max(0, config.amountMatchWindowMinutes ?? 180) * 60 * 1000;
-  const candidates = store.listOrders(
+  const waiting = store.listOrders(
     (order) =>
       order.status === ORDER_STATUS.PENDING &&
       order.expiresAt > now &&
-      order.createdAt >= now - windowMs &&
       order.amountCents === payment.amountCents,
   );
+  if (waiting.length === 0) return noCode;
 
-  if (candidates.length === 0) return noCode;
-  if (candidates.length > 1) {
+  // The name on the alert is the strongest thing left once the memo is gone,
+  // and unlike the amount it stays meaningful however long the buyer takes —
+  // so a name match is trusted for the order's whole life, no time window.
+  if (payment.senderName) {
+    const named = waiting.filter(
+      (order) => order.payerName && nameMatches(order.payerName, payment.senderName),
+    );
+    if (named.length === 1) {
+      const order = named[0];
+      return { status: 'match', order, tier: order.tier, matchedBy: 'name' };
+    }
+    if (named.length > 1) {
+      return {
+        status: 'ambiguous_amount',
+        candidates: named,
+        reason: `${named.length} buyers gave this name and this amount, so the payer cannot be told apart`,
+      };
+    }
+  }
+
+  // Nobody claimed that name. The amount alone can still identify a buyer, but
+  // only while it is fresh: over days it stops being evidence of anything.
+  const windowMs = Math.max(0, config.amountMatchWindowMinutes ?? 180) * 60 * 1000;
+  const recent = waiting.filter(
+    (order) =>
+      order.createdAt >= now - windowMs &&
+      // A buyer who named themselves and is not who paid is ruled out, not
+      // merely unproven: falling back to the amount here would hand one
+      // person's payment to another whose name the alert contradicts.
+      !(payment.senderName && order.payerName),
+  );
+
+  if (recent.length === 0) return noCode;
+  if (recent.length > 1) {
     return {
       status: 'ambiguous_amount',
-      candidates,
-      reason: `${candidates.length} pending orders are waiting for this exact amount, so the payer cannot be told apart`,
+      candidates: recent,
+      reason: `${recent.length} pending orders are waiting for this exact amount, so the payer cannot be told apart`,
     };
   }
 
-  const order = candidates[0];
+  const order = recent[0];
   return { status: 'match', order, tier: order.tier, matchedBy: 'amount' };
 }
 

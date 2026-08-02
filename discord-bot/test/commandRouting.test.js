@@ -159,6 +159,10 @@ function fakeButton(customId, { guildId = 'g' } = {}) {
       isButton: () => true,
       isChatInputCommand: () => false,
       memberPermissions: { has: () => false },
+      modals: [],
+      showModal: async function (modal) {
+        this.modals.push(modal.toJSON());
+      },
       deferReply: async function () {
         this.deferred = true;
       },
@@ -168,21 +172,59 @@ function fakeButton(customId, { guildId = 'g' } = {}) {
   };
 }
 
-test('the buy button produces the same instructions as the command', async (t) => {
+/** The buyer submitting the "who is paying?" modal the buy button opened. */
+function fakeNameModal(tier, payerName, { guildId = 'g' } = {}) {
+  const replies = [];
+  return {
+    replies,
+    interaction: {
+      customId: `vip:name:${tier}`,
+      guildId,
+      user: { id: 'u1', tag: 'buyer#0001', username: 'buyer' },
+      deferred: false,
+      replied: false,
+      isButton: () => false,
+      isUserSelectMenu: () => false,
+      isModalSubmit: () => true,
+      isChatInputCommand: () => false,
+      fields: { getTextInputValue: () => payerName },
+      deferReply: async function () {
+        this.deferred = true;
+      },
+      reply: async (payload) => replies.push(payload),
+      editReply: async (payload) => replies.push(payload),
+    },
+  };
+}
+
+test('the buy button asks who is paying before taking the order', async (t) => {
   const store = freshStore(t);
   const { interaction, replies } = fakeButton('vip:buy:1');
+
+  await handleInteraction(interaction, { store, config, client: fakeClient });
+
+  assert.equal(interaction.modals.length, 1, 'the name modal opened');
+  assert.equal(replies.length, 0, 'nothing was answered yet');
+  assert.equal(store.listOrders().length, 0, 'no order until the name is given');
+});
+
+test('submitting the name creates the order and gives the instructions', async (t) => {
+  const store = freshStore(t);
+  const { interaction, replies } = fakeNameModal(1, 'Christopher Swails');
 
   await handleInteraction(interaction, { store, config, client: fakeClient });
 
   const embed = replies[0].embeds[0].toJSON();
   assert.match(embed.title, /Signals/);
   assert.match(embed.description, /pay@example\.com/, 'the payment instructions');
-  assert.equal(store.listOrders().length, 1, 'an order was created');
+  assert.match(embed.description, /Christopher Swails/, 'the name is repeated back');
+  assert.equal(store.listOrders().length, 1);
+  assert.equal(store.listOrders()[0].payerName, 'Christopher Swails');
 });
 
-test('the buy button works from a DM, where there is no guild', async (t) => {
+test('the buy flow works from a DM, where there is no guild', async (t) => {
   const store = freshStore(t);
-  const { interaction, replies } = fakeButton('vip:buy:1', { guildId: null });
+  const { interaction, replies } = fakeNameModal(1, 'Chris Swails', { guildId: null });
 
   await handleInteraction(interaction, { store, config: { ...config, guildId: 'g' }, client: fakeClient });
 

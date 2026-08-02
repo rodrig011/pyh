@@ -4,8 +4,11 @@ import {
   ButtonStyle,
   EmbedBuilder,
   MessageFlags,
+  ModalBuilder,
   PermissionFlagsBits,
   SlashCommandBuilder,
+  TextInputBuilder,
+  TextInputStyle,
   time,
 } from 'discord.js';
 import {
@@ -320,7 +323,17 @@ export function manualSection(config, order) {
     ),
     '**2.** Put **exactly** this code in the memo / note:',
     `> # ${order.code}`,
-    `**3.** Done — the roles land by themselves. Covers **${config.subscriptionDays} days**, then you renew by hand.`,
+    // Some banks forward the memo and some do not, and the buyer cannot tell
+    // which theirs is. Saying the name is what identifies them keeps them from
+    // assuming the code alone did the job when their bank quietly dropped it.
+    ...(order.payerName
+      ? [
+          `**3.** Pay from the account under **${order.payerName}** — that is how you are recognised if your bank does not pass the note along.`,
+          `**4.** Done — the roles land by themselves. Covers **${config.subscriptionDays} days**, then you renew by hand.`,
+        ]
+      : [
+          `**3.** Done — the roles land by themselves. Covers **${config.subscriptionDays} days**, then you renew by hand.`,
+        ]),
   ];
 }
 
@@ -353,13 +366,48 @@ async function cardCheckoutRow(stripe, config, order) {
  * in a DM, where interaction.guildId is null, so the guild falls back to the one
  * this bot serves.
  */
-async function buyResponse(interaction, { store, config, stripe }, tier) {
+export const NAME_MODAL_PREFIX = 'vip:name:';
+const NAME_FIELD = 'payerName';
+
+/**
+ * Asks who the payment will come from.
+ *
+ * Banks that drop the memo still name the payer, so this one answer is what
+ * lets a codeless alert be matched back to a buyer without anyone stepping in.
+ * It is asked at the only moment the buyer is already stopped and paying
+ * attention: the instant they choose a tier.
+ */
+export function payerNameModal(tier, config) {
+  return new ModalBuilder()
+    .setCustomId(`${NAME_MODAL_PREFIX}${tier}`)
+    .setTitle(`${config.tiers[tier]?.label ?? `Tier ${tier}`} — one quick thing`)
+    .addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId(NAME_FIELD)
+          .setLabel('Name on your Zelle / bank account')
+          .setPlaceholder('e.g. Christopher Swails')
+          .setStyle(TextInputStyle.Short)
+          .setMaxLength(60)
+          .setRequired(true),
+      ),
+    );
+}
+
+async function buyResponse(interaction, { store, config, stripe }, tier, payerName = null) {
   const guildId = interaction.guildId ?? config.guildId;
   expireStaleOrders(store);
 
   const existing = store
     .pendingOrdersFor(interaction.user.id)
     .find((order) => order.tier === tier && order.guildId === guildId);
+
+  // A buyer coming back with a different name gets it recorded: an order that
+  // cannot be matched is worse than one whose name changed.
+  if (existing && payerName && existing.payerName !== payerName) {
+    existing.payerName = payerName;
+    store.putOrder(existing);
+  }
 
   const order =
     existing ??
@@ -368,6 +416,7 @@ async function buyResponse(interaction, { store, config, stripe }, tier) {
       userTag: interaction.user.tag,
       guildId,
       tier,
+      payerName,
       config,
     });
 
@@ -411,9 +460,26 @@ async function handleBuy(interaction, context) {
     return;
   }
 
-  // Opening a Stripe checkout takes a moment; defer so Discord does not time out.
+  // The modal has to be the first reply to the interaction, so it comes before
+  // any deferral. Its submission carries on where this leaves off.
+  await interaction.showModal(payerNameModal(tier, context.config));
+}
+
+/** The buyer answered "who is paying?" — now create the order and hand out the code. */
+async function handleNameModal(interaction, context) {
+  const tier = Number(interaction.customId.slice(NAME_MODAL_PREFIX.length));
+  if (!availableTiers(context.config.tiers).includes(tier)) {
+    await interaction.reply({
+      content: `**${TIER_NAMES[tier]}** is not on sale yet.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const payerName = interaction.fields.getTextInputValue(NAME_FIELD)?.trim() || null;
+
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  await interaction.editReply(await buyResponse(interaction, context, tier));
+  await interaction.editReply(await buyResponse(interaction, context, tier, payerName));
 }
 
 async function handleStatus(interaction, { store, config }) {
@@ -622,9 +688,7 @@ async function handleButton(interaction, context) {
         flags: MessageFlags.Ephemeral,
       });
     }
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    await interaction.editReply(await buyResponse(interaction, context, buyTier));
-    return undefined;
+    return interaction.showModal(payerNameModal(buyTier, context.config));
   }
 
   if (interaction.customId === STATUS_BUTTON) {
@@ -1296,6 +1360,9 @@ async function handleAssignSelect(interaction, { store, config, client }) {
 export async function handleInteraction(interaction, context) {
   if (interaction.isButton()) return handleButton(interaction, context);
   if (interaction.isUserSelectMenu?.()) return handleAssignSelect(interaction, context);
+  if (interaction.isModalSubmit?.() && interaction.customId?.startsWith(NAME_MODAL_PREFIX)) {
+    return handleNameModal(interaction, context);
+  }
   if (!interaction.isChatInputCommand()) return;
   const sub = interaction.options.getSubcommand();
 
