@@ -14,6 +14,7 @@ import { processPayment } from '../vip/paymentFlow.js';
 import { sweepSubscriptions } from '../vip/subscriptionSweeper.js';
 import { checkRoleSetup } from '../vip/roles.js';
 import { storefrontMessage } from '../vip/storefront.js';
+import { promptDueSettlements } from '../picks/commands.js';
 
 const log = createLogger('vip');
 
@@ -114,6 +115,15 @@ export function createVipBot(config = loadVipConfig()) {
     setInterval(() => {
       housekeeping().catch((error) => log.error(`Housekeeping failed: ${error.message}`));
     }, config.sweepIntervalMinutes * 60 * 1000).unref();
+
+    // Calls are graded on their own clock: a 15-minute call asked about on the
+    // 15-minute housekeeping sweep could sit unasked for a quarter of an hour,
+    // which is as long as the call itself.
+    setInterval(() => {
+      promptDueSettlements(client, store, config).catch((error) =>
+        log.error(`Could not ask for a call result: ${error.message}`),
+      );
+    }, 60 * 1000).unref();
   });
 
   // Nobody reads pinned messages on the way in. A DM with the buttons is the

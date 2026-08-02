@@ -37,6 +37,13 @@ import { sendDm, sendLog } from './notify.js';
 import { computeStats } from './stats.js';
 import { TICKET_CLOSE, TICKET_OPEN, closeTicket, openTicket } from './tickets.js';
 import { STATUS_BUTTON, storefrontMessage, tierFromButton } from './storefront.js';
+import {
+  SETTLE_PREFIX,
+  buildPickCommands,
+  handleCall,
+  handlePicks,
+  handleSettleButton,
+} from '../picks/commands.js';
 
 const commandLog = createLogger('commands');
 
@@ -225,7 +232,7 @@ export function buildCommands(config) {
         )),
     );
 
-  return [vip.toJSON(), admin.toJSON()];
+  return [vip.toJSON(), admin.toJSON(), ...buildPickCommands(config)];
 }
 
 /**
@@ -1395,12 +1402,20 @@ async function handleAssignSelect(interaction, { store, config, client }) {
 
 /** Routes every command interaction of the VIP bot. */
 export async function handleInteraction(interaction, context) {
+  if (interaction.isButton() && interaction.customId?.startsWith(SETTLE_PREFIX)) {
+    return handleSettleButton(interaction, context);
+  }
   if (interaction.isButton()) return handleButton(interaction, context);
   if (interaction.isUserSelectMenu?.()) return handleAssignSelect(interaction, context);
   if (interaction.isModalSubmit?.() && interaction.customId?.startsWith(NAME_MODAL_PREFIX)) {
     return handleNameModal(interaction, context);
   }
   if (!interaction.isChatInputCommand()) return;
+
+  // Routed before getSubcommand(), which throws on a command that has none.
+  if (interaction.commandName === 'call') return handleCall(interaction, context);
+  if (interaction.commandName === 'picks') return handlePicks(interaction, context);
+
   const sub = interaction.options.getSubcommand();
 
   if (interaction.commandName === 'vip') {

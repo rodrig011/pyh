@@ -149,6 +149,16 @@ export function loadVipConfig() {
         ]),
       },
     },
+    // Trading calls: who may post them, where they land, and how many graded
+    // calls someone needs before the leaderboard will rank them.
+    picks: {
+      channelId: str('PICKS_CHANNEL_ID'),
+      analystRoleIds: list('PICKS_ANALYST_ROLE_IDS'),
+      defaultMinutes: int('PICKS_DEFAULT_MINUTES', 15),
+      defaultAsset: str('PICKS_DEFAULT_ASSET', 'BTC'),
+      minimumForBoard: int('PICKS_BOARD_MINIMUM', 5),
+      disclaimer: str('PICKS_DISCLAIMER', 'Not financial advice'),
+    },
     // Card payments. Zelle is a one-off 30 days; Stripe bills again by itself
     // every period until the member cancels.
     stripe: {

@@ -11,6 +11,7 @@ const EMPTY = {
   payments: [],
   welcomes: [],
   unassigned: [],
+  picks: [],
 };
 
 /**
@@ -129,6 +130,28 @@ export function createStore(filePath) {
 
     getUnassignedPayment(id) {
       return data.unassigned.find((entry) => entry.id === id) ?? null;
+    },
+
+    recordPick(pick) {
+      data.picks.push(pick);
+      save();
+      return pick;
+    },
+
+    getPick(id) {
+      return data.picks.find((pick) => pick.id === id) ?? null;
+    },
+
+    putPick(pick) {
+      const index = data.picks.findIndex((item) => item.id === pick.id);
+      if (index === -1) data.picks.push(pick);
+      else data.picks[index] = pick;
+      save();
+      return pick;
+    },
+
+    listPicks(filter = () => true) {
+      return data.picks.filter(filter);
     },
 
     markPaymentAssigned(id, userId) {

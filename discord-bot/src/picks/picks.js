@@ -1,0 +1,174 @@
+/**
+ * Trading calls and the record they build up.
+ *
+ * A room where analysts shout "up" and "down" all day is only worth paying for
+ * if somebody is counting. Every call is written down before its window opens
+ * and settled after it closes, so a track record accumulates whether or not it
+ * flatters anyone — a leaderboard that can only go up is marketing, not a
+ * record.
+ *
+ * Pure: these are the numbers members judge the room by, so they have to be
+ * checkable against fixed data rather than eyeballed in Discord.
+ */
+
+export const DIRECTIONS = { UP: 'up', DOWN: 'down' };
+export const OUTCOMES = { WIN: 'win', LOSS: 'loss', BREAK_EVEN: 'break_even', VOID: 'void' };
+
+export const DIRECTION_LABEL = {
+  [DIRECTIONS.UP]: '🟢 LONG',
+  [DIRECTIONS.DOWN]: '🔴 SHORT',
+};
+
+export const OUTCOME_LABEL = {
+  [OUTCOMES.WIN]: '✅ Win',
+  [OUTCOMES.LOSS]: '❌ Loss',
+  [OUTCOMES.BREAK_EVEN]: '➖ Break even',
+  [OUTCOMES.VOID]: '🚫 Void',
+};
+
+/**
+ * @param {object} input
+ * @param {string} input.analystId
+ * @param {string} input.direction  one of DIRECTIONS
+ * @param {string} input.asset      e.g. "BTC"
+ * @param {number} input.minutes    how long the call runs for
+ */
+export function buildPick({
+  analystId,
+  analystTag = null,
+  guildId,
+  direction,
+  asset,
+  minutes,
+  entry = null,
+  target = null,
+  stop = null,
+  note = null,
+  now = Date.now(),
+}) {
+  if (!Object.values(DIRECTIONS).includes(direction)) {
+    throw new Error(`Unknown direction: ${direction}`);
+  }
+  if (!Number.isFinite(minutes) || minutes <= 0) {
+    throw new Error('A call has to run for a positive number of minutes');
+  }
+
+  return {
+    id: `${now.toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    analystId,
+    analystTag,
+    guildId,
+    direction,
+    asset: asset.toUpperCase(),
+    minutes,
+    entry,
+    target,
+    stop,
+    note,
+    createdAt: now,
+    closesAt: now + minutes * 60 * 1000,
+    outcome: null,
+    settledAt: null,
+    settledBy: null,
+    exit: null,
+    messageId: null,
+  };
+}
+
+/** Calls whose window has closed but that nobody has graded yet. */
+export function dueForSettlement(picks, now = Date.now()) {
+  return picks.filter((pick) => !pick.outcome && pick.closesAt <= now);
+}
+
+export function settlePick(pick, { outcome, settledBy, exit = null, now = Date.now() }) {
+  if (!Object.values(OUTCOMES).includes(outcome)) throw new Error(`Unknown outcome: ${outcome}`);
+  pick.outcome = outcome;
+  pick.settledAt = now;
+  pick.settledBy = settledBy ?? null;
+  pick.exit = exit;
+  return pick;
+}
+
+/**
+ * An analyst's record.
+ *
+ * Break-evens and voids are counted but kept out of the win rate: a call that
+ * went nowhere is neither a hit nor a miss, and folding it into either one
+ * would let anyone improve their percentage by calling nothing.
+ */
+export function computeRecord(picks, { analystId = null, sinceDays = null, now = Date.now() } = {}) {
+  let considered = picks.filter((pick) => pick.outcome);
+  if (analystId) considered = considered.filter((pick) => pick.analystId === analystId);
+  if (sinceDays) {
+    considered = considered.filter((pick) => pick.createdAt > now - sinceDays * 86400000);
+  }
+
+  const wins = considered.filter((pick) => pick.outcome === OUTCOMES.WIN).length;
+  const losses = considered.filter((pick) => pick.outcome === OUTCOMES.LOSS).length;
+  const breakEven = considered.filter((pick) => pick.outcome === OUTCOMES.BREAK_EVEN).length;
+  const decided = wins + losses;
+
+  // Newest first, so a streak reads forwards from the most recent call.
+  const ordered = [...considered]
+    .filter((pick) => pick.outcome === OUTCOMES.WIN || pick.outcome === OUTCOMES.LOSS)
+    .sort((a, b) => b.createdAt - a.createdAt);
+
+  let streak = 0;
+  for (const pick of ordered) {
+    const won = pick.outcome === OUTCOMES.WIN;
+    if (streak === 0) streak = won ? 1 : -1;
+    else if (won && streak > 0) streak += 1;
+    else if (!won && streak < 0) streak -= 1;
+    else break;
+  }
+
+  return {
+    settled: considered.length,
+    wins,
+    losses,
+    breakEven,
+    decided,
+    winRate: decided === 0 ? null : wins / decided,
+    streak,
+    open: picks.filter(
+      (pick) => !pick.outcome && (!analystId || pick.analystId === analystId),
+    ).length,
+  };
+}
+
+/**
+ * The leaderboard.
+ *
+ * Analysts below `minimum` decided calls are held back rather than shown: one
+ * lucky call is 100%, and putting that above someone at 62% over forty calls
+ * would make the board actively misleading.
+ */
+export function leaderboard(picks, { sinceDays = null, minimum = 5, now = Date.now() } = {}) {
+  const analystIds = [...new Set(picks.filter((pick) => pick.outcome).map((pick) => pick.analystId))];
+
+  const rows = analystIds.map((analystId) => ({
+    analystId,
+    ...computeRecord(picks, { analystId, sinceDays, now }),
+  }));
+
+  const ranked = rows
+    .filter((row) => row.decided >= minimum)
+    .sort((a, b) => b.winRate - a.winRate || b.decided - a.decided);
+
+  return {
+    ranked,
+    provisional: rows
+      .filter((row) => row.decided < minimum && row.decided > 0)
+      .sort((a, b) => b.decided - a.decided),
+    minimum,
+  };
+}
+
+export function formatWinRate(rate) {
+  return rate === null ? '—' : `${Math.round(rate * 1000) / 10}%`;
+}
+
+export function formatStreak(streak) {
+  if (streak === 0) return '—';
+  return streak > 0 ? `🔥 ${streak} in a row` : `🧊 ${Math.abs(streak)} down`;
+}

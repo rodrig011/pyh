@@ -146,6 +146,39 @@ how many are in that group before you commit.
 The bot needs **View Channel**, **Read Message History** and **Manage Messages** on that
 channel; it names whichever is missing rather than failing halfway.
 
+## Trading calls and track records
+
+A room full of "up" and "down" is only worth paying for if somebody is counting.
+
+```
+/call direction:🟢 UP minutes:15 entry:97200 note:reclaimed the range low
+```
+
+The call is posted with its direction, window and levels. When the window closes the
+bot comes back and asks the analyst to grade it — Win, Loss, Break even or Void — and
+the result is written onto the original call for everyone to see.
+
+```
+/picks record              your own record, or someone else's
+/picks board               the leaderboard by win rate
+/picks open                what is still running
+```
+
+Three decisions worth knowing, because they are what make the numbers mean anything:
+
+- **Break-evens and voids are counted but kept out of the win rate.** A call that went
+  nowhere is neither a hit nor a miss, and folding it into either would let anyone
+  improve their percentage by calling nothing.
+- **The leaderboard holds back anyone under `PICKS_BOARD_MINIMUM` graded calls** (5 by
+  default) and lists them separately. One lucky call is 100%, and ranking that above
+  someone at 62% over forty calls would make the board actively misleading.
+- **A graded call cannot be regraded.** The analyst grades their own calls and mods can
+  step in when someone is away, since an ungraded call sits in "open" forever and
+  quietly flatters whoever made it.
+
+Set `PICKS_ANALYST_ROLE_IDS` to the roles allowed to post calls. `PICKS_CHANNEL_ID`
+sends every call to one channel; without it they land wherever the command was run.
+
 ## Who can administer the bot
 
 `/vip-admin` is for staff only. Set `VIP_MOD_ROLE_IDS` to your MOD role ID (comma
