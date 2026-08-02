@@ -1,5 +1,7 @@
-import { Client, Events, GatewayIntentBits, MessageFlags, REST, Routes } from 'discord.js';
+import { Client, EmbedBuilder, Events, GatewayIntentBits, MessageFlags, REST, Routes } from 'discord.js';
 import { loadVipConfig } from '../config.js';
+import { COLORS } from '../lib/brand.js';
+import { sendLog } from '../vip/notify.js';
 import { createLogger } from '../lib/logger.js';
 import { createStore } from '../lib/store.js';
 import { ZelleWatcher } from '../payments/zelleWatcher.js';
@@ -121,13 +123,40 @@ export function createVipBot(config = loadVipConfig()) {
     if (member.user.bot) return;
     if (member.guild.id !== config.guildId) return;
 
+    let delivered = true;
+    let reason = null;
     try {
       await member.send(storefrontMessage(config, { includeTicket: false, welcome: true }));
       log.info(`Welcomed ${member.user.tag}`);
     } catch (error) {
-      // Closed DMs are the normal case, not a failure worth shouting about.
-      log.debug(`Could not DM ${member.user.tag}: ${error.message}`);
+      delivered = false;
+      reason = error.message;
+      log.warn(`Welcome DM to ${member.user.tag} did not go through: ${error.message}`);
     }
+
+    store.recordWelcome({
+      userId: member.id,
+      userTag: member.user.tag,
+      delivered,
+      reason,
+      at: Date.now(),
+    });
+
+    // A DM that never lands is silent on both ends: the member sees nothing and
+    // so does the owner. Putting the outcome in the log channel is the only way
+    // to tell "no new members" apart from "new members who heard nothing".
+    await sendLog(
+      client,
+      config,
+      new EmbedBuilder()
+        .setColor(delivered ? COLORS.success : COLORS.warning)
+        .setDescription(
+          delivered
+            ? `👋 <@${member.id}> joined — welcome DM delivered.`
+            : `👋 <@${member.id}> joined — **DM blocked**, they have DMs closed. They will only see the panel in the server.`,
+        )
+        .setTimestamp(),
+    );
   });
 
   client.on(Events.InteractionCreate, async (interaction) => {

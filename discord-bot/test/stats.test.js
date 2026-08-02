@@ -126,3 +126,36 @@ test('an empty server reports zeros instead of blowing up', () => {
   assert.equal(stats.expiringSoon.count, 0);
   assert.equal(stats.pendingOrders, 0);
 });
+
+test('welcome delivery is counted so a silent funnel is visible', () => {
+  const now = Date.now();
+  const day = 86400000;
+  const stats = computeStats(
+    {
+      subscriptions: [],
+      payments: [],
+      orders: [],
+      welcomes: [
+        { userId: 'a', delivered: true, at: now - day },
+        { userId: 'b', delivered: false, at: now - 2 * day },
+        { userId: 'c', delivered: true, at: now - 3 * day },
+        // Older than the 30-day window: must not be counted.
+        { userId: 'd', delivered: true, at: now - 40 * day },
+      ],
+    },
+    { now, tiers: { 1: { priceCents: 5000 } } },
+  );
+
+  assert.equal(stats.welcomes.last30d, 3);
+  assert.equal(stats.welcomes.delivered, 2);
+  assert.equal(stats.welcomes.blocked, 1);
+});
+
+test('no joins at all reads as zero rather than crashing', () => {
+  const stats = computeStats(
+    { subscriptions: [], payments: [], orders: [] },
+    { tiers: { 1: { priceCents: 5000 } } },
+  );
+  assert.equal(stats.welcomes.last30d, 0);
+  assert.equal(stats.welcomes.lastAt, null);
+});

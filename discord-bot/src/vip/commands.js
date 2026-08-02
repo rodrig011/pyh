@@ -131,6 +131,11 @@ export function buildCommands(config) {
     )
     .addSubcommand((sub) =>
       sub
+        .setName('preview')
+        .setDescription('DM yourself the exact welcome message new members get'),
+    )
+    .addSubcommand((sub) =>
+      sub
         .setName('notify')
         .setDescription('DM a tier that their membership period is running, with their expiry date')
         .addIntegerOption((option) =>
@@ -727,6 +732,7 @@ async function handleAdminStats(interaction, { store, config }) {
       subscriptions: store.listSubscriptions(),
       payments: store.data.payments,
       orders: store.listOrders(),
+      welcomes: store.listWelcomes(),
     },
     { guildId: interaction.guildId, tiers: config.tiers },
   );
@@ -784,10 +790,61 @@ async function handleAdminStats(interaction, { store, config }) {
         value: `${stats.pendingOrders} unpaid order(s)\n${stats.lost30d} membership(s) lost in 30 days`,
         inline: true,
       },
+      {
+        name: `👋 New members reached — last 30 days`,
+        value:
+          stats.welcomes.last30d === 0
+            ? 'Nobody has joined since the welcome DM was switched on.'
+            : [
+                `**${stats.welcomes.delivered}** of **${stats.welcomes.last30d}** got the welcome DM` +
+                  (stats.welcomes.blocked > 0
+                    ? `, **${stats.welcomes.blocked}** had DMs closed`
+                    : ''),
+                stats.welcomes.lastAt
+                  ? `Last join: ${time(Math.floor(stats.welcomes.lastAt / 1000), 'R')}`
+                  : '',
+              ]
+                .filter(Boolean)
+                .join('\n'),
+      },
     )
     .setTimestamp();
 
   await interaction.editReply({ embeds: [embed] });
+}
+
+/**
+ * Sends the mod the same DM a new arrival gets. Reading the code is not proof
+ * it arrives, and waiting for a stranger to join is not a test.
+ */
+async function handleAdminPreview(interaction, { config }) {
+  if (!config.welcomeDm) {
+    await interaction.editReply(
+      'The welcome DM is switched off (`WELCOME_DM` is not `true`), so new members get nothing.',
+    );
+    return;
+  }
+
+  try {
+    await interaction.user.send(
+      storefrontMessage(config, { includeTicket: false, welcome: true }),
+    );
+  } catch (error) {
+    await interaction.editReply(
+      [
+        `I could not DM you: **${error.message}**`,
+        '',
+        'Your own DMs are closed for this server — which is exactly what happens to some new members. ' +
+          'Turn them on in Privacy Settings if you want to see the message.',
+      ].join('\n'),
+    );
+    return;
+  }
+
+  await interaction.editReply(
+    'Sent — check your DMs. That is exactly what someone sees when they join, buttons and all. ' +
+      'Members with DMs closed get nothing, so `/vip-admin panel` in a public channel stays the backstop.',
+  );
 }
 
 async function handleAdminMembers(interaction, { store, config }) {
@@ -1152,6 +1209,7 @@ export async function handleInteraction(interaction, context) {
     if (sub === 'members') return handleAdminMembers(interaction, context);
     if (sub === 'stats') return handleAdminStats(interaction, context);
     if (sub === 'panel') return handleAdminPanel(interaction, context);
+    if (sub === 'preview') return handleAdminPreview(interaction, context);
     if (sub === 'grant') return handleAdminGrant(interaction, context);
     if (sub === 'adopt') return handleAdminAdopt(interaction, context);
     if (sub === 'notify') return handleAdminNotify(interaction, context);

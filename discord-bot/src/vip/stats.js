@@ -8,7 +8,7 @@ import { ORDER_STATUS } from './orders.js';
  * Pure, so the numbers can be checked against fixed data instead of eyeballed
  * in Discord — these are the figures someone will make decisions on.
  *
- * @param {{subscriptions: object[], payments: object[], orders: object[]}} data
+ * @param {{subscriptions: object[], payments: object[], orders: object[], welcomes?: object[]}} data
  * @param {{now?: number, guildId?: string, tiers: object, expiringWithinDays?: number}} options
  */
 export function computeStats(data, { now = Date.now(), guildId, tiers, expiringWithinDays = 7 } = {}) {
@@ -49,7 +49,19 @@ export function computeStats(data, { now = Date.now(), guildId, tiers, expiringW
     bySource[source] = (bySource[source] ?? 0) + (payment.amountCents ?? 0);
   }
 
+  // How the front of the funnel is doing. A blocked DM is not a bug — Discord
+  // lets anyone refuse messages from server members — but the share that never
+  // hear the pitch is the difference between a quiet server and a broken one.
+  const welcomes = (data.welcomes ?? []).filter((welcome) => welcome.at > now - 30 * DAY_MS);
+  const deliveredWelcomes = welcomes.filter((welcome) => welcome.delivered).length;
+
   return {
+    welcomes: {
+      last30d: welcomes.length,
+      delivered: deliveredWelcomes,
+      blocked: welcomes.length - deliveredWelcomes,
+      lastAt: welcomes.length > 0 ? welcomes.at(-1).at : null,
+    },
     active: { total: active.length, byTier, autoRenewing },
     expiringSoon: { days: expiringWithinDays, count: expiringSoon.length, members: expiringSoon },
     lost30d: subscriptions.filter(

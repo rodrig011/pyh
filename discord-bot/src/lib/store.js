@@ -2,7 +2,15 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { dirname, resolve } from 'node:path';
 import { subscriptionKey } from './subscriptions.js';
 
-const EMPTY = { version: 1, orders: {}, subscriptions: {}, tickets: {}, processedEmails: [], payments: [] };
+const EMPTY = {
+  version: 1,
+  orders: {},
+  subscriptions: {},
+  tickets: {},
+  processedEmails: [],
+  payments: [],
+  welcomes: [],
+};
 
 /**
  * JSON store with atomic writes. Plenty for a single-process bot; if you ever
@@ -85,6 +93,22 @@ export function createStore(filePath) {
     recordPayment(payment) {
       data.payments.push(payment);
       save();
+    },
+
+    /**
+     * Every new arrival and whether the welcome DM reached them. A blocked DM
+     * is invisible from inside Discord, so without this there is no way to tell
+     * "nobody joined" from "everybody joined and heard nothing".
+     */
+    recordWelcome(entry, { keep = 500 } = {}) {
+      data.welcomes.push(entry);
+      if (data.welcomes.length > keep) data.welcomes = data.welcomes.slice(-keep);
+      save();
+      return entry;
+    },
+
+    listWelcomes(filter = () => true) {
+      return data.welcomes.filter(filter);
     },
   };
 }

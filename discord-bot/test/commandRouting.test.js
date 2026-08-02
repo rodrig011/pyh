@@ -262,3 +262,52 @@ test('/vip-admin panel quotes Discord when the post is refused anyway', async (t
 
   assert.match(replies[0], /Missing Permissions/);
 });
+
+test('/vip-admin preview DMs the mod the welcome message', async (t) => {
+  const store = freshStore(t);
+  const sent = [];
+  const { interaction, replies } = fakeInteraction('vip-admin', 'preview');
+  interaction.user.send = async (payload) => sent.push(payload);
+
+  await handleInteraction(interaction, {
+    store,
+    config: { ...config, welcomeDm: true, guildId: 'g', subscriptionDays: 30 },
+    client: fakeClient,
+  });
+
+  assert.equal(sent.length, 1);
+  assert.ok(sent[0].embeds?.[0], 'the storefront embed was sent');
+  assert.match(replies[0], /check your DMs/);
+});
+
+test('/vip-admin preview says so when a mod has their own DMs closed', async (t) => {
+  const store = freshStore(t);
+  const { interaction, replies } = fakeInteraction('vip-admin', 'preview');
+  interaction.user.send = async () => {
+    throw new Error('Cannot send messages to this user');
+  };
+
+  await handleInteraction(interaction, {
+    store,
+    config: { ...config, welcomeDm: true, guildId: 'g', subscriptionDays: 30 },
+    client: fakeClient,
+  });
+
+  assert.match(replies[0], /Cannot send messages to this user/);
+});
+
+test('/vip-admin preview does not pretend to send when WELCOME_DM is off', async (t) => {
+  const store = freshStore(t);
+  const sent = [];
+  const { interaction, replies } = fakeInteraction('vip-admin', 'preview');
+  interaction.user.send = async (payload) => sent.push(payload);
+
+  await handleInteraction(interaction, {
+    store,
+    config: { ...config, welcomeDm: false, guildId: 'g' },
+    client: fakeClient,
+  });
+
+  assert.equal(sent.length, 0);
+  assert.match(replies[0], /switched off/);
+});
