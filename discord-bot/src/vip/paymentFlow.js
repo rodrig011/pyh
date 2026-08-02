@@ -106,7 +106,7 @@ export async function processPayment(client, store, config, payment) {
 
   const { order, tier } = match;
   const guild = await client.guilds.fetch(order.guildId);
-  let roles = { added: [], already: [], missing: [], failed: [] };
+  let roles = { added: [], already: [], missing: [], failed: [], absent: false };
 
   try {
     roles = await grantTierRoles(guild, order.userId, tier, config);
@@ -141,6 +141,11 @@ export async function processPayment(client, store, config, payment) {
   const tierList = includedTiers(tier)
     .map((level) => TIER_NAMES[level])
     .join(', ');
+
+  // Somebody can buy from a DM before they have ever joined. The membership is
+  // real either way — it is paid for — so it is recorded now and the roles are
+  // handed over the moment they walk in.
+  const awaitingJoin = roles.absent;
   const expiresAt = Math.floor(subscription.expiresAt / 1000);
   const renewal = subscription.renewals > 0;
 
@@ -153,7 +158,9 @@ export async function processPayment(client, store, config, payment) {
       .setDescription(
         [
           `We received your payment of **${formatMoney(payment.amountCents ?? order.amountCents)}** with code \`${order.code}\`.`,
-          `You now have access to: **${tierList}**.`,
+          awaitingJoin
+            ? `**Join the server and your access is waiting:** ${config.serverInviteUrl ?? '(ask a mod for the invite)'}\nYour roles are handed over the second you walk in.`
+            : `You now have access to: **${tierList}**.`,
           '',
           `This is a **${config.subscriptionDays}-day membership**. It ends ${time(expiresAt, 'R')} — ${time(expiresAt, 'F')}.`,
           'We will remind you before then. If it is not renewed, the bot removes the roles automatically.',
@@ -178,7 +185,7 @@ export async function processPayment(client, store, config, payment) {
           value: match.matchedBy === 'amount' ? 'the amount (no code in the alert)' : 'the code in the note',
           inline: true,
         },
-        { name: 'Roles granted', value: tierList },
+        { name: awaitingJoin ? 'Roles waiting (not in the server yet)' : 'Roles granted', value: tierList },
         { name: renewal ? 'Renewed until' : 'Expires', value: time(expiresAt, 'f'), inline: true },
       )
       .setTimestamp(),

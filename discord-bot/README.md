@@ -90,6 +90,21 @@ serves.
 
 Tiers that are coming soon appear in the list but have no button to press.
 
+## Buying from outside the server
+
+Discord will not let anyone DM a bot they share no server with, so "DM the bot to get in"
+is not by itself an instruction a stranger can follow. Two things make it one:
+
+1. **`/vip` is user-installable.** It declares both integration types and works in a DM,
+   so somebody can add the app to their own account from an install link and run
+   `/vip buy` without joining anything first.
+2. **A payment from a non-member is still a membership.** The roles cannot be handed over
+   to somebody who is not there, so the purchase is recorded, the buyer is DMed
+   `SERVER_INVITE_URL`, and the roles land the moment they walk in.
+
+That makes the poster copy true: *install the app, DM the bot, pay, join.* The plain
+invite still works too — anyone who joins first is DMed the storefront on arrival.
+
 ## Tickets
 
 `/vip-admin panel` posts a button members press when a payment has not landed. It opens

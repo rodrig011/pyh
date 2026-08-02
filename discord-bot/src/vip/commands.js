@@ -1,5 +1,7 @@
 import {
   ActionRowBuilder,
+  ApplicationIntegrationType,
+  InteractionContextType,
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
@@ -79,7 +81,19 @@ export function buildCommands(config) {
   const vip = new SlashCommandBuilder()
     .setName('vip')
     .setDescription('Buy and check your VIP membership')
-    .setDMPermission(false)
+    // Installable onto a user account, not just the server. Discord will not
+    // let anyone DM a bot they share no server with, so without this a poster
+    // saying "DM the bot to join" is an instruction nobody can follow — they
+    // would have to join first, which is the thing being sold.
+    .setIntegrationTypes([
+      ApplicationIntegrationType.GuildInstall,
+      ApplicationIntegrationType.UserInstall,
+    ])
+    .setContexts([
+      InteractionContextType.Guild,
+      InteractionContextType.BotDM,
+      InteractionContextType.PrivateChannel,
+    ])
     .addSubcommand((sub) =>
       sub
         .setName('buy')

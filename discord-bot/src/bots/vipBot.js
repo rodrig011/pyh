@@ -12,7 +12,7 @@ import { buildCommands, handleInteraction } from '../vip/commands.js';
 import { expireStaleOrders } from '../vip/orders.js';
 import { processPayment } from '../vip/paymentFlow.js';
 import { sweepSubscriptions } from '../vip/subscriptionSweeper.js';
-import { checkRoleSetup } from '../vip/roles.js';
+import { checkRoleSetup, grantTierRoles } from '../vip/roles.js';
 import { storefrontMessage } from '../vip/storefront.js';
 import { promptDueSettlements } from '../picks/commands.js';
 
@@ -132,6 +132,29 @@ export function createVipBot(config = loadVipConfig()) {
     if (!config.welcomeDm) return;
     if (member.user.bot) return;
     if (member.guild.id !== config.guildId) return;
+
+    // Somebody who bought from a DM before joining has a paid membership and no
+    // roles. This is the moment that gets fixed — before the welcome, so their
+    // first sight of the server is the access they already paid for.
+    const paid = store.getSubscription(config.guildId, member.id);
+    if (paid && paid.status === 'active' && paid.expiresAt > Date.now()) {
+      try {
+        const granted = await grantTierRoles(member.guild, member.id, paid.tier, config);
+        log.info(`Handed ${member.user.tag} the ${granted.added.length} role(s) they had already paid for`);
+        await sendLog(
+          client,
+          config,
+          new EmbedBuilder()
+            .setColor(COLORS.success)
+            .setDescription(
+              `🎟️ <@${member.id}> joined and was given the **Tier ${paid.tier}** access they bought before arriving.`,
+            )
+            .setTimestamp(),
+        );
+      } catch (error) {
+        log.error(`Could not hand ${member.user.tag} their paid roles: ${error.message}`);
+      }
+    }
 
     let delivered = true;
     let reason = null;

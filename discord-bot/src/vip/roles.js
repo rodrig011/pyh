@@ -7,13 +7,22 @@ const log = createLogger('roles');
  * Grants the roles for a tier plus every lower tier.
  * Tier 3 -> roles 1, 2 and 3. Tier 2 -> roles 1 and 2. Tier 1 -> role 1.
  *
- * @returns {Promise<{added: string[], already: string[], missing: string[], failed: {roleId: string, error: string}[]}>}
+ * Somebody who is not in the guild yet is reported, not thrown: a buyer can pay
+ * before they join — that is the whole point of selling from a DM — and the
+ * payment must still be recorded so the roles land the moment they arrive.
+ *
+ * @returns {Promise<{added: string[], already: string[], missing: string[], failed: {roleId: string, error: string}[], absent: boolean}>}
  */
 export async function grantTierRoles(guild, userId, tier, config, reason = 'VIP payment confirmed') {
   const wanted = roleIdsForTier(tier, config.tiers);
-  const result = { added: [], already: [], missing: [], failed: [] };
+  const result = { added: [], already: [], missing: [], failed: [], absent: false };
 
-  const member = await guild.members.fetch(userId);
+  const member = await guild.members.fetch(userId).catch(() => null);
+  if (!member) {
+    result.absent = true;
+    log.info(`${userId} has paid but is not in guild ${guild.id} yet; roles are waiting`);
+    return result;
+  }
 
   for (const roleId of wanted) {
     const role = guild.roles.cache.get(roleId) ?? (await guild.roles.fetch(roleId).catch(() => null));
