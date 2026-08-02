@@ -30,22 +30,30 @@ export async function processPayment(client, store, config, payment) {
       return match;
     }
 
-    await sendLog(
-      client,
-      config,
-      new EmbedBuilder()
-        .setColor(COLORS.warning)
-        .setTitle('Payment received but not applied')
-        .setDescription(match.reason ?? match.status)
-        .addFields(
-          { name: 'Amount', value: payment.amountCents ? formatMoney(payment.amountCents) : 'unknown', inline: true },
-          { name: 'Codes', value: (payment.codes ?? []).join(', ') || 'none', inline: true },
-          { name: 'Sender', value: payment.senderName ?? 'unknown', inline: true },
-        )
-        .setFooter({ text: 'Check who this is and apply it with /vip-admin confirm' })
-        .setTimestamp(),
-      { ping: true },
-    );
+    const embed = new EmbedBuilder()
+      .setColor(COLORS.warning)
+      .setTitle('Payment received but not applied')
+      .setDescription(match.reason ?? match.status)
+      .addFields(
+        { name: 'Amount', value: payment.amountCents ? formatMoney(payment.amountCents) : 'unknown', inline: true },
+        { name: 'Codes', value: (payment.codes ?? []).join(', ') || 'none', inline: true },
+        { name: 'Sender', value: payment.senderName ?? 'unknown', inline: true },
+      )
+      .setFooter({ text: 'Check who this is and apply it with /vip-admin confirm' })
+      .setTimestamp();
+
+    // Several people are waiting on the same price with no code to tell them
+    // apart. Naming them turns the decision into one click for a mod.
+    if (match.candidates?.length) {
+      embed.addFields({
+        name: 'Waiting for this amount',
+        value: match.candidates
+          .map((candidate) => `\`${candidate.code}\` — <@${candidate.userId}>`)
+          .join('\n'),
+      });
+    }
+
+    await sendLog(client, config, embed, { ping: true });
     return match;
   }
 
@@ -118,6 +126,11 @@ export async function processPayment(client, store, config, payment) {
         { name: 'Code', value: `\`${order.code}\``, inline: true },
         { name: 'Amount', value: formatMoney(payment.amountCents ?? order.amountCents), inline: true },
         { name: 'Source', value: payment.source ?? 'manual', inline: true },
+        {
+          name: 'Identified by',
+          value: match.matchedBy === 'amount' ? 'the amount (no code in the alert)' : 'the code in the note',
+          inline: true,
+        },
         { name: 'Roles granted', value: tierList },
         { name: renewal ? 'Renewed until' : 'Expires', value: time(expiresAt, 'f'), inline: true },
       )

@@ -135,6 +135,22 @@ Zelle has **no public API**, so detection works by reading the alert email your 
 sends, over IMAP. If you would rather not connect a mailbox, set `IMAP_ENABLED=false`
 and confirm payments by hand with `/vip-admin confirm`.
 
+### When the bank does not forward the memo
+
+Plenty of banks — Huntington among them — say who paid and how much and never repeat
+the note the payer typed. The code never reaches the bot, so it falls back to the
+amount:
+
+| What the bot sees | What it does |
+| --- | --- |
+| Exactly one pending order waiting for that exact amount | Applies it and grants the roles |
+| Two or more orders at that price | Posts both to the log channel and pings the mods to pick |
+| No order at that amount | Ignores it — that is the owner's own Zelle activity |
+
+The order also has to be recent (`AMOUNT_MATCH_WINDOW_MINUTES`, 3 h by default), so a
+personal transfer cannot land on a code somebody generated two days ago and abandoned.
+Set `MATCH_BY_AMOUNT=false` to require the code and nothing else.
+
 ### Safeguards the bot applies
 
 - Only emails from the senders in `IMAP_ALLOWED_SENDERS` (your bank) are read. Without

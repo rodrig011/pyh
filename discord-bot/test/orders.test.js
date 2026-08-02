@@ -85,6 +85,70 @@ test('a payment with no code or an unknown code does not apply', (t) => {
   );
 });
 
+// Huntington's Zelle alert never repeats the memo, so most real payments land
+// with no code at all. The amount has to carry the identification instead.
+const byAmount = { ...config, matchByAmount: true, amountMatchWindowMinutes: 180 };
+
+test('with no code, a single fresh order for that exact amount is the payer', (t) => {
+  const store = freshStore(t);
+  const order = createOrder(store, { userId: '1', guildId: 'g', tier: 2, config });
+
+  const result = matchPayment(store, { codes: [], amountCents: 10000 }, byAmount);
+  assert.equal(result.status, 'match');
+  assert.equal(result.order.code, order.code);
+  assert.equal(result.tier, 2);
+  assert.equal(result.matchedBy, 'amount');
+});
+
+test('two orders waiting on the same amount are never guessed between', (t) => {
+  const store = freshStore(t);
+  createOrder(store, { userId: '1', guildId: 'g', tier: 2, config });
+  createOrder(store, { userId: '2', guildId: 'g', tier: 2, config });
+
+  const result = matchPayment(store, { codes: [], amountCents: 10000 }, byAmount);
+  assert.equal(result.status, 'ambiguous_amount');
+  assert.equal(result.candidates.length, 2);
+});
+
+test('a personal transfer nobody is waiting for stays a no_code', (t) => {
+  const store = freshStore(t);
+  createOrder(store, { userId: '1', guildId: 'g', tier: 2, config });
+
+  // $75 matches no tier, and the tier 2 order is waiting on $100.
+  assert.equal(matchPayment(store, { codes: [], amountCents: 7500 }, byAmount).status, 'no_code');
+});
+
+test('an order older than the window is not matched by amount alone', (t) => {
+  const store = freshStore(t);
+  // Still pending (48h TTL) but placed four hours ago: too stale to assume the
+  // money that just arrived is this person's.
+  createOrder(store, {
+    userId: '1',
+    guildId: 'g',
+    tier: 1,
+    config,
+    now: Date.now() - 4 * 3600 * 1000,
+  });
+
+  assert.equal(matchPayment(store, { codes: [], amountCents: 5000 }, byAmount).status, 'no_code');
+});
+
+test('an already paid order does not soak up the next payment of the same size', (t) => {
+  const store = freshStore(t);
+  const order = createOrder(store, { userId: '1', guildId: 'g', tier: 1, config });
+  markOrderPaid(store, order, { tier: 1, payment: { amountCents: 5000 }, grantedRoleIds: [] });
+
+  assert.equal(matchPayment(store, { codes: [], amountCents: 5000 }, byAmount).status, 'no_code');
+});
+
+test('MATCH_BY_AMOUNT=false goes back to code-only', (t) => {
+  const store = freshStore(t);
+  createOrder(store, { userId: '1', guildId: 'g', tier: 2, config });
+
+  const off = { ...byAmount, matchByAmount: false };
+  assert.equal(matchPayment(store, { codes: [], amountCents: 10000 }, off).status, 'no_code');
+});
+
 test('an expired order cannot be paid', (t) => {
   const store = freshStore(t);
   const order = createOrder(store, {

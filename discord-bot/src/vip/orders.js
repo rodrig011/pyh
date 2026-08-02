@@ -53,6 +53,46 @@ export function expireStaleOrders(store, now = Date.now()) {
 }
 
 /**
+ * Last resort when the alert carries no code.
+ *
+ * Banks are inconsistent about the memo: Huntington's Zelle alert, for one,
+ * says who paid and how much and never repeats the note the payer typed. Left
+ * at that, every payment would need a human, which defeats the point.
+ *
+ * So the amount identifies the order instead — but only when it is not a guess:
+ * exactly one pending order, created recently, for that exact amount. Two
+ * candidates go to the mods. None at all means the money is not ours: the same
+ * inbox sees the owner's personal transfers, and those must never buy anyone a
+ * membership.
+ */
+function matchByAmount(store, payment, config, now) {
+  const noCode = { status: 'no_code', reason: 'The payment carries no recognizable code' };
+  if (!config.matchByAmount) return noCode;
+  if (payment.amountCents === null || payment.amountCents === undefined) return noCode;
+
+  const windowMs = Math.max(0, config.amountMatchWindowMinutes ?? 180) * 60 * 1000;
+  const candidates = store.listOrders(
+    (order) =>
+      order.status === ORDER_STATUS.PENDING &&
+      order.expiresAt > now &&
+      order.createdAt >= now - windowMs &&
+      order.amountCents === payment.amountCents,
+  );
+
+  if (candidates.length === 0) return noCode;
+  if (candidates.length > 1) {
+    return {
+      status: 'ambiguous_amount',
+      candidates,
+      reason: `${candidates.length} pending orders are waiting for this exact amount, so the payer cannot be told apart`,
+    };
+  }
+
+  const order = candidates[0];
+  return { status: 'match', order, tier: order.tier, matchedBy: 'amount' };
+}
+
+/**
  * Tries to match a detected payment against a pending order.
  * It never touches roles: it only decides. The result is explicit so both
  * successes and rejections can be logged.
@@ -63,9 +103,7 @@ export function expireStaleOrders(store, now = Date.now()) {
  */
 export function matchPayment(store, payment, config, now = Date.now()) {
   const codes = payment.codes ?? [];
-  if (codes.length === 0) {
-    return { status: 'no_code', reason: 'The payment carries no recognizable code' };
-  }
+  if (codes.length === 0) return matchByAmount(store, payment, config, now);
 
   const orders = codes.map((code) => store.getOrder(code)).filter(Boolean);
   if (orders.length === 0) {
@@ -101,7 +139,7 @@ export function matchPayment(store, payment, config, now = Date.now()) {
 
   if (!resolved.ok) return { status: 'amount_mismatch', order, reason: resolved.reason };
 
-  return { status: 'match', order, tier: resolved.tier };
+  return { status: 'match', order, tier: resolved.tier, matchedBy: 'code' };
 }
 
 /** Marks the order as paid and stores the payment trail. */

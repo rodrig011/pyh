@@ -104,6 +104,11 @@ export function loadVipConfig() {
     orderTtlHours: int('ORDER_TTL_HOURS', 48),
     // How much the payment may fall short (in cents) and still count. 0 = exact amount.
     amountToleranceCents: money('AMOUNT_TOLERANCE', 0),
+    // Most bank alerts never repeat the memo, so the code the buyer typed does
+    // not reach the bot. When a single fresh order is waiting for that exact
+    // amount, that order is the payment. Anything less certain is not guessed.
+    matchByAmount: bool('MATCH_BY_AMOUNT', true),
+    amountMatchWindowMinutes: int('AMOUNT_MATCH_WINDOW_MINUTES', 180),
     // If someone overpays, grant the highest tier the amount covers.
     upgradeOnOverpay: bool('UPGRADE_ON_OVERPAY', true),
     codePrefix: str('CODE_PREFIX', 'VIP'),
