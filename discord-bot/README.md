@@ -106,6 +106,30 @@ Note that payments arriving with **no VIP code** are never posted to Discord: th
 inbox also carries the owner's personal transfers, and those are nobody's business.
 `LOG_UNMATCHED_PAYMENTS=true` brings them back if you want them.
 
+## Cleaning a channel's history
+
+The rule above only applies to new messages. `/photo-clean` applies it to what is
+already there — deleting every text message in a photos-only channel and leaving the
+photos.
+
+```
+/photo-clean channel:#photos                 preview: says what it would delete
+/photo-clean channel:#photos confirm:True    actually deletes it
+```
+
+Without `confirm` it only counts, because a channel's history does not come back and
+the preview is the one chance anyone has to notice the number is wrong. **Pinned
+messages are kept** even when they are text (`keep_pinned:False` to sweep those too),
+since a pin is usually the channel rules somebody meant to outlast everything else.
+
+It uses the very same rule as live enforcement, so a cleanup can never delete something
+the channel would allow straight back in. Discord refuses to bulk-delete messages over
+14 days old, so those are removed one at a time and it takes a while — the reply says
+how many are in that group before you commit.
+
+The bot needs **View Channel**, **Read Message History** and **Manage Messages** on that
+channel; it names whichever is missing rather than failing halfway.
+
 ## Who can administer the bot
 
 `/vip-admin` is for staff only. Set `VIP_MOD_ROLE_IDS` to your MOD role ID (comma
