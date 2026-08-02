@@ -8,6 +8,8 @@ import {
   dueForSettlement,
   formatStreak,
   formatWinRate,
+  describePick,
+  editPickOutcome,
   leaderboard,
   nextCandleClose,
   settlePick,
@@ -220,9 +222,19 @@ function callInteraction(name, options = {}, { subcommand = null, isAdmin = true
       isModalSubmit: () => false,
       isChatInputCommand: () => true,
       client: {
-        channels: { fetch: async () => ({ isTextBased: () => true, send: async (p) => { posted.push(p); return { id: 'msg1' }; } }) },
+        channels: {
+          fetch: async () => ({
+            isTextBased: () => true,
+            send: async (p) => { posted.push(p); return { id: 'msg1' }; },
+            messages: { fetch: async () => ({ edit: async () => {} }) },
+          }),
+        },
       },
-      channel: { isTextBased: () => true, send: async (p) => { posted.push(p); return { id: 'msg1' }; } },
+      channel: {
+        isTextBased: () => true,
+        send: async (p) => { posted.push(p); return { id: 'msg1' }; },
+        messages: { fetch: async () => ({ edit: async () => {} }) },
+      },
       options: {
         getSubcommand: () => {
           if (!subcommand) throw new Error('no subcommand on this command');
@@ -807,3 +819,133 @@ test('the guide explains every button the console has', () => {
   }
   assert.match(text, /own money and your own size/, 'and says whose risk it is');
 });
+
+// Editing a result. These numbers are public and members judge the room by
+// them, so an edit has to leave a trail and be announced — otherwise it is a
+// way to launder a record rather than correct one.
+
+test('editing an outcome keeps what it was, who changed it and why', () => {
+  const pick = openPick();
+  settlePick(pick, { outcome: OUTCOMES.LOSS, settledBy: 'price-feed' });
+
+  const result = editPickOutcome(pick, {
+    outcome: OUTCOMES.WIN,
+    editedBy: 'mod1',
+    note: 'cashed at 6% before the candle turned',
+  });
+
+  assert.equal(result.changed, true);
+  assert.equal(result.from, OUTCOMES.LOSS);
+  assert.equal(pick.outcome, OUTCOMES.WIN);
+  assert.equal(pick.edits.length, 1);
+  assert.equal(pick.edits[0].from, OUTCOMES.LOSS);
+  assert.equal(pick.edits[0].by, 'mod1');
+  assert.match(pick.edits[0].note, /cashed at 6%/);
+  assert.equal(pick.settledBy, 'mod1', 'it no longer claims the feed decided it');
+});
+
+test('every edit is appended, so the whole history survives', () => {
+  const pick = openPick();
+  settlePick(pick, { outcome: OUTCOMES.LOSS, settledBy: 'price-feed' });
+  editPickOutcome(pick, { outcome: OUTCOMES.WIN, editedBy: 'mod1' });
+  editPickOutcome(pick, { outcome: OUTCOMES.VOID, editedBy: 'mod2' });
+
+  assert.deepEqual(pick.edits.map((e) => [e.from, e.to]), [
+    [OUTCOMES.LOSS, OUTCOMES.WIN],
+    [OUTCOMES.WIN, OUTCOMES.VOID],
+  ]);
+});
+
+test('editing to what it already says changes nothing', () => {
+  const pick = openPick();
+  settlePick(pick, { outcome: OUTCOMES.WIN, settledBy: 'price-feed' });
+
+  const result = editPickOutcome(pick, { outcome: OUTCOMES.WIN, editedBy: 'mod1' });
+
+  assert.equal(result.changed, false);
+  assert.equal(pick.edits, undefined, 'no empty entry in the history');
+});
+
+test('an edited outcome moves the record', () => {
+  const win = openPick();
+  const loss = openPick();
+  settlePick(win, { outcome: OUTCOMES.WIN, settledBy: 'feed' });
+  settlePick(loss, { outcome: OUTCOMES.LOSS, settledBy: 'feed' });
+
+  assert.equal(computeRecord([win, loss]).winRate, 0.5);
+  editPickOutcome(loss, { outcome: OUTCOMES.WIN, editedBy: 'mod1' });
+  assert.equal(computeRecord([win, loss]).winRate, 1);
+});
+
+test('voiding a call takes it out of the win rate entirely', () => {
+  const win = openPick();
+  const bad = openPick();
+  settlePick(win, { outcome: OUTCOMES.WIN, settledBy: 'feed' });
+  settlePick(bad, { outcome: OUTCOMES.LOSS, settledBy: 'feed' });
+
+  editPickOutcome(bad, { outcome: OUTCOMES.VOID, editedBy: 'mod1' });
+  const record = computeRecord([win, bad]);
+
+  assert.equal(record.decided, 1);
+  assert.equal(record.winRate, 1);
+});
+
+test('a call is described by what a mod would recognise, not its id', () => {
+  const pick = buildPick({
+    analystId: 'a1', guildId: 'g', direction: DIRECTIONS.DOWN, asset: 'BTC', minutes: 15,
+    now: Date.parse('2026-08-02T15:41:00Z'),
+  });
+  settlePick(pick, { outcome: OUTCOMES.LOSS, settledBy: 'feed' });
+
+  const label = describePick(pick);
+  assert.match(label, /08\/02/);
+  assert.match(label, /SHORT BTC 15m/);
+  assert.match(label, /Loss/);
+  assert.ok(label.length <= 100, 'Discord truncates a choice name past 100 characters');
+});
+
+test('/picks edit changes the result and announces the correction', async (t) => {
+  const store = routingStore(t);
+  const pick = openCallIn(store);
+  settlePick(pick, { outcome: OUTCOMES.LOSS, settledBy: 'price-feed' });
+  store.putPick(pick);
+
+  const { interaction, replies, posted } = callInteraction(
+    'picks',
+    { call: pick.id, outcome: OUTCOMES.WIN, reason: 'cashed before the turn' },
+    { subcommand: 'edit' },
+  );
+  await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
+
+  assert.equal(store.getPick(pick.id).outcome, OUTCOMES.WIN);
+  assert.equal(posted.length, 1, 'the room was told');
+  assert.match(posted[0].content, /Correction/);
+  assert.match(posted[0].content, /cashed before the turn/);
+  assert.match(replies[0], /100%/);
+});
+
+test('a non-mod cannot change a result', async (t) => {
+  const store = routingStore(t);
+  const pick = openCallIn(store);
+  settlePick(pick, { outcome: OUTCOMES.LOSS, settledBy: 'price-feed' });
+  store.putPick(pick);
+
+  const { interaction, replies, posted } = callInteraction(
+    'picks',
+    { call: pick.id, outcome: OUTCOMES.WIN },
+    { subcommand: 'edit', isAdmin: false },
+  );
+  await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
+
+  assert.match(replies[0], /Only the mods/);
+  assert.equal(store.getPick(pick.id).outcome, OUTCOMES.LOSS, 'untouched');
+  assert.equal(posted.length, 0);
+});
+
+/** A bare open call, for the pure-function tests above. */
+function openPick() {
+  return buildPick({
+    analystId: 'a1', guildId: 'g', direction: DIRECTIONS.UP, asset: 'BTC', minutes: 15,
+    now: Date.now(),
+  });
+}

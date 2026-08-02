@@ -31,6 +31,8 @@ import {
   OUTCOME_LABEL,
   buildPick,
   computeRecord,
+  describePick,
+  editPickOutcome,
   dueForSettlement,
   formatStreak,
   formatWinRate,
@@ -157,6 +159,33 @@ export function buildPickCommands(config) {
     )
     .addSubcommand((sub) =>
       sub.setName('guide').setDescription('Post the announcement explaining what each signal means'),
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('edit')
+        .setDescription('Change the result of a call (mods only)')
+        .addStringOption((option) =>
+          option
+            .setName('call')
+            .setDescription('Which call — start typing to search')
+            .setRequired(true)
+            .setAutocomplete(true),
+        )
+        .addStringOption((option) =>
+          option
+            .setName('outcome')
+            .setDescription('What it should say')
+            .setRequired(true)
+            .addChoices(
+              { name: '✅ Win', value: OUTCOMES.WIN },
+              { name: '❌ Loss', value: OUTCOMES.LOSS },
+              { name: '➖ Break even', value: OUTCOMES.BREAK_EVEN },
+              { name: '🚫 Void — does not count', value: OUTCOMES.VOID },
+            ),
+        )
+        .addStringOption((option) =>
+          option.setName('reason').setDescription('Why (shown with the correction)').setRequired(false),
+        ),
     )
     .addSubcommand((sub) =>
       sub
@@ -446,6 +475,61 @@ export async function handlePicks(interaction, { store, config }) {
     return interaction.editReply('Console posted. Pin it — only analysts can press the buttons.');
   }
 
+  if (sub === 'edit') {
+    const isMod =
+      interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) ||
+      (config.modRoleIds ?? []).some((roleId) => interaction.member?.roles?.cache?.has(roleId));
+    if (!isMod) return interaction.editReply('Only the mods can change a result.');
+
+    const pick = store.getPick(interaction.options.getString('call'));
+    if (!pick) return interaction.editReply('I cannot find that call. Pick one from the list.');
+
+    const outcome = interaction.options.getString('outcome');
+    const reason = interaction.options.getString('reason');
+    const result = editPickOutcome(pick, { outcome, editedBy: interaction.user.id, note: reason });
+
+    if (!result.changed) {
+      return interaction.editReply(`That call already says **${OUTCOME_LABEL[outcome]}**.`);
+    }
+    store.putPick(pick);
+
+    // Corrections are announced where the call was, not just to whoever made
+    // them. A public number quietly rewritten is not a correction.
+    const channel = pick.channelId
+      ? await interaction.client.channels.fetch(pick.channelId).catch(() => null)
+      : null;
+
+    if (channel?.isTextBased()) {
+      await channel
+        .send({
+          content:
+            `📝 **Correction** — <@${interaction.user.id}> changed <@${pick.analystId}>'s ` +
+            `**${pick.asset}** ${pick.minutes}m call from ${OUTCOME_LABEL[result.from]} to ` +
+            `${OUTCOME_LABEL[outcome]}.${reason ? `\n> ${reason}` : ''}`,
+          embeds: [pickEmbed(pick, config)],
+          allowedMentions: { users: [] },
+        })
+        .catch(() => null);
+
+      // The original message is what people scroll back to, so it is corrected
+      // too — best effort. A missing or deleted message must not throw after the
+      // edit is already saved, or the record and the channel disagree forever.
+      if (pick.messageId && channel.messages?.fetch) {
+        await channel.messages
+          .fetch(pick.messageId)
+          .then((message) => message.edit({ embeds: [pickEmbed(pick, config)] }))
+          .catch(() => null);
+      }
+    }
+
+    const record = computeRecord(store.listPicks(), { analystId: pick.analystId });
+    return interaction.editReply(
+      `Changed from ${OUTCOME_LABEL[result.from]} to ${OUTCOME_LABEL[outcome]}. ` +
+        `<@${pick.analystId}> is now **${formatWinRate(record.winRate)}** (${record.wins}W ${record.losses}L). ` +
+        'The correction was posted in the channel — a public number cannot be changed quietly.',
+    );
+  }
+
   if (sub === 'guide') {
     if (!isAnalyst(interaction, config)) {
       return interaction.editReply('Only the analysts and mods can post the guide.');
@@ -693,6 +777,24 @@ export async function repostPanel(client, config, channelId) {
 
   await channel.send(analystPanel(config, settings)).catch(() => null);
   return true;
+}
+
+/**
+ * The call picker. Nobody knows a call's id, so the search runs over what a mod
+ * would recognise instead: when it was, which way, and how it was scored.
+ */
+export async function handlePickAutocomplete(interaction, { store, config }) {
+  const typed = (interaction.options.getFocused() ?? '').toLowerCase();
+
+  const matches = store
+    .listPicks((pick) => pick.guildId === (interaction.guildId ?? config.guildId))
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .map((pick) => ({ pick, label: describePick(pick) }))
+    .filter(({ label }) => label.toLowerCase().includes(typed))
+    .slice(0, 25)
+    .map(({ pick, label }) => ({ name: label.slice(0, 100), value: pick.id }));
+
+  return interaction.respond(matches).catch(() => {});
 }
 
 export async function handleSettleButton(interaction, { store, config }) {

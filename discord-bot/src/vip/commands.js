@@ -46,6 +46,7 @@ import {
   handleCall,
   handleCashModal,
   handlePanelButton,
+  handlePickAutocomplete,
   handlePicks,
   handleSettleButton,
 } from '../picks/commands.js';
@@ -1399,6 +1400,11 @@ async function handleAssignSelect(interaction, { store, config, client }) {
 
 /** Routes every command interaction of the VIP bot. */
 export async function handleInteraction(interaction, context) {
+  if (interaction.isAutocomplete?.()) {
+    return interaction.commandName === 'picks'
+      ? handlePickAutocomplete(interaction, context)
+      : undefined;
+  }
   if (interaction.isButton() && interaction.customId?.startsWith(SETTLE_PREFIX)) {
     return handleSettleButton(interaction, context);
   }

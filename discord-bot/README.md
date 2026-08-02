@@ -279,9 +279,21 @@ administrators can press anything: Manage Messages is held by every moderator in
 servers, and a member pressing BUY UP by accident sends a real signal to everyone paying
 for one.
 
-If the bot scores a call wrongly, a mod can undo it — `/picks reset analyst:@them` shows
-what it would delete, and `confirm:True` does it. A record the bot got wrong has to be
-fixable or the board lies about someone permanently.
+If a call is scored wrongly, a mod can change it:
+
+```
+/picks edit call:<start typing> outcome:✅ Win reason:cashed before the candle turned
+```
+
+The picker searches by what a mod would recognise — the time, the side, how it was
+scored — because nobody knows a call's id. Editing keeps the original verdict, who
+changed it and why, posts the correction in the channel, and rewrites the original
+message so scrolling back does not show the old result. **A public number cannot be
+changed quietly**: an edit that left no trace would be a way to launder a record rather
+than correct one.
+
+`/picks reset analyst:@them` wipes a whole record instead, previewing what it would
+delete before `confirm:True` does it. Both are mods only.
 
 Set `PICKS_ANALYST_ROLE_IDS` to the roles allowed to post calls. `PICKS_CHANNEL_ID`
 sends every call to one channel; without it they land wherever the command was run.

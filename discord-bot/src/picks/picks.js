@@ -115,6 +115,41 @@ export function settlePick(pick, { outcome, settledBy, exit = null, closedBy = '
 }
 
 /**
+ * Changes the outcome of a call that was already scored.
+ *
+ * Kept as an amendment rather than a rewrite: the original verdict, who changed
+ * it and why all stay on the record. These numbers are public and members judge
+ * the room by them, so an edit that left no trace would be a way to launder a
+ * record rather than correct one.
+ */
+export function editPickOutcome(pick, { outcome, editedBy, note = null, now = Date.now() }) {
+  if (!Object.values(OUTCOMES).includes(outcome)) throw new Error(`Unknown outcome: ${outcome}`);
+  if (pick.outcome === outcome) return { changed: false, from: outcome, pick };
+
+  const from = pick.outcome;
+  pick.edits = [
+    ...(pick.edits ?? []),
+    { from, to: outcome, by: editedBy, note, at: now },
+  ];
+  pick.outcome = outcome;
+  pick.editedAt = now;
+  pick.editedBy = editedBy;
+  // A call graded by hand is no longer the price feed's verdict, and the record
+  // should not go on claiming it was.
+  pick.settledBy = editedBy;
+  return { changed: true, from, pick };
+}
+
+/** One line describing a call, short enough for a picker. */
+export function describePick(pick) {
+  const when = new Date(pick.createdAt);
+  const stamp = `${String(when.getUTCMonth() + 1).padStart(2, '0')}/${String(when.getUTCDate()).padStart(2, '0')} ${String(when.getUTCHours()).padStart(2, '0')}:${String(when.getUTCMinutes()).padStart(2, '0')}`;
+  const side = pick.direction === DIRECTIONS.UP ? 'LONG' : 'SHORT';
+  const result = pick.outcome ? OUTCOME_LABEL[pick.outcome].replace(/^\S+\s/, '') : 'open';
+  return `${stamp}  ${side} ${pick.asset} ${pick.minutes}m — ${result}`;
+}
+
+/**
  * An analyst's record.
  *
  * Break-evens and voids are counted but kept out of the win rate: a call that
