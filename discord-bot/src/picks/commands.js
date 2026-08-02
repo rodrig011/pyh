@@ -9,6 +9,7 @@ import {
   time,
 } from 'discord.js';
 import { COLORS } from '../lib/brand.js';
+import { postPermissionHelp } from '../lib/channelAccess.js';
 import {
   CASH_MODAL,
   DIRECTION_FOR_ACTION,
@@ -370,8 +371,15 @@ export async function handlePicks(interaction, { store, config }) {
     if (!isAnalyst(interaction, config)) {
       return interaction.editReply('Only the analysts can post the console.');
     }
-    const settings = pickSettings(config);
-    await interaction.channel.send(analystPanel(config, settings));
+
+    const help = postPermissionHelp(interaction.channel, interaction.guild);
+    if (help) return interaction.editReply(help);
+
+    try {
+      await interaction.channel.send(analystPanel(config, pickSettings(config)));
+    } catch (error) {
+      return interaction.editReply(`Discord refused the post: **${error.message}**`);
+    }
     return interaction.editReply('Console posted. Pin it — only analysts can press the buttons.');
   }
 

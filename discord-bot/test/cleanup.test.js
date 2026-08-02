@@ -134,3 +134,41 @@ test('with no role filter nothing is skipped', () => {
   const plan = planCleanup([text('1'), photo('2')], config, { now });
   assert.equal(plan.skipped, 0);
 });
+
+// Both panels post into a channel that is normally locked, so they share one
+// permission check rather than each rediscovering the same failure.
+import { missingPostPermissions, postPermissionHelp } from '../src/lib/channelAccess.js';
+import { PermissionFlagsBits } from 'discord.js';
+
+function channelWhere(allowed) {
+  return {
+    name: 'how-to-buy-vip',
+    toString: () => '#how-to-buy-vip',
+    permissionsFor: () => ({ has: (flag) => allowed.includes(flag) }),
+  };
+}
+
+const guild = { members: { me: { id: 'bot' } } };
+const ALL = [
+  PermissionFlagsBits.ViewChannel,
+  PermissionFlagsBits.SendMessages,
+  PermissionFlagsBits.EmbedLinks,
+];
+
+test('a channel the bot can post in reports nothing missing', () => {
+  assert.deepEqual(missingPostPermissions(channelWhere(ALL), guild), []);
+  assert.equal(postPermissionHelp(channelWhere(ALL), guild), null);
+});
+
+test('a locked channel names each missing permission and the channel', () => {
+  const help = postPermissionHelp(channelWhere([PermissionFlagsBits.ViewChannel]), guild);
+
+  assert.match(help, /Send Messages/);
+  assert.match(help, /Embed Links/);
+  assert.match(help, /how-to-buy-vip/);
+});
+
+test('a channel with no permission data is not reported as broken', () => {
+  assert.deepEqual(missingPostPermissions({}, guild), []);
+  assert.deepEqual(missingPostPermissions(channelWhere(ALL), {}), []);
+});
