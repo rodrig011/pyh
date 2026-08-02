@@ -102,6 +102,16 @@ is not by itself an instruction a stranger can follow. Two things make it one:
    to somebody who is not there, so the purchase is recorded, the buyer is DMed
    `SERVER_INVITE_URL`, and the roles land the moment they walk in.
 
+**Anyone who writes to the bot gets answered.** A DM from somebody the bot has not
+spoken to recently is replied to with the storefront and the invite — somebody who
+messages a sales bot is asking one question, and making them wait for a person loses
+most of them. One reply per person per `DM_REPLY_COOLDOWN_HOURS` (24 by default), so
+three messages in a row do not get three storefronts, and the bot never answers itself.
+Each one is reported to the log channel so inbound interest is visible.
+
+This needs the **Direct Messages** intent, which is not privileged. The message text is
+never read — only that somebody wrote — so Message Content stays off.
+
 That makes the poster copy true: *install the app, DM the bot, pay, join.* The plain
 invite still works too — anyone who joins first is DMed the storefront on arrival.
 

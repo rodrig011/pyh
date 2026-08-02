@@ -1,4 +1,14 @@
-import { Client, EmbedBuilder, Events, GatewayIntentBits, MessageFlags, REST, Routes } from 'discord.js';
+import {
+  ChannelType,
+  Client,
+  EmbedBuilder,
+  Events,
+  GatewayIntentBits,
+  MessageFlags,
+  Partials,
+  REST,
+  Routes,
+} from 'discord.js';
 import { loadVipConfig } from '../config.js';
 import { COLORS } from '../lib/brand.js';
 import { sendLog } from '../vip/notify.js';
@@ -14,6 +24,7 @@ import { processPayment } from '../vip/paymentFlow.js';
 import { sweepSubscriptions } from '../vip/subscriptionSweeper.js';
 import { checkRoleSetup, grantTierRoles } from '../vip/roles.js';
 import { storefrontMessage } from '../vip/storefront.js';
+import { shouldGreetDm } from '../vip/dmGreeting.js';
 import { promptDueSettlements } from '../picks/commands.js';
 
 const log = createLogger('vip');
@@ -28,7 +39,17 @@ export async function registerCommands(config) {
 
 export function createVipBot(config = loadVipConfig()) {
   const store = createStore(config.storePath);
-  const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
+  const client = new Client({
+    intents: [
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildMembers,
+      // Needed to notice a DM at all. Not privileged, and the message text is
+      // never read — only that somebody wrote — so Message Content stays off.
+      GatewayIntentBits.DirectMessages,
+    ],
+    // A DM channel arrives uncached, so without this the event never fires.
+    partials: [Partials.Channel, Partials.Message],
+  });
 
   // Card payments are optional: with no Stripe key the bot is Zelle-only.
   let stripe = createStripeClient(config);
@@ -190,6 +211,43 @@ export function createVipBot(config = loadVipConfig()) {
         )
         .setTimestamp(),
     );
+  });
+
+  // Somebody writing to the bot is asking how to get in. Answering in the
+  // second it takes to send a message beats making them wait for a person.
+  client.on(Events.MessageCreate, async (message) => {
+    const verdict = shouldGreetDm(
+      {
+        authorId: message.author?.id,
+        authorIsBot: message.author?.bot ?? false,
+        isDirectMessage: message.channel?.type === ChannelType.DM,
+      },
+      config,
+      store.lastDmReplyAt(message.author?.id),
+    );
+    if (!verdict.reply) return;
+
+    try {
+      await message.channel.send(
+        storefrontMessage(config, { includeTicket: false, welcome: true }),
+      );
+      store.markDmReplied(message.author.id);
+      log.info(`Answered a DM from ${message.author.tag}`);
+
+      await sendLog(
+        client,
+        config,
+        new EmbedBuilder()
+          .setColor(COLORS.gold)
+          .setDescription(
+            `📬 **${message.author.tag}** messaged the bot and was sent the storefront.` +
+              (config.serverInviteUrl ? '' : '\n_No `SERVER_INVITE_URL` is set, so they got no way in._'),
+          )
+          .setTimestamp(),
+      );
+    } catch (error) {
+      log.warn(`Could not answer ${message.author?.tag}: ${error.message}`);
+    }
   });
 
   client.on(Events.InteractionCreate, async (interaction) => {

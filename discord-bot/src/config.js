@@ -94,6 +94,11 @@ export function loadVipConfig() {
     // a poster. Discord refuses a DM between strangers, so the invite is what
     // turns "DM the bot" into something a stranger can actually do.
     serverInviteUrl: str('SERVER_INVITE_URL'),
+    // Answer anyone who writes to the bot in a DM with the storefront and the
+    // invite. Somebody who messages a sales bot is asking how to buy, and the
+    // cooldown keeps a three-message stranger from getting three storefronts.
+    dmAutoReply: bool('DM_AUTO_REPLY', true),
+    dmReplyCooldownHours: int('DM_REPLY_COOLDOWN_HOURS', 24),
     // How long a paid membership lasts, and when to warn before it runs out.
     subscriptionDays: int('SUBSCRIPTION_DAYS', 30),
     reminderDaysBefore: numberList('SUBSCRIPTION_REMINDER_DAYS', [3, 1]),

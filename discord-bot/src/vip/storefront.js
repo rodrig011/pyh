@@ -87,11 +87,14 @@ export function storefrontMessage(config, { includeTicket = true, welcome = fals
         .setEmoji('🎫'),
     );
   } else {
+    // A channel URL only resolves for somebody who is already a member, which
+    // is exactly who this button is not for. The invite is what a stranger can
+    // actually use, so it wins whenever one is configured.
     secondRow.addComponents(
       new ButtonBuilder()
         .setStyle(ButtonStyle.Link)
-        .setLabel('Go to the server')
-        .setURL(`https://discord.com/channels/${config.guildId}`),
+        .setLabel(config.serverInviteUrl ? 'Join the server' : 'Go to the server')
+        .setURL(config.serverInviteUrl ?? `https://discord.com/channels/${config.guildId}`),
     );
   }
 

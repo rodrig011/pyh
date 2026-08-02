@@ -12,6 +12,7 @@ const EMPTY = {
   welcomes: [],
   unassigned: [],
   picks: [],
+  dmReplies: {},
 };
 
 /**
@@ -152,6 +153,20 @@ export function createStore(filePath) {
 
     listPicks(filter = () => true) {
       return data.picks.filter(filter);
+    },
+
+    /**
+     * When this user was last answered in a DM. Kept so a stranger who writes
+     * three times in a row gets one storefront, not three.
+     */
+    lastDmReplyAt(userId) {
+      return data.dmReplies[userId] ?? null;
+    },
+
+    markDmReplied(userId, at = Date.now()) {
+      data.dmReplies[userId] = at;
+      save();
+      return at;
     },
 
     /** Deletes matching calls. Used to undo a record the bot scored wrongly. */
