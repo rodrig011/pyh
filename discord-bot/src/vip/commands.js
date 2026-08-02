@@ -1093,9 +1093,13 @@ async function handleAdminSync(interaction, { watcher }) {
   } catch (error) {
     const hints = {
       connect: 'Check `IMAP_HOST` and `IMAP_PORT`. For Gmail: `imap.gmail.com` on port `993`.',
+      // Gmail dropped its enable/disable IMAP switch in January 2025 — IMAP is
+      // always on now, so sending anyone to look for that setting wastes their
+      // time on a control that no longer exists. On Gmail this is the password.
       auth:
-        'The app password is wrong, or IMAP is switched off for that account: ' +
-        'Gmail → Settings → See all settings → Forwarding and POP/IMAP → **Enable IMAP**.',
+        'Generate a **new app password** at `myaccount.google.com/apppasswords` ' +
+        `(signed in as \`${watcher.imap.user}\`, with 2-Step Verification on) and update \`IMAP_PASSWORD\`. ` +
+        'Note that an app password only works for the account that created it.',
       mailbox: `The mailbox \`${watcher.imap.mailbox}\` does not exist under that name. Try \`INBOX\`.`,
       search: 'The server refused the search. Lower `IMAP_SINCE_DAYS` and try again.',
     };

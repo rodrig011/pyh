@@ -239,7 +239,13 @@ have hit that limit. You can also just upload the PNG by hand in the developer p
 
 With Gmail: turn on two-step verification and create an
 [app password](https://myaccount.google.com/apppasswords); that is what goes into
-`IMAP_PASSWORD` (never the account's normal password).
+`IMAP_PASSWORD` (never the account's normal password). An app password only works for
+the account that created it, so make sure you are signed in as the mailbox in
+`IMAP_USER` when you generate it.
+
+There is nothing to switch on: Gmail removed its enable/disable IMAP setting in January
+2025 and IMAP is now always available. If sign-in fails, it is the password, not a
+setting — `/vip-admin sync` names the failing step and quotes the server.
 
 Put the address your bank sends Zelle alerts from into `IMAP_ALLOWED_SENDERS` (open a
 real alert email and copy the sender). Common examples:
