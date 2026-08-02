@@ -63,6 +63,7 @@ export function buildPick({
   target = null,
   stop = null,
   note = null,
+  sizePercent = null,
   alignToCandle = true,
   now = Date.now(),
 }) {
@@ -85,6 +86,9 @@ export function buildPick({
     target,
     stop,
     note,
+    // How much of the portfolio the analyst said to put in. Part of the signal,
+    // not a detail: "long BTC" and "long BTC with your whole book" differ.
+    sizePercent,
     createdAt: now,
     closesAt: alignToCandle ? nextCandleClose(now, minutes) : now + minutes * 60 * 1000,
     outcome: null,

@@ -17,12 +17,22 @@ import {
   DIRECTION_FOR_ACTION,
   PANEL_ACTIONS,
   PANEL_PREFIX,
+  SIZE_PREFIX,
+  VOTE_PREFIX,
   analystPanel,
   cashPercentModal,
+  entrySizeRow,
   guideMessage,
   managementMessage,
   panelAction,
+  parseSize,
+  parseVote,
+  simpleAnnouncement,
+  simpleExit,
+  voteResultMessage,
+  voteRow,
 } from './panel.js';
+import { castVote, emptyVote, formatShare, shareBar, tallyVote, votesDue } from './vote.js';
 import { fetchSpotPrice, formatChange, formatPrice, gradeByPrice } from './price.js';
 import {
   DIRECTIONS,
@@ -51,6 +61,9 @@ export const PICK_DEFAULTS = {
   disclaimer: 'Not financial advice',
   pingRoleIds: [],
   repostPanel: true,
+  announceChannelId: null,
+  resultChannelId: null,
+  voteMinutes: 20,
 };
 
 /**
@@ -294,6 +307,20 @@ export function settleRow(pickId) {
   );
 }
 
+/** Mirrors a one-line version into the chat channel, when one is configured. */
+async function announce(client, config, payload) {
+  const settings = pickSettings(config);
+  if (!settings.announceChannelId) return false;
+
+  const channel = await client.channels.fetch(settings.announceChannelId).catch(() => null);
+  if (!channel?.isTextBased()) return false;
+
+  await channel
+    .send({ ...pingFor(settings), ...payload, allowedMentions: { roles: settings.pingRoleIds ?? [] } })
+    .catch(() => null);
+  return true;
+}
+
 /**
  * Opens a call and posts it. Shared by `/call` and the console buttons, so the
  * two can never drift into recording different things.
@@ -320,6 +347,7 @@ export async function openCall(interaction, { store, config }, overrides = {}) {
     direction: overrides.direction,
     asset,
     minutes: overrides.minutes ?? settings.defaultMinutes,
+    sizePercent: overrides.sizePercent ?? null,
     entry,
     target: overrides.target ?? null,
     stop: overrides.stop ?? null,
@@ -340,6 +368,11 @@ export async function openCall(interaction, { store, config }, overrides = {}) {
   pick.messageId = posted.id;
   pick.channelId = channel.id;
   store.recordPick(pick);
+
+  await announce(interaction.client, config, simpleAnnouncement({
+    ...pick,
+    entryLabel: pick.entry == null ? null : formatPrice(pick.entry),
+  }));
 
   return { pick, channel };
 }
@@ -635,19 +668,83 @@ export async function handlePanelButton(interaction, { store, config }) {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   if (action === PANEL_ACTIONS.UP || action === PANEL_ACTIONS.DOWN) {
-    const { pick, channel } = await openCall(interaction, { store, config }, {
-      direction: DIRECTION_FOR_ACTION[action],
+    // Size is part of the signal, so it is asked before the call goes out
+    // rather than left for the room to guess.
+    return interaction.editReply({
+      content: `${DIRECTION_LABEL[DIRECTION_FOR_ACTION[action]]} — how much of the port?`,
+      components: [entrySizeRow(DIRECTION_FOR_ACTION[action])],
     });
-    if (!pick) return interaction.editReply('I could not post that — check where calls go.');
-    return interaction.editReply(
-      `${DIRECTION_LABEL[pick.direction]} **${pick.asset}** sent to ${channel}` +
-        (pick.entry === null ? ' (no live price — you will grade it by hand).' : ` at **${formatPrice(pick.entry)}**.`),
-    );
   }
 
   return postManagement(interaction, { store, config }, {
     action,
     percent: ACTION_PERCENT[action] ?? null,
+  });
+}
+
+/** The second tap: the size, which is what actually sends the call. */
+export async function handleSizeButton(interaction, { store, config }) {
+  const chosen = parseSize(interaction.customId);
+  if (!chosen) return undefined;
+
+  if (!isAnalyst(interaction, config)) {
+    return interaction.reply({
+      content: 'Only the analysts can send calls.',
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  await interaction.deferUpdate();
+
+  const { pick, channel } = await openCall(interaction, { store, config }, {
+    direction: chosen.direction,
+    sizePercent: chosen.percent,
+  });
+
+  if (!pick) {
+    return interaction.editReply({
+      content: 'I could not post that — check where calls go.',
+      components: [],
+    });
+  }
+
+  return interaction.editReply({
+    content:
+      `${DIRECTION_LABEL[pick.direction]} **${pick.asset}** at **${chosen.percent}% of port** sent to ${channel}` +
+      (pick.entry === null
+        ? ' (no live price — you will grade it by hand).'
+        : ` at **${formatPrice(pick.entry)}**.`),
+    components: [],
+  });
+}
+
+/** A member saying whether they actually made money on a closed call. */
+export async function handleVoteButton(interaction, { store }) {
+  const parsed = parseVote(interaction.customId);
+  if (!parsed) return undefined;
+
+  const vote = store.getVote(parsed.pickId);
+  if (!vote) {
+    return interaction.reply({ content: 'That vote is closed.', flags: MessageFlags.Ephemeral });
+  }
+  if (vote.resultPostedAt) {
+    return interaction.reply({
+      content: 'The result is already out — this one is settled.',
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  const { changed, previous } = castVote(vote, interaction.user.id, parsed.choice);
+  store.putVote(vote);
+
+  const tally = tallyVote(vote);
+  return interaction.reply({
+    content:
+      (changed && previous
+        ? `Changed to **${parsed.choice === 'profit' ? 'profit' : 'loss'}**.`
+        : `Counted — **${parsed.choice === 'profit' ? 'profit' : 'loss'}**.`) +
+      ` ${tally.total} vote(s) so far.`,
+    flags: MessageFlags.Ephemeral,
   });
 }
 
@@ -746,11 +843,16 @@ async function postManagement(interaction, { store, config }, { action, percent 
   });
 
   if (!closes) {
+    await announce(interaction.client, config, simpleExit({ pick: open, percent, closed: false }));
     return interaction.editReply(
       open ? `Sent to ${channel}, on your open **${open.asset}** call.` : `Sent to ${channel}.`,
     );
   }
 
+  await announce(interaction.client, config, simpleExit({
+    pick: open, percent, closed: true, outcome: verdict.outcome,
+  }));
+  await openVote(interaction.client, store, config, open);
   await repostPanel(interaction.client, config, channel.id);
 
   const record = computeRecord(store.listPicks(), { analystId: interaction.user.id });
@@ -768,6 +870,89 @@ async function postManagement(interaction, { store, config }, { action, percent 
  * signal is the one nobody wants to go hunting for. Posted fresh rather than
  * moved, because Discord cannot move a message.
  */
+/**
+ * Opens the room's vote on a call that just closed.
+ *
+ * Asked where the members are talking rather than where the levels are posted:
+ * a question nobody sees is a question nobody answers.
+ */
+export async function openVote(client, store, config, pick) {
+  const settings = pickSettings(config);
+  if (store.getVote(pick.id)) return null;
+
+  const channelId = settings.announceChannelId ?? pick.channelId ?? settings.channelId;
+  const channel = await client.channels.fetch(channelId).catch(() => null);
+  if (!channel?.isTextBased()) return null;
+
+  const vote = emptyVote(pick.id, { closesAt: Date.now() + settings.voteMinutes * 60 * 1000 });
+  vote.channelId = channel.id;
+
+  const posted = await channel
+    .send({
+      content: `Did you make money on the **${pick.asset}** ${pick.minutes}m call?`,
+      components: [voteRow(pick.id)],
+    })
+    .catch(() => null);
+
+  vote.messageId = posted?.id ?? null;
+  store.recordVote(vote);
+  return vote;
+}
+
+/**
+ * Publishes what the room said once the voting window has run out.
+ *
+ * The room's answer and the price feed's answer go out together: the two
+ * disagreeing means the call was right but came too late to act on, and that is
+ * the single most useful thing this whole feature can surface.
+ */
+export async function publishVoteResults(client, store, config, now = Date.now()) {
+  const settings = pickSettings(config);
+  const due = votesDue(store.listVotes(), now);
+  let published = 0;
+
+  for (const vote of due) {
+    const pick = store.getPick(vote.pickId);
+    if (!pick) {
+      vote.resultPostedAt = now;
+      store.putVote(vote);
+      continue;
+    }
+
+    const channelId = settings.resultChannelId ?? pick.channelId ?? settings.channelId;
+    const channel = await client.channels.fetch(channelId).catch(() => null);
+    if (!channel?.isTextBased()) continue;
+
+    const tally = tallyVote(vote);
+    await channel
+      .send(
+        voteResultMessage({
+          pick,
+          tally,
+          outcome: pick.outcome,
+          shareBarText: shareBar(tally.profitShare),
+          sharePercent: formatShare(tally.profitShare),
+        }),
+      )
+      .catch(() => null);
+
+    // Closing the buttons stops a vote drifting on after its own result.
+    if (vote.messageId && vote.channelId) {
+      const voteChannel = await client.channels.fetch(vote.channelId).catch(() => null);
+      await voteChannel?.messages
+        ?.fetch(vote.messageId)
+        .then((message) => message.edit({ components: [] }))
+        .catch(() => null);
+    }
+
+    vote.resultPostedAt = now;
+    store.putVote(vote);
+    published += 1;
+  }
+
+  return published;
+}
+
 export async function repostPanel(client, config, channelId) {
   const settings = pickSettings(config);
   if (!settings.repostPanel) return false;
@@ -889,6 +1074,10 @@ export async function promptDueSettlements(client, store, config, now = Date.now
         })
         .catch(() => null);
 
+      await announce(client, config, simpleExit({
+        pick, percent: null, closed: true, outcome: verdict.outcome,
+      }));
+      await openVote(client, store, config, pick);
       await repostPanel(client, config, channel.id);
       graded += 1;
       continue;

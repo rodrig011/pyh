@@ -309,12 +309,14 @@ test('command registration survives a config with no picks block', () => {
 import {
   ACTION_PERCENT,
   analystPanel,
+  parseSize,
   guideMessage,
   managementMessage,
   panelAction,
   PANEL_ACTIONS,
 } from '../src/picks/panel.js';
-import { pickEmbed, pickSettings, promptDueSettlements } from '../src/picks/commands.js';
+import { pickEmbed, pickSettings, promptDueSettlements, publishVoteResults } from '../src/picks/commands.js';
+import { castVote, emptyVote, tallyVote } from '../src/picks/vote.js';
 
 test('panel button ids map to actions, and nothing else does', () => {
   assert.equal(panelAction('pick:panel:up'), PANEL_ACTIONS.UP);
@@ -949,3 +951,110 @@ function openPick() {
     now: Date.now(),
   });
 }
+
+// Entry size and the room's vote.
+
+test('a direction button asks for the size instead of firing the call', async (t) => {
+  const store = routingStore(t);
+  const { interaction, replies, posted } = panelPress('up');
+
+  await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
+
+  assert.equal(store.listPicks().length, 0, 'nothing sent until the size is chosen');
+  assert.equal(posted.length, 0);
+  assert.match(replies[0].content, /how much of the port/i);
+  assert.equal(replies[0].components.length, 1);
+});
+
+test('the size button sends the call and records what was chosen', async (t) => {
+  const store = routingStore(t);
+  withPrice(t, 63300);
+
+  const { interaction, replies, posted } = panelPress('up');
+  interaction.customId = 'pick:size:up:50';
+  interaction.deferUpdate = async function () {
+    this.deferred = true;
+  };
+
+  await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
+
+  assert.equal(store.listPicks().length, 1);
+  assert.equal(store.listPicks()[0].sizePercent, 50);
+  assert.equal(posted.length, 1);
+  assert.match(replies[0].content, /50% of port/);
+});
+
+test('a nonsense size is not accepted', () => {
+  assert.equal(parseSize('pick:size:up:50').percent, 50);
+  assert.equal(parseSize('pick:size:sideways:50'), null);
+  assert.equal(parseSize('pick:size:up:0'), null);
+  assert.equal(parseSize('pick:size:up:500'), null);
+  assert.equal(parseSize('pick:panel:up'), null);
+});
+
+test('closing a call opens the vote', async (t) => {
+  const store = routingStore(t);
+  const pick = openCallIn(store, { direction: DIRECTIONS.UP, entry: 63300 });
+  withPrice(t, 63400);
+
+  const { interaction } = panelPress('cash_profit');
+  await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
+
+  const vote = store.getVote(pick.id);
+  assert.ok(vote, 'the room was asked');
+  assert.ok(vote.closesAt > Date.now());
+});
+
+test('a member votes once and can change their mind', async (t) => {
+  const store = routingStore(t);
+  const pick = openCallIn(store);
+  store.recordVote({ ...emptyVote(pick.id, { closesAt: Date.now() + 60000 }) });
+
+  const first = panelPress('x', 'member1');
+  first.interaction.customId = `pick:vote:${pick.id}:profit`;
+  await handleInteraction(first.interaction, { store, config: routingConfig, client: first.interaction.client });
+
+  const second = panelPress('x', 'member1');
+  second.interaction.customId = `pick:vote:${pick.id}:loss`;
+  await handleInteraction(second.interaction, { store, config: routingConfig, client: second.interaction.client });
+
+  assert.deepEqual(tallyVote(store.getVote(pick.id)), {
+    profit: 0, loss: 1, total: 1, profitShare: 0,
+  });
+});
+
+test('the result publishes both answers and closes the vote', async (t) => {
+  const store = routingStore(t);
+  const pick = openCallIn(store);
+  settlePick(pick, { outcome: OUTCOMES.WIN, settledBy: 'feed' });
+  store.putPick(pick);
+
+  const vote = emptyVote(pick.id, { closesAt: Date.now() - 1000 });
+  castVote(vote, 'a', 'profit');
+  castVote(vote, 'b', 'loss');
+  castVote(vote, 'c', 'loss');
+  store.recordVote(vote);
+
+  const posted = [];
+  const client = {
+    channels: {
+      fetch: async () => ({
+        isTextBased: () => true,
+        send: async (p) => posted.push(p),
+        messages: { fetch: async () => ({ edit: async () => {} }) },
+      }),
+    },
+  };
+
+  const published = await publishVoteResults(client, store, routingConfig);
+
+  assert.equal(published, 1);
+  const embed = posted[0].embeds[0].toJSON();
+  // The bot said win, the room said it lost money — the disagreement is the point.
+  assert.match(embed.fields.find((f) => f.name === 'The bot scored it').value, /Win/);
+  assert.match(embed.fields.find((f) => f.name === 'The room says').value, /Lost money/);
+  assert.match(embed.description, /33%/);
+  assert.ok(store.getVote(pick.id).resultPostedAt, 'not published twice');
+
+  assert.equal(await publishVoteResults(client, store, routingConfig), 0);
+});

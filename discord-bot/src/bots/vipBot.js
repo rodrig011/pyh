@@ -25,7 +25,7 @@ import { sweepSubscriptions } from '../vip/subscriptionSweeper.js';
 import { checkRoleSetup, grantTierRoles } from '../vip/roles.js';
 import { storefrontMessage } from '../vip/storefront.js';
 import { shouldGreetDm } from '../vip/dmGreeting.js';
-import { promptDueSettlements } from '../picks/commands.js';
+import { promptDueSettlements, publishVoteResults } from '../picks/commands.js';
 
 const log = createLogger('vip');
 
@@ -143,6 +143,9 @@ export function createVipBot(config = loadVipConfig()) {
     setInterval(() => {
       promptDueSettlements(client, store, config).catch((error) =>
         log.error(`Could not ask for a call result: ${error.message}`),
+      );
+      publishVoteResults(client, store, config).catch((error) =>
+        log.error(`Could not publish a vote result: ${error.message}`),
       );
     }, 60 * 1000).unref();
   });

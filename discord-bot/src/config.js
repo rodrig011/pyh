@@ -177,6 +177,12 @@ export function loadVipConfig() {
       // Put the console back under the channel after a call closes, so the next
       // signal is never fifty messages away from the button that sends it.
       repostPanel: bool('PICKS_REPOST_PANEL', true),
+      // The chat that gets the one-line version. The full embed is a wall on a
+      // phone, and the room that is talking is not the room reading levels.
+      announceChannelId: str('PICKS_ANNOUNCE_CHANNEL_ID'),
+      // Where the room's own verdict is published once the voting closes.
+      resultChannelId: str('PICKS_RESULT_CHANNEL_ID', str('PICKS_CHANNEL_ID')),
+      voteMinutes: int('PICKS_VOTE_MINUTES', 20),
     },
     // Card payments. Zelle is a one-off 30 days; Stripe bills again by itself
     // every period until the member cancels.

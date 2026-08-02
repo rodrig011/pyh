@@ -11,6 +11,22 @@ import { COLORS } from '../lib/brand.js';
 import { DIRECTIONS } from './picks.js';
 
 export const PANEL_PREFIX = 'pick:panel:';
+export const SIZE_PREFIX = 'pick:size:';
+export const VOTE_PREFIX = 'pick:vote:';
+
+/**
+ * How much of the portfolio to put in when the call opens.
+ *
+ * This is the entry, not the exit — a distinction the first version of this
+ * console got backwards. On Kalshi the size is part of the signal: "long BTC"
+ * and "long BTC with a quarter of your book" are different instructions.
+ */
+export const ENTRY_SIZES = [
+  { percent: 25, label: '25% of port' },
+  { percent: 50, label: '50% of port' },
+  { percent: 75, label: '75% of port' },
+  { percent: 100, label: '💯 FULL PORT' },
+];
 export const PANEL_ACTIONS = {
   UP: 'up',
   DOWN: 'down',
@@ -24,7 +40,12 @@ export const PANEL_ACTIONS = {
   HOLD: 'hold',
 };
 
-/** How much of the position each button takes off. 100 closes the call. */
+/**
+ * How much of the position each exit button takes off. 100 closes the call.
+ * Separate from ENTRY_SIZES on purpose: one is how much you put in, the other
+ * is how much you take out, and calling both "the percentage" is what made the
+ * console unreadable.
+ */
 export const ACTION_PERCENT = {
   [PANEL_ACTIONS.CASH_25]: 25,
   [PANEL_ACTIONS.CASH_50]: 50,
@@ -64,12 +85,14 @@ export function analystPanel(config, settings) {
         `One tap sends the call to the room. **${settings.defaultAsset}** on a **${settings.defaultMinutes}-minute** window,`,
         'with the live price stamped on it — so it grades itself when the window closes.',
         '',
-        '🟢 **BUY UP** / 🔴 **BUY DOWN** — open a call',
-        '💰 **25 / 50 / 75%** — take that much off, the call stays open',
-        '💯 **ALL OUT** — full port out, the call closes and is scored',
-        '✅ **CASH AT PROFIT** — close it out in profit',
-        '❌ **CUT LOSS** — the call is wrong, get out',
-        '✋ **HOLD** — stay in, nothing has changed',
+'__Opening__',
+        '🟢 **BUY UP** / 🔴 **BUY DOWN** — then pick **how much of the port** goes in.',
+        '',
+        '__Closing__',
+        '💰 **CASH 25 / 50 / 75%** — take that much of the position off, the rest stays on',
+        '💯 **ALL OUT** — everything out, the call closes and is scored',
+        '✅ **CASH AT PROFIT** / ❌ **CUT LOSS** — close it and score it',
+        '✋ **HOLD** — nothing has changed',
       ].join('\n'),
     )
     .setFooter({ text: `Analysts only · ${settings.disclaimer}` });
@@ -96,15 +119,15 @@ export function analystPanel(config, settings) {
         new ButtonBuilder()
           .setCustomId(`${PANEL_PREFIX}${PANEL_ACTIONS.CASH_25}`)
           .setStyle(ButtonStyle.Secondary)
-          .setLabel('25%'),
+          .setLabel('CASH 25%'),
         new ButtonBuilder()
           .setCustomId(`${PANEL_PREFIX}${PANEL_ACTIONS.CASH_50}`)
           .setStyle(ButtonStyle.Secondary)
-          .setLabel('50%'),
+          .setLabel('CASH 50%'),
         new ButtonBuilder()
           .setCustomId(`${PANEL_PREFIX}${PANEL_ACTIONS.CASH_75}`)
           .setStyle(ButtonStyle.Secondary)
-          .setLabel('75%'),
+          .setLabel('CASH 75%'),
         new ButtonBuilder()
           .setCustomId(`${PANEL_PREFIX}${PANEL_ACTIONS.ALL_OUT}`)
           .setStyle(ButtonStyle.Primary)
@@ -257,16 +280,30 @@ export function guideMessage(config, settings) {
           `**Get in at that price or better — never chase it.**`,
       },
       {
-        name: '💰 25% / 50% / 75% — take some off',
+        name: '📊 The % on an entry — how much of your book',
         value:
-          'Sell that share of your position and **keep the rest running**. ' +
+          'A call arrives with a size: **25 / 50 / 75% of port**, or **full port**. ' +
+          'That is how much of your Kalshi balance the analyst is putting in — not a price, and not a target. ' +
+          'Size down if that is more than you are comfortable losing.',
+      },
+      {
+        name: '💰 CASH 25% / 50% / 75% — take some off',
+        value:
+          'Sell that share of the position and **keep the rest running**. ' +
           'This is locking in part of the move, not the exit. The call stays open and is not scored yet.',
       },
       {
-        name: '💯 ALL OUT (full port) — everything',
+        name: '💯 ALL OUT — everything',
         value:
           '**Close the whole position now.** Nothing is left on. ' +
           'The call ends here and goes on the record at this price.',
+      },
+      {
+        name: '🗳️ After a call closes — you get a vote',
+        value:
+          'The bot asks whether **you** actually made money. It scores the direction from the price; ' +
+          'only you know when you got in and out. Both answers are published together — ' +
+          'a call the bot scored a win where the room lost money means it came too late to act on.',
       },
       {
         name: '✅ CASH AT PROFIT — take the win',
@@ -293,6 +330,111 @@ export function guideMessage(config, settings) {
     .setFooter({
       text: `${settings.disclaimer} · You are responsible for your own money and your own size.`,
     });
+
+  return { embeds: [embed] };
+}
+
+/** The size picker shown after a direction is chosen. Ephemeral, one tap. */
+export function entrySizeRow(direction) {
+  return new ActionRowBuilder().addComponents(
+    ENTRY_SIZES.map((size) =>
+      new ButtonBuilder()
+        .setCustomId(`${SIZE_PREFIX}${direction}:${size.percent}`)
+        .setStyle(size.percent === 100 ? ButtonStyle.Primary : ButtonStyle.Secondary)
+        .setLabel(size.label),
+    ),
+  );
+}
+
+/** "pick:size:up:50" -> { direction: 'up', percent: 50 }. */
+export function parseSize(customId) {
+  if (!customId?.startsWith(SIZE_PREFIX)) return null;
+  const [direction, raw] = customId.slice(SIZE_PREFIX.length).split(':');
+  const percent = Number(raw);
+  if (!Object.values(DIRECTIONS).includes(direction)) return null;
+  if (!Number.isFinite(percent) || percent <= 0 || percent > 100) return null;
+  return { direction, percent };
+}
+
+/** Did you make money on this one? Asked of the room, not the price feed. */
+export function voteRow(pickId) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`${VOTE_PREFIX}${pickId}:profit`)
+      .setStyle(ButtonStyle.Success)
+      .setLabel('I made profit')
+      .setEmoji('🟢'),
+    new ButtonBuilder()
+      .setCustomId(`${VOTE_PREFIX}${pickId}:loss`)
+      .setStyle(ButtonStyle.Danger)
+      .setLabel('I lost')
+      .setEmoji('🔴'),
+  );
+}
+
+/** "pick:vote:abc123:profit" -> { pickId: 'abc123', choice: 'profit' }. */
+export function parseVote(customId) {
+  if (!customId?.startsWith(VOTE_PREFIX)) return null;
+  const [pickId, choice] = customId.slice(VOTE_PREFIX.length).split(':');
+  if (!pickId || !['profit', 'loss'].includes(choice)) return null;
+  return { pickId, choice };
+}
+
+/**
+ * The short version, for the room that is chatting rather than trading.
+ *
+ * The full call embed has entry, window, invalidation and a footer. In a busy
+ * chat that is a wall nobody reads on a phone, and the one thing that matters —
+ * which way, how much, now — gets lost inside it.
+ */
+export function simpleAnnouncement(pick) {
+  const side = pick.direction === DIRECTIONS.UP ? '🟢 **UP**' : '🔴 **DOWN**';
+  const size = pick.sizePercent ? ` · **${pick.sizePercent}% of port**` : '';
+  return {
+    content: `${side} **${pick.asset}** ${pick.minutes}m${size}${pick.entry != null ? ` @ ${pick.entryLabel ?? pick.entry}` : ''}`,
+  };
+}
+
+/** The short version of an exit. */
+export function simpleExit({ pick, percent, closed, outcome }) {
+  const what = closed
+    ? outcome === 'win'
+      ? '✅ **CLOSED — profit**'
+      : outcome === 'loss'
+        ? '❌ **CLOSED — loss**'
+        : '➖ **CLOSED — flat**'
+    : `💰 **TAKE ${percent}% OFF** — rest stays on`;
+  return { content: `${what} · **${pick.asset}** ${pick.minutes}m` };
+}
+
+/**
+ * What the room said, next to what the price said.
+ *
+ * Published together on purpose. The two disagreeing is the useful signal: a
+ * call the feed scored a win where most people lost money was called too late
+ * to act on, and that is worth knowing.
+ */
+export function voteResultMessage({ pick, tally, outcome, shareBarText, sharePercent }) {
+  const side = pick.direction === DIRECTIONS.UP ? '🟢 LONG' : '🔴 SHORT';
+  const scored = { win: '✅ Win', loss: '❌ Loss', break_even: '➖ Flat', void: '🚫 Void' }[outcome] ?? '—';
+
+  const embed = new EmbedBuilder()
+    .setColor(tally.profitShare === null ? COLORS.warning : tally.profitShare >= 0.5 ? COLORS.success : COLORS.danger)
+    .setTitle(`📊 How the room did — ${side} ${pick.asset} ${pick.minutes}m`)
+    .setDescription(
+      tally.total === 0
+        ? 'Nobody voted on this one.'
+        : `${shareBarText}\n**${sharePercent}** of the room made money — ${tally.profit} up, ${tally.loss} down, ${tally.total} voted.`,
+    )
+    .addFields(
+      { name: 'The bot scored it', value: scored, inline: true },
+      {
+        name: 'The room says',
+        value: tally.total === 0 ? '—' : tally.profitShare >= 0.5 ? '🟢 Made money' : '🔴 Lost money',
+        inline: true,
+      },
+    )
+    .setTimestamp();
 
   return { embeds: [embed] };
 }

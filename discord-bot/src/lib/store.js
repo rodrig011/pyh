@@ -13,6 +13,7 @@ const EMPTY = {
   unassigned: [],
   picks: [],
   dmReplies: {},
+  votes: [],
 };
 
 /**
@@ -167,6 +168,28 @@ export function createStore(filePath) {
       data.dmReplies[userId] = at;
       save();
       return at;
+    },
+
+    recordVote(vote) {
+      data.votes.push(vote);
+      save();
+      return vote;
+    },
+
+    getVote(pickId) {
+      return data.votes.find((vote) => vote.pickId === pickId) ?? null;
+    },
+
+    putVote(vote) {
+      const index = data.votes.findIndex((item) => item.pickId === vote.pickId);
+      if (index === -1) data.votes.push(vote);
+      else data.votes[index] = vote;
+      save();
+      return vote;
+    },
+
+    listVotes(filter = () => true) {
+      return data.votes.filter(filter);
     },
 
     /** Deletes matching calls. Used to undo a record the bot scored wrongly. */

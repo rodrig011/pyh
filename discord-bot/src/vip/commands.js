@@ -47,10 +47,12 @@ import {
   handleCashModal,
   handlePanelButton,
   handlePickAutocomplete,
+  handleSizeButton,
+  handleVoteButton,
   handlePicks,
   handleSettleButton,
 } from '../picks/commands.js';
-import { CASH_MODAL, PANEL_PREFIX } from '../picks/panel.js';
+import { CASH_MODAL, PANEL_PREFIX, SIZE_PREFIX, VOTE_PREFIX } from '../picks/panel.js';
 
 const commandLog = createLogger('commands');
 
@@ -1407,6 +1409,12 @@ export async function handleInteraction(interaction, context) {
   }
   if (interaction.isButton() && interaction.customId?.startsWith(SETTLE_PREFIX)) {
     return handleSettleButton(interaction, context);
+  }
+  if (interaction.isButton() && interaction.customId?.startsWith(SIZE_PREFIX)) {
+    return handleSizeButton(interaction, context);
+  }
+  if (interaction.isButton() && interaction.customId?.startsWith(VOTE_PREFIX)) {
+    return handleVoteButton(interaction, context);
   }
   if (interaction.isButton() && interaction.customId?.startsWith(PANEL_PREFIX)) {
     return handlePanelButton(interaction, context);
