@@ -30,20 +30,20 @@ export const ENTRY_SIZES = [
 ];
 /**
  * On Kalshi a position is closed whole — you sell the contracts you hold, you
- * do not sell a quarter of them. So there is no partial exit here: crashing out
+ * do not sell a quarter of them. So there is no partial exit here: cashing out
  * and cutting a loss both take everything, and the only other thing an analyst
  * can say is that nothing has changed.
  */
 export const PANEL_ACTIONS = {
   UP: 'up',
   DOWN: 'down',
-  CRASH_OUT: 'crash_out',
+  CASH_OUT: 'cash_out',
   CUT_LOSS: 'cut_loss',
   HOLD: 'hold',
 };
 
 /** Every exit closes the whole position. Only holding leaves it running. */
-export const CLOSING_ACTIONS = new Set([PANEL_ACTIONS.CRASH_OUT, PANEL_ACTIONS.CUT_LOSS]);
+export const CLOSING_ACTIONS = new Set([PANEL_ACTIONS.CASH_OUT, PANEL_ACTIONS.CUT_LOSS]);
 
 /** "pick:panel:up" -> "up". */
 export function panelAction(customId) {
@@ -74,7 +74,7 @@ export function analystPanel(config, settings) {
         '_Every call carries a size. The room cannot act on a direction alone._',
         '',
         '__Closing__ — a position comes out whole, never in pieces',
-        '💸 **CRASH OUT** — everything out with the profit. The call closes and is scored.',
+        '💸 **CASH OUT** — everything out with the profit. The call closes and is scored.',
         '❌ **CUT LOSS** — everything out at a loss.',
         '✋ **HOLD** — nothing has changed, stay in.',
       ].join('\n'),
@@ -98,11 +98,11 @@ export function analystPanel(config, settings) {
       ),
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-          .setCustomId(`${PANEL_PREFIX}${PANEL_ACTIONS.CRASH_OUT}`)
+          .setCustomId(`${PANEL_PREFIX}${PANEL_ACTIONS.CASH_OUT}`)
           .setStyle(ButtonStyle.Success)
-          .setLabel('CRASH OUT')
+          .setLabel('CASH OUT')
           .setEmoji('💸'),
-        // The counterpart to crashing out. A console that can only announce
+        // The counterpart to cashing out. A console that can only announce
         // wins teaches the room to sit through the losers.
         new ButtonBuilder()
           .setCustomId(`${PANEL_PREFIX}${PANEL_ACTIONS.CUT_LOSS}`)
@@ -129,9 +129,9 @@ export function managementMessage({ action, analystId, pick, note = null, price 
   const subject = pick ? `**${pick.asset}** ${pick.minutes}m` : 'your open position';
 
   const copy = {
-    [PANEL_ACTIONS.CRASH_OUT]: {
+    [PANEL_ACTIONS.CASH_OUT]: {
       colour: COLORS.success,
-      title: '💸 Crash out',
+      title: '💸 Cash out',
       body: `<@${analystId}> is out of ${subject} — **everything**, with the profit. Close your whole position.`,
     },
     [PANEL_ACTIONS.CUT_LOSS]: {
@@ -208,7 +208,7 @@ export function guideMessage(config, settings) {
           'Size down if that is more than you are comfortable losing.',
       },
       {
-        name: '💸 CRASH OUT — everything, in profit',
+        name: '💸 CASH OUT — everything, in profit',
         value:
           '**Sell your whole position now.** Your money comes out with the profit on it. ' +
           'There is no half-way here — a position on Kalshi comes out whole. ' +
@@ -360,7 +360,7 @@ export function simpleAnnouncement(pick) {
 export function simpleExit({ pick, outcome }) {
   const what =
     outcome === 'win'
-      ? '💸 **CRASH OUT — everything out, in profit**'
+      ? '💸 **CASH OUT — everything out, in profit**'
       : outcome === 'loss'
         ? '❌ **CUT LOSS — everything out**'
         : '➖ **CLOSED — flat**';

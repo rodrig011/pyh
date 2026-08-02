@@ -222,7 +222,7 @@ the signal is worth less the longer it takes to send.
 | ✏️ **Other %** | A size the four presets do not cover — 15, 12.5, anything |
 | 💰 **CASH AT %** | Asks for the percentage, then tells the room to take that much off |
 
-| 💸 **CRASH OUT** | Everything out with the profit; the call ends and is scored |
+| 💸 **CASH OUT** | Everything out with the profit; the call ends and is scored |
 | ❌ **CUT LOSS** | Everything out at a loss |
 | ✋ **HOLD** | Stay in, nothing has changed |
 

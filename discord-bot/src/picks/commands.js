@@ -915,7 +915,7 @@ export async function handleVoteButton(interaction, { store }) {
 }
 
 /**
- * Crashing out, cutting a loss, or holding.
+ * Cashing out, cutting a loss, or holding.
  *
  * Both exits END the call, and both take the whole position — on Kalshi you
  * sell the contracts you hold, not a quarter of them. The exit is the moment
