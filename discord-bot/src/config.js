@@ -88,6 +88,8 @@ export function loadVipConfig() {
     logUnmatchedPayments: bool('LOG_UNMATCHED_PAYMENTS', false),
     // Category the private ticket channels are created under (optional).
     ticketCategoryId: str('TICKET_CATEGORY_ID'),
+    // DM every new arrival with the storefront so nobody has to find a command.
+    welcomeDm: bool('WELCOME_DM', true),
     // How long a paid membership lasts, and when to warn before it runs out.
     subscriptionDays: int('SUBSCRIPTION_DAYS', 30),
     reminderDaysBefore: numberList('SUBSCRIPTION_REMINDER_DAYS', [3, 1]),

@@ -76,6 +76,20 @@ Every payment buys `SUBSCRIPTION_DAYS` (30 by default) of access, not a permanen
 Mods see every active membership with `/vip-admin members` and can end one immediately
 with `/vip-admin revoke` (useful for a Zelle chargeback).
 
+## The storefront
+
+`/vip-admin panel` posts a buttoned storefront: a button per tier that opens the
+purchase instructions privately, one for the member's own membership, and one to open a
+ticket. Nobody has to know a command exists, which is most of the reason people never
+buy.
+
+Every new member is also **DM'd the same storefront when they join** (`WELCOME_DM`),
+minus the ticket button — a ticket needs a guild and a DM has none — plus a link back to
+the server. Those buttons work from the DM: the guild falls back to the one the bot
+serves.
+
+Tiers that are coming soon appear in the list but have no button to press.
+
 ## Tickets
 
 `/vip-admin panel` posts a button members press when a payment has not landed. It opens

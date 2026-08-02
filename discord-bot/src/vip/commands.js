@@ -32,7 +32,8 @@ import {
 } from './subscriptions.js';
 import { sendDm, sendLog } from './notify.js';
 import { computeStats } from './stats.js';
-import { TICKET_CLOSE, TICKET_OPEN, closeTicket, openTicket, panelMessage } from './tickets.js';
+import { TICKET_CLOSE, TICKET_OPEN, closeTicket, openTicket } from './tickets.js';
+import { STATUS_BUTTON, storefrontMessage, tierFromButton } from './storefront.js';
 
 const commandLog = createLogger('commands');
 
@@ -340,32 +341,27 @@ async function cardCheckoutRow(stripe, config, order) {
   }
 }
 
-async function handleBuy(interaction, { store, config, stripe }) {
-  const tier = interaction.options.getInteger('tier');
-
-  // Guards against a stale command registration still offering a locked tier.
-  if (!availableTiers(config.tiers).includes(tier)) {
-    await interaction.reply({
-      content: `**${TIER_NAMES[tier]}** is not on sale yet — coming soon. Use \`/vip prices\` to see what is available.`,
-      flags: MessageFlags.Ephemeral,
-    });
-    return;
-  }
-
-  // Opening a Stripe checkout takes a moment; defer so Discord does not time out.
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+/**
+ * The purchase instructions for one tier.
+ *
+ * Shared by the slash command and the storefront buttons — and the buttons work
+ * in a DM, where interaction.guildId is null, so the guild falls back to the one
+ * this bot serves.
+ */
+async function buyResponse(interaction, { store, config, stripe }, tier) {
+  const guildId = interaction.guildId ?? config.guildId;
   expireStaleOrders(store);
 
   const existing = store
     .pendingOrdersFor(interaction.user.id)
-    .find((order) => order.tier === tier && order.guildId === interaction.guildId);
+    .find((order) => order.tier === tier && order.guildId === guildId);
 
   const order =
     existing ??
     createOrder(store, {
       userId: interaction.user.id,
       userTag: interaction.user.tag,
-      guildId: interaction.guildId,
+      guildId,
       tier,
       config,
     });
@@ -391,16 +387,33 @@ async function handleBuy(interaction, { store, config, stripe }) {
 
   const cardRow = await cardCheckoutRow(stripe, config, order);
 
-  await interaction.editReply({
+  return {
     embeds: [embed],
     components: cardRow ? [cardRow] : [],
     content: existing ? 'You already had an open order for this tier, so here is its code again:' : undefined,
-  });
+  };
+}
+
+async function handleBuy(interaction, context) {
+  const tier = interaction.options.getInteger('tier');
+
+  // Guards against a stale command registration still offering a locked tier.
+  if (!availableTiers(context.config.tiers).includes(tier)) {
+    await interaction.reply({
+      content: `**${TIER_NAMES[tier]}** is not on sale yet — coming soon. Use \`/vip prices\` to see what is available.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Opening a Stripe checkout takes a moment; defer so Discord does not time out.
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  await interaction.editReply(await buyResponse(interaction, context, tier));
 }
 
 async function handleStatus(interaction, { store, config }) {
   expireStaleOrders(store);
-  const subscription = store.getSubscription(interaction.guildId, interaction.user.id);
+  const subscription = store.getSubscription(interaction.guildId ?? config.guildId, interaction.user.id);
   const orders = store
     .listOrders((order) => order.userId === interaction.user.id)
     .sort((a, b) => b.createdAt - a.createdAt)
@@ -594,8 +607,25 @@ async function handleAdminCancel(interaction, { store, config }) {
   await interaction.editReply(`Order \`${order.code}\` from <@${order.userId}> cancelled.`);
 }
 
-/** Members open tickets from a button; mods close them from another. */
+/** Every button on the storefront and inside a ticket comes through here. */
 async function handleButton(interaction, context) {
+  const buyTier = tierFromButton(interaction.customId);
+  if (buyTier !== null) {
+    if (!availableTiers(context.config.tiers).includes(buyTier)) {
+      return interaction.reply({
+        content: `**${TIER_NAMES[buyTier]}** is not on sale yet — coming soon.`,
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    await interaction.editReply(await buyResponse(interaction, context, buyTier));
+    return undefined;
+  }
+
+  if (interaction.customId === STATUS_BUTTON) {
+    return handleStatus(interaction, context);
+  }
+
   if (interaction.customId === TICKET_OPEN) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     try {
@@ -639,9 +669,10 @@ async function handleButton(interaction, context) {
 }
 
 async function handleAdminPanel(interaction, { config }) {
-  await interaction.channel.send(panelMessage(config));
+  await interaction.channel.send(storefrontMessage(config));
   await interaction.editReply(
-    'Panel posted. Pin it so members can find it. The bot needs "Manage Channels" to create the private ticket channels.',
+    'Panel posted — members buy and check their membership from the buttons, no commands needed. Pin it. ' +
+      'The bot needs "Manage Channels" for the ticket button to work.',
   );
 }
 

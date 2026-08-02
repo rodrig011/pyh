@@ -145,3 +145,67 @@ test('a non-mod is turned away from /vip-admin', async (t) => {
 
   assert.match(replies[0].content, /Only the mod team/);
 });
+
+function fakeButton(customId, { guildId = 'g' } = {}) {
+  const replies = [];
+  return {
+    replies,
+    interaction: {
+      customId,
+      guildId,
+      user: { id: 'u1', tag: 'buyer#0001', username: 'buyer' },
+      deferred: false,
+      replied: false,
+      isButton: () => true,
+      isChatInputCommand: () => false,
+      memberPermissions: { has: () => false },
+      deferReply: async function () {
+        this.deferred = true;
+      },
+      reply: async (payload) => replies.push(payload),
+      editReply: async (payload) => replies.push(payload),
+    },
+  };
+}
+
+test('the buy button produces the same instructions as the command', async (t) => {
+  const store = freshStore(t);
+  const { interaction, replies } = fakeButton('vip:buy:1');
+
+  await handleInteraction(interaction, { store, config, client: fakeClient });
+
+  const embed = replies[0].embeds[0].toJSON();
+  assert.match(embed.title, /Signals/);
+  assert.match(embed.description, /pay@example\.com/, 'the payment instructions');
+  assert.equal(store.listOrders().length, 1, 'an order was created');
+});
+
+test('the buy button works from a DM, where there is no guild', async (t) => {
+  const store = freshStore(t);
+  const { interaction, replies } = fakeButton('vip:buy:1', { guildId: null });
+
+  await handleInteraction(interaction, { store, config: { ...config, guildId: 'g' }, client: fakeClient });
+
+  assert.ok(replies[0].embeds?.[0], 'answered');
+  assert.equal(store.listOrders()[0].guildId, 'g', 'filed under the bot\'s guild');
+});
+
+test('a locked tier button says coming soon instead of taking an order', async (t) => {
+  const store = freshStore(t);
+  const locked = { ...config, tiers: { ...config.tiers, 3: { ...config.tiers[3], roleId: undefined } } };
+  const { interaction, replies } = fakeButton('vip:buy:3');
+
+  await handleInteraction(interaction, { store, config: locked, client: fakeClient });
+
+  assert.match(replies[0].content, /not on sale yet/);
+  assert.equal(store.listOrders().length, 0);
+});
+
+test('the status button answers without a command', async (t) => {
+  const store = freshStore(t);
+  const { interaction, replies } = fakeButton('vip:status');
+
+  await handleInteraction(interaction, { store, config, client: fakeClient });
+
+  assert.match(replies[0].content, /no membership yet/);
+});

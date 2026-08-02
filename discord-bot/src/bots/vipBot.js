@@ -11,6 +11,7 @@ import { expireStaleOrders } from '../vip/orders.js';
 import { processPayment } from '../vip/paymentFlow.js';
 import { sweepSubscriptions } from '../vip/subscriptionSweeper.js';
 import { checkRoleSetup } from '../vip/roles.js';
+import { storefrontMessage } from '../vip/storefront.js';
 
 const log = createLogger('vip');
 
@@ -111,6 +112,22 @@ export function createVipBot(config = loadVipConfig()) {
     setInterval(() => {
       housekeeping().catch((error) => log.error(`Housekeeping failed: ${error.message}`));
     }, config.sweepIntervalMinutes * 60 * 1000).unref();
+  });
+
+  // Nobody reads pinned messages on the way in. A DM with the buttons is the
+  // one moment a new arrival is actually paying attention.
+  client.on(Events.GuildMemberAdd, async (member) => {
+    if (!config.welcomeDm) return;
+    if (member.user.bot) return;
+    if (member.guild.id !== config.guildId) return;
+
+    try {
+      await member.send(storefrontMessage(config, { includeTicket: false, welcome: true }));
+      log.info(`Welcomed ${member.user.tag}`);
+    } catch (error) {
+      // Closed DMs are the normal case, not a failure worth shouting about.
+      log.debug(`Could not DM ${member.user.tag}: ${error.message}`);
+    }
   });
 
   client.on(Events.InteractionCreate, async (interaction) => {
