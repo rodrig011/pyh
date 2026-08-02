@@ -122,6 +122,22 @@ the preview is the one chance anyone has to notice the number is wrong. **Pinned
 messages are kept** even when they are text (`keep_pinned:False` to sweep those too),
 since a pin is usually the channel rules somebody meant to outlast everything else.
 
+Two role filters narrow who is in scope, and both are decided before the photo rule
+gets a say:
+
+```
+/photo-clean channel:#photos except_from:@MOD      keeps everything the mods posted
+/photo-clean channel:#photos only_from:@Tier 1     only sweeps that role, leaves the rest
+```
+
+`except_from` exempts a role outright — a mod's plain text survives. `only_from` does
+the opposite: nobody without that role is touched at all. They combine, and the
+exemption wins when a member holds both, because that is the safer reading of the two.
+
+Since tiers stack, `only_from:@Tier 1` covers every paying member: a Tier 3 buyer holds
+the Tier 1 role too. Someone who has **left the server** carries no roles, so `only_from`
+never sweeps them.
+
 It uses the very same rule as live enforcement, so a cleanup can never delete something
 the channel would allow straight back in. Discord refuses to bulk-delete messages over
 14 days old, so those are removed one at a time and it takes a while — the reply says

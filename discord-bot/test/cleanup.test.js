@@ -74,5 +74,63 @@ test('system messages and bot posts are left alone', () => {
 
 test('an empty channel produces an empty plan rather than an error', () => {
   const plan = planCleanup([], config, { now });
-  assert.deepEqual(plan, { remove: [], keep: [], recent: [], old: [] });
+  assert.deepEqual(plan, { remove: [], keep: [], skipped: 0, recent: [], old: [] });
+});
+
+// Role filters decide who is in scope at all, before the photo rule gets a say.
+
+const MOD = 'role-mod';
+const TIER1 = 'role-tier-1';
+
+const from = (id, roleIds, extra = {}) => text(id, { memberRoleIds: roleIds, ...extra });
+
+test("except_from keeps a role's messages even when they are plain text", () => {
+  const plan = planCleanup([from('mod', [MOD]), from('member', [TIER1])], config, {
+    now,
+    exceptRoleIds: [MOD],
+  });
+
+  assert.deepEqual(plan.remove.map((m) => m.id), ['member']);
+  assert.deepEqual(plan.keep.map((m) => m.id), ['mod']);
+  assert.equal(plan.skipped, 1);
+});
+
+test('only_from restricts the sweep to one role and leaves everyone else', () => {
+  const plan = planCleanup(
+    [from('vip', [TIER1]), from('nobody', []), from('mod', [MOD])],
+    config,
+    { now, onlyRoleIds: [TIER1] },
+  );
+
+  assert.deepEqual(plan.remove.map((m) => m.id), ['vip']);
+  assert.equal(plan.skipped, 2, 'the other two were out of scope');
+});
+
+test('except_from wins over only_from when a member holds both', () => {
+  const plan = planCleanup([from('both', [MOD, TIER1])], config, {
+    now,
+    onlyRoleIds: [TIER1],
+    exceptRoleIds: [MOD],
+  });
+
+  assert.equal(plan.remove.length, 0, 'the exemption is the safer reading');
+});
+
+test('a member who has left is never swept by only_from', () => {
+  // No member object means no roles, so they can never match — and deleting the
+  // history of someone who is gone is exactly what nobody asked for.
+  const plan = planCleanup([text('gone')], config, { now, onlyRoleIds: [TIER1] });
+
+  assert.equal(plan.remove.length, 0);
+  assert.equal(plan.skipped, 1);
+});
+
+test('the role filters never rescue a breach they do not cover', () => {
+  const plan = planCleanup([from('vip', [TIER1])], config, { now, exceptRoleIds: [MOD] });
+  assert.deepEqual(plan.remove.map((m) => m.id), ['vip']);
+});
+
+test('with no role filter nothing is skipped', () => {
+  const plan = planCleanup([text('1'), photo('2')], config, { now });
+  assert.equal(plan.skipped, 0);
 });

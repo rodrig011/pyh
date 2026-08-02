@@ -60,6 +60,18 @@ export function buildPhotoCommands() {
           .setDescription('Keep pinned messages even if they are text (default: yes)')
           .setRequired(false),
       )
+      .addRoleOption((option) =>
+        option
+          .setName('except_from')
+          .setDescription('Never delete anything from members with this role (e.g. MOD)')
+          .setRequired(false),
+      )
+      .addRoleOption((option) =>
+        option
+          .setName('only_from')
+          .setDescription('Only delete messages from members with this role')
+          .setRequired(false),
+      )
       .toJSON(),
   ];
 }
@@ -181,8 +193,20 @@ export function createPhotoBot(config = loadPhotoConfig()) {
         return;
       }
 
+      const exceptRole = interaction.options.getRole('except_from');
+      const onlyRole = interaction.options.getRole('only_from');
+
       const messages = await fetchAllMessages(channel);
-      const plan = planCleanup(messages.map(toPlainMessage), config, { keepPinned });
+      const plan = planCleanup(messages.map(toPlainMessage), config, {
+        keepPinned,
+        exceptRoleIds: exceptRole ? [exceptRole.id] : [],
+        onlyRoleIds: onlyRole ? [onlyRole.id] : [],
+      });
+
+      const scope = [
+        exceptRole ? `never touching **@${exceptRole.name}**` : '',
+        onlyRole ? `only members with **@${onlyRole.name}**` : '',
+      ].filter(Boolean);
 
       // Deleting a channel's history cannot be undone, and the count is the
       // only chance anyone gets to notice it is wrong. Preview unless told.
@@ -190,13 +214,14 @@ export function createPhotoBot(config = loadPhotoConfig()) {
         await interaction.editReply(
           [
             `**Preview — nothing has been deleted.**`,
-            `Scanned **${messages.length}** message(s) in ${channel}.`,
-            `Would delete **${plan.remove.length}** and keep **${plan.keep.length}** photo(s).`,
+            `Scanned **${messages.length}** message(s) in ${channel}${scope.length > 0 ? `, ${scope.join(' and ')}` : ''}.`,
+            `Would delete **${plan.remove.length}** and keep **${plan.keep.length}**.`,
+            plan.skipped > 0 ? `_${plan.skipped} left alone by the role filter._` : '',
             plan.old.length > 0
               ? `_${plan.old.length} are over 14 days old and have to go one by one, which is slower._`
               : '',
             '',
-            `Run \`/photo-clean channel:#${channel.name} confirm:True\` to do it. **This cannot be undone.**`,
+            `Run the same command again with \`confirm:True\` to do it. **This cannot be undone.**`,
           ]
             .filter(Boolean)
             .join('\n'),
@@ -237,7 +262,8 @@ export function createPhotoBot(config = loadPhotoConfig()) {
       log.info(`Cleaned #${channel.id}: ${deleted} deleted, ${plan.keep.length} kept`);
       await interaction.editReply(
         [
-          `**Done.** Deleted **${deleted}** message(s) from ${channel}, kept **${plan.keep.length}** photo(s).`,
+          `**Done.** Deleted **${deleted}** message(s) from ${channel}, kept **${plan.keep.length}**.`,
+          plan.skipped > 0 ? `**${plan.skipped}** were left alone by the role filter.` : '',
           failed > 0 ? `**${failed}** could not be deleted — usually too old or already gone.` : '',
         ]
           .filter(Boolean)
