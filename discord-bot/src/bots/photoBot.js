@@ -115,26 +115,36 @@ export function createPhotoBot(config = loadPhotoConfig()) {
     // which looks exactly like a bot that is simply broken.
     log.info('Message Content is enabled — text in those channels will be read and removed');
 
+    // Everything below also goes to Discord when a log channel is set. Reading
+    // deploy logs on a phone is miserable, and the whole point of a diagnostic
+    // is that it reaches whoever needs it.
+    const report = [];
+    const say = (level, line) => {
+      log[level](line);
+      report.push(line);
+    };
+
     const guilds = [...ready.guilds.cache.values()];
-    log.info(
+    say(
+      guilds.length === 0 ? 'error' : 'info',
       guilds.length === 0
-        ? 'The bot is not in any server — the invite link was never opened, or it was removed'
+        ? '❌ The bot is not in any server — the invite link was never opened, or it was removed'
         : `In ${guilds.length} server(s): ${guilds.map((guild) => guild.name).join(', ')}`,
     );
 
     if (config.channelIds.length === 0) {
-      log.warn('PHOTO_ONLY_CHANNEL_IDS is empty: the bot is not watching any channel');
+      say('warn', '❌ PHOTO_ONLY_CHANNEL_IDS is empty: the bot is not watching any channel');
     } else {
       // Each id is resolved rather than counted. The old line counted entries in
       // an environment variable and said "Watching 1 channel(s)" for an id that
       // pointed at nothing.
       const checks = await checkWatchedChannels(client, config);
-      for (const check of checks) {
-        if (check.ok) log.info(check.label);
-        else log.error(check.label);
-      }
+      for (const check of checks) say(check.ok ? 'info' : 'error', check.label);
+
       const live = checks.filter((check) => check.ok).length;
-      if (live === 0) log.error('No configured channel can actually be policed — nothing will be deleted');
+      if (live === 0) {
+        say('error', '❌ No configured channel can actually be policed — nothing will be deleted');
+      }
     }
 
     // Registered per guild rather than globally: guild commands appear at once,
@@ -142,15 +152,37 @@ export function createPhotoBot(config = loadPhotoConfig()) {
     for (const guild of guilds) {
       try {
         await guild.commands.set(buildPhotoCommands());
-        log.info(`/photo-clean registered in ${guild.name}`);
+        say('info', `✅ /photo-clean registered in ${guild.name}`);
       } catch (error) {
-        log.error(
+        say(
+          'error',
           isMissingCommandScope(error)
-            ? `Discord refused the commands in ${guild.name}: the bot was invited without the ` +
-              '"applications.commands" scope. Re-invite it with that scope — nothing in the code can fix this.'
-            : `Could not register /photo-clean in ${guild.name}: ${error.message}`,
+            ? `❌ Discord refused the commands in ${guild.name}: the bot was invited without the ` +
+              '**applications.commands** scope. Re-invite it with that scope — nothing in the code can fix this.'
+            : `❌ Could not register /photo-clean in ${guild.name}: ${error.message}`,
         );
       }
+    }
+
+    if (config.logChannelId) {
+      const channel = await client.channels.fetch(config.logChannelId).catch(() => null);
+      if (channel?.isTextBased()) {
+        await channel
+          .send({
+            embeds: [
+              new EmbedBuilder()
+                .setColor(report.some((line) => line.startsWith('❌')) ? COLORS.danger : COLORS.success)
+                .setTitle('📸 Photos bot — setup check')
+                .setDescription(report.join('\n'))
+                .setTimestamp(),
+            ],
+          })
+          .catch(() => null);
+      }
+    } else {
+      log.warn(
+        'PHOTO_ONLY_LOG_CHANNEL_ID is not set, so this check only appears in the deploy logs',
+      );
     }
   });
 
