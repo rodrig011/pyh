@@ -344,3 +344,32 @@ test('an order with no name still matches on amount while it is fresh', (t) => {
   assert.equal(result.order.code, order.code);
   assert.equal(result.matchedBy, 'amount');
 });
+
+// A host with no persistent volume hands the bot an empty file on every deploy
+// and drops everything silently. The store has to be able to say so.
+
+test('the store reports whether anything was on disk at boot', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'vipstore-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const path = join(dir, 'store.json');
+
+  const first = createStore(path);
+  assert.equal(first.existedAtBoot, false, 'nothing there the first time');
+
+  createOrder(first, { userId: '1', guildId: 'g', tier: 1, config });
+
+  const second = createStore(path);
+  assert.equal(second.existedAtBoot, true, 'and there the second time');
+  assert.equal(second.summary().orders, 1);
+});
+
+test('the summary counts what a restart actually kept', (t) => {
+  const store = freshStore(t);
+  createOrder(store, { userId: '1', guildId: 'g', tier: 1, config });
+  createOrder(store, { userId: '2', guildId: 'g', tier: 2, config });
+
+  const summary = store.summary();
+  assert.equal(summary.orders, 2);
+  assert.equal(summary.subscriptions, 0);
+  assert.equal(summary.picks, 0);
+});

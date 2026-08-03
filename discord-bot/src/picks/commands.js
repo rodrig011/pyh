@@ -984,9 +984,20 @@ async function postManagement(interaction, { store, config }, { action, note = n
   if (!channel?.isTextBased()) return interaction.editReply('I could not find where to post that.');
 
   if (!open && action !== PANEL_ACTIONS.HOLD) {
+    // A dead end is not an answer. The usual reason a call is missing is that
+    // it already closed — either an exit or the window running out — and saying
+    // which turns "the button is broken" into "that one is already done".
+    const last = store
+      .listPicks((pick) => pick.guildId === guildId && pick.outcome)
+      .sort((a, b) => (b.settledAt ?? 0) - (a.settledAt ?? 0))[0];
+
     return interaction.editReply(
-      'There is no open call to close. Open one with 🟢 BUY UP or 🔴 BUY DOWN first — ' +
-        'otherwise there is nothing for the room to act on and nothing to score.',
+      last
+        ? `There is no open call. The last one — ${DIRECTION_LABEL[last.direction]} **${last.asset}** ` +
+          `${last.minutes}m by <@${last.analystId}> — closed ${time(Math.floor((last.settledAt ?? Date.now()) / 1000), 'R')} ` +
+          `as **${OUTCOME_LABEL[last.outcome]}**` +
+          `${last.closedBy === 'window' ? ' (the window ran out)' : ''}. Open a new one to trade again.`
+        : 'No call has been opened yet. Start one with 🟢 BUY UP or 🔴 BUY DOWN.',
     );
   }
 

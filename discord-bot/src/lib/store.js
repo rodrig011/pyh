@@ -23,8 +23,12 @@ const EMPTY = {
 export function createStore(filePath) {
   const path = resolve(filePath);
   let data = structuredClone(EMPTY);
+  // Whether anything was on disk when this started. On a host with no volume
+  // mounted, every deploy hands the bot an empty file and silently drops the
+  // open calls and memberships that were there a minute earlier.
+  const existedAtBoot = existsSync(path);
 
-  if (existsSync(path)) {
+  if (existedAtBoot) {
     try {
       data = { ...structuredClone(EMPTY), ...JSON.parse(readFileSync(path, 'utf8')) };
     } catch (error) {
@@ -41,6 +45,18 @@ export function createStore(filePath) {
 
   return {
     path,
+    existedAtBoot,
+
+    /** What is actually on disk, for a startup line worth reading. */
+    summary() {
+      return {
+        orders: Object.keys(data.orders).length,
+        subscriptions: Object.keys(data.subscriptions).length,
+        picks: data.picks.length,
+        payments: data.payments.length,
+      };
+    },
+
     get data() {
       return data;
     },

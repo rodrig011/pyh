@@ -99,6 +99,22 @@ export function createVipBot(config = loadVipConfig()) {
   client.once(Events.ClientReady, async (ready) => {
     log.info(`Logged in as ${ready.user.tag}`);
 
+    // Data loss on a host with no persistent volume is completely silent: the
+    // bot starts clean, and open calls and memberships from before the deploy
+    // are simply gone. Saying what was found makes it visible on the first
+    // restart rather than the first time somebody's call disappears.
+    const counts = store.summary();
+    if (store.existedAtBoot) {
+      log.info(
+        `Store at ${store.path}: ${counts.subscriptions} membership(s), ${counts.picks} call(s), ${counts.orders} order(s)`,
+      );
+    } else {
+      log.warn(
+        `No store found at ${store.path} — starting empty. If this happens on every deploy, ` +
+          'the folder is not on a persistent volume and every restart is wiping memberships and open calls.',
+      );
+    }
+
     if (config.deployCommandsOnStart) {
       await registerCommands(config).catch((error) =>
         log.error(`Could not register the commands: ${error.message}`),
