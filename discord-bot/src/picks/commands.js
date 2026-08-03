@@ -352,6 +352,20 @@ export function pickEmbed(pick, config) {
     value: pick.sizePercent ? `**${pick.sizePercent}% of port**` : '—',
     inline: true,
   });
+
+  // Which market this is. A member checking they are in the right play was
+  // comparing timestamps to work it out; the strike is the number the contract
+  // actually settles against, and the ticker is the market by name.
+  if (Number.isFinite(pick.strike)) {
+    fields.push({
+      name: 'Kalshi market',
+      value:
+        `${DIRECTION_LABEL[pick.direction]} **${formatPrice(pick.strike)}**` +
+        (pick.marketTicker ? `\n\`${pick.marketTicker}\`` : ''),
+    });
+  } else if (pick.marketTicker) {
+    fields.push({ name: 'Kalshi market', value: `\`${pick.marketTicker}\`` });
+  }
   if (pick.target != null) fields.push({ name: 'Target', value: priceLabel(pick, pick.target), inline: true });
   if (pick.stop != null) {
     fields.push({ name: 'Invalidation', value: priceLabel(pick, pick.stop), inline: true });
@@ -424,11 +438,21 @@ export async function quoteFor(config, asset, { direction = null, ticker = null,
       direction === DIRECTIONS.DOWN ? 'no' : direction === DIRECTIONS.UP ? 'yes' : settings.kalshi.side;
     const contract = await currentContract({ ...settings.kalshi, side }, { ticker, closesAt });
     if (contract.price !== null) {
+      const market = contract.market ?? {};
       return {
         price: contract.price,
         unit: 'cents',
-        source: `kalshi:${contract.market?.ticker ?? 'market'}`,
-        ticker: contract.market?.ticker ?? null,
+        source: `kalshi:${market.ticker ?? 'market'}`,
+        ticker: market.ticker ?? null,
+        // The level the contract settles against — "will BTC be above this".
+        // A member checking they are in the right play is checking this number,
+        // and until now the only way to tell was to compare timestamps.
+        strike: Number.isFinite(Number(market.floor_strike))
+          ? Number(market.floor_strike)
+          : Number.isFinite(Number(market.cap_strike))
+            ? Number(market.cap_strike)
+            : null,
+        marketClosesAt: Date.parse(market.close_time ?? '') || null,
         label: formatCents(contract.price),
       };
     }
@@ -436,8 +460,16 @@ export async function quoteFor(config, asset, { direction = null, ticker = null,
 
   const spot = await fetchSpotPrice(asset);
   return spot.price === null
-    ? { price: null, unit: null, source: null, ticker: null, label: '—' }
-    : { price: spot.price, unit: 'usd', source: spot.source, ticker: null, label: formatPrice(spot.price) };
+    ? { price: null, unit: null, source: null, ticker: null, strike: null, marketClosesAt: null, label: '—' }
+    : {
+        price: spot.price,
+        unit: 'usd',
+        source: spot.source,
+        ticker: null,
+        strike: null,
+        marketClosesAt: null,
+        label: formatPrice(spot.price),
+      };
 }
 
 /** Formats a price in whatever unit the call was opened in. */
@@ -505,6 +537,23 @@ export async function openCall(interaction, { store, config }, overrides = {}) {
     return { pick: null, channel: null, reason: 'no_size' };
   }
 
+  // Telling the room to buy UP while a DOWN is still open is telling them to
+  // hold both sides of the same contract. On Kalshi that is not a hedge, it is
+  // paying two spreads to be flat — and whichever exit is pressed next would be
+  // applied to whichever call happens to be newest.
+  const conflicting = store
+    .listPicks(
+      (pick) =>
+        !pick.outcome &&
+        pick.asset === asset &&
+        pick.analystId === interaction.user.id &&
+        pick.direction !== overrides.direction,
+    )
+    .sort((a, b) => b.createdAt - a.createdAt)[0];
+  if (conflicting) {
+    return { pick: null, channel: null, reason: 'opposite_open', conflicting };
+  }
+
   // The price at the moment of the call is what makes it gradeable later. A
   // feed that is down must not block the call — it only costs automatic
   // grading, and the analyst can still settle it by hand.
@@ -519,6 +568,8 @@ export async function openCall(interaction, { store, config }, overrides = {}) {
   let priceSource = null;
   let priceUnit = 'usd';
   let marketTicker = null;
+  let strike = null;
+  let marketClosesAt = null;
   if (entry === null) {
     const quote = await quoteFor(config, asset, {
       direction: overrides.direction ?? null,
@@ -528,6 +579,8 @@ export async function openCall(interaction, { store, config }, overrides = {}) {
     priceSource = quote.source;
     priceUnit = quote.unit ?? 'usd';
     marketTicker = quote.ticker ?? null;
+    strike = quote.strike ?? null;
+    marketClosesAt = quote.marketClosesAt ?? null;
   }
 
   const pick = buildPick({
@@ -551,6 +604,8 @@ export async function openCall(interaction, { store, config }, overrides = {}) {
   // trade — so the exit is priced against this ticker, not against whatever is
   // open at that second.
   pick.marketTicker = marketTicker;
+  pick.strike = strike;
+  pick.marketClosesAt = marketClosesAt;
 
   const channel = settings.channelId
     ? await interaction.client.channels.fetch(settings.channelId).catch(() => null)
@@ -585,7 +640,7 @@ export async function handleCall(interaction, { store, config }) {
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  const { pick, channel, reason } = await openCall(interaction, { store, config }, {
+  const { pick, channel, reason, conflicting } = await openCall(interaction, { store, config }, {
     direction: interaction.options.getString('direction'),
     sizePercent: interaction.options.getInteger('size'),
     asset: interaction.options.getString('asset'),
@@ -596,13 +651,7 @@ export async function handleCall(interaction, { store, config }) {
     note: interaction.options.getString('note'),
   });
 
-  if (!pick) {
-    return interaction.editReply(
-      reason === 'no_size'
-        ? 'Every call needs a size — say what percentage of the portfolio goes in.'
-        : 'I cannot post the call — check `PICKS_CHANNEL_ID` and that I can write there.',
-    );
-  }
+  if (!pick) return interaction.editReply(whyNotPosted(reason, conflicting));
 
   return interaction.editReply(
     `Call posted in ${channel}. ` +
@@ -610,6 +659,27 @@ export async function handleCall(interaction, { store, config }) {
         ? 'No live price was available, so you will be asked to grade it by hand.'
         : `Stamped at **${formatPrice(pick.entry)}** — it grades itself when the window closes.`),
   );
+}
+
+/**
+ * Why a call could not go out, in words the analyst can act on mid-candle.
+ *
+ * A bare "I could not post that" at the moment a signal is worth sending is
+ * the least useful sentence in the bot.
+ */
+function whyNotPosted(reason, conflicting) {
+  if (reason === 'no_size') {
+    return 'Every call needs a size — say what percentage of the portfolio goes in.';
+  }
+  if (reason === 'opposite_open' && conflicting) {
+    return (
+      `You still have a **${DIRECTION_LABEL[conflicting.direction]} ${conflicting.asset}** call open` +
+      (Number.isFinite(conflicting.entry) ? ` from ${priceLabel(conflicting, conflicting.entry)}` : '') +
+      '. Close it with 💸 **CASH OUT** or ❌ **CUT LOSS** first — the room cannot hold both sides of the same contract, ' +
+      'and an exit pressed now would land on whichever call is newest.'
+    );
+  }
+  return 'I cannot post the call — check `PICKS_CHANNEL_ID` and that I can write there.';
 }
 
 export async function handlePicks(interaction, { store, config }) {
@@ -1136,16 +1206,13 @@ export async function handleSizeButton(interaction, { store, config }) {
 
   await interaction.deferUpdate();
 
-  const { pick, channel } = await openCall(interaction, { store, config }, {
+  const { pick, channel, reason, conflicting } = await openCall(interaction, { store, config }, {
     direction: chosen.direction,
     sizePercent: chosen.percent,
   });
 
   if (!pick) {
-    return interaction.editReply({
-      content: 'I could not post that — check where calls go.',
-      components: [],
-    });
+    return interaction.editReply({ content: whyNotPosted(reason, conflicting), components: [] });
   }
 
   return interaction.editReply({
@@ -1177,13 +1244,13 @@ export async function handleSizeModal(interaction, { store, config }) {
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  const { pick, channel } = await openCall(interaction, { store, config }, {
+  const { pick, channel, reason, conflicting } = await openCall(interaction, { store, config }, {
     direction,
     sizePercent: percent,
     note: interaction.fields.getTextInputValue('note')?.trim() || null,
   });
 
-  if (!pick) return interaction.editReply('I could not post that — check where calls go.');
+  if (!pick) return interaction.editReply(whyNotPosted(reason, conflicting));
 
   return interaction.editReply(
     `${DIRECTION_LABEL[pick.direction]} **${pick.asset}** at **${percent}% of port** sent to ${channel}` +

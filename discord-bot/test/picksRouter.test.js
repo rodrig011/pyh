@@ -141,3 +141,102 @@ test('one analyst’s restore leaves another analyst alone', async () => {
   assert.equal(store.listPicks((pick) => pick.analystId === 'a').length, 5);
   assert.equal(store.listPicks((pick) => pick.analystId === 'b').length, 2);
 });
+
+test('an opposite call is refused while one is still open', async () => {
+  const store = freshStore();
+  const open = {
+    id: 'live',
+    guildId: 'g',
+    analystId: 'mod',
+    asset: 'BTC',
+    direction: 'down',
+    entry: 61,
+    priceUnit: 'cents',
+    outcome: null,
+    createdAt: Date.now(),
+  };
+  store.recordPick(open);
+
+  const interaction = fakeInteraction('call');
+  interaction.options.getString = (name) => (name === 'direction' ? 'up' : null);
+  interaction.options.getInteger = (name) => (name === 'size' ? 50 : null);
+  interaction.options.getNumber = () => null;
+
+  const { handleCall } = await import('../src/picks/commands.js');
+  await handleCall(interaction, { store, config });
+
+  // Nothing new was posted, and the analyst is told which call is in the way.
+  assert.equal(store.listPicks().length, 1);
+  const said = String(interaction.replies.at(-1));
+  assert.match(said, /still have a/);
+  assert.match(said, /CASH OUT/);
+});
+
+test('the same direction is not treated as a conflict', async () => {
+  const store = freshStore();
+  store.recordPick({
+    id: 'live',
+    guildId: 'g',
+    analystId: 'mod',
+    asset: 'BTC',
+    direction: 'up',
+    outcome: null,
+    createdAt: Date.now(),
+  });
+
+  const interaction = fakeInteraction('call');
+  interaction.options.getString = (name) => (name === 'direction' ? 'up' : null);
+  interaction.options.getInteger = (name) => (name === 'size' ? 50 : null);
+  interaction.options.getNumber = () => null;
+
+  const { handleCall } = await import('../src/picks/commands.js');
+  await handleCall(interaction, { store, config });
+
+  assert.doesNotMatch(String(interaction.replies.at(-1)), /still have a/);
+});
+
+test('another analyst’s open call never blocks yours', async () => {
+  const store = freshStore();
+  store.recordPick({
+    id: 'theirs',
+    guildId: 'g',
+    analystId: 'someone-else',
+    asset: 'BTC',
+    direction: 'down',
+    outcome: null,
+    createdAt: Date.now(),
+  });
+
+  const interaction = fakeInteraction('call');
+  interaction.options.getString = (name) => (name === 'direction' ? 'up' : null);
+  interaction.options.getInteger = (name) => (name === 'size' ? 50 : null);
+  interaction.options.getNumber = () => null;
+
+  const { handleCall } = await import('../src/picks/commands.js');
+  await handleCall(interaction, { store, config });
+
+  assert.doesNotMatch(String(interaction.replies.at(-1)), /still have a/);
+});
+
+test('a closed call in the other direction does not block anything', async () => {
+  const store = freshStore();
+  store.recordPick({
+    id: 'done',
+    guildId: 'g',
+    analystId: 'mod',
+    asset: 'BTC',
+    direction: 'down',
+    outcome: 'win',
+    createdAt: Date.now(),
+  });
+
+  const interaction = fakeInteraction('call');
+  interaction.options.getString = (name) => (name === 'direction' ? 'up' : null);
+  interaction.options.getInteger = (name) => (name === 'size' ? 50 : null);
+  interaction.options.getNumber = () => null;
+
+  const { handleCall } = await import('../src/picks/commands.js');
+  await handleCall(interaction, { store, config });
+
+  assert.doesNotMatch(String(interaction.replies.at(-1)), /still have a/);
+});
