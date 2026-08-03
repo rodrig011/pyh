@@ -65,3 +65,34 @@ test('the missing-scope failure is told apart from every other one', () => {
   assert.equal(isMissingCommandScope(new Error('Service Unavailable')), false);
   assert.equal(isMissingCommandScope(null), false);
 });
+
+test('a channel it can police but not speak in is a warning, not a failure', () => {
+  const channel = {
+    name: 'profits',
+    guild: { name: 'King T parlays' },
+    isTextBased: () => true,
+    permissionsFor: () => ({
+      has: (flag) => flag !== PermissionFlagsBits.SendMessages,
+    }),
+  };
+
+  const verdict = describeChannel('1', channel, {}, { warn: true });
+  assert.equal(verdict.ok, true);
+  assert.match(verdict.label, /Send Messages/);
+  assert.match(verdict.label, /^⚠️/);
+});
+
+test('no Send Messages is not worth mentioning when the notice is off', () => {
+  const channel = {
+    name: 'profits',
+    guild: { name: 'King T parlays' },
+    isTextBased: () => true,
+    permissionsFor: () => ({
+      has: (flag) => flag !== PermissionFlagsBits.SendMessages,
+    }),
+  };
+
+  const verdict = describeChannel('1', channel, {}, { warn: false });
+  assert.equal(verdict.ok, true);
+  assert.match(verdict.label, /^✅/);
+});

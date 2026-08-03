@@ -17,7 +17,7 @@ export const WATCH_PERMISSIONS = [
  *
  * @returns {{id: string, ok: boolean, label: string}}
  */
-export function describeChannel(id, channel, botMember) {
+export function describeChannel(id, channel, botMember, { warn = false } = {}) {
   if (!channel) {
     return {
       id,
@@ -36,9 +36,23 @@ export function describeChannel(id, channel, botMember) {
     : [];
 
   const where = `#${channel.name}${channel.guild?.name ? ` in ${channel.guild.name}` : ''}`;
-  return missing.length > 0
-    ? { id, ok: false, label: `❌ ${where} — missing ${missing.join(', ')}.` }
-    : { id, ok: true, label: `✅ ${where} — watching.` };
+  if (missing.length > 0) {
+    return { id, ok: false, label: `❌ ${where} — missing ${missing.join(', ')}.` };
+  }
+
+  // Deleting and speaking are separate permissions, and a locked channel
+  // routinely grants the first without the second. Policing still works, so
+  // this is a warning rather than a failure — but silently swallowed notices
+  // look to the members like the server is eating their messages.
+  const mute = warn && mine && !mine.has(PermissionFlagsBits.SendMessages);
+  return {
+    id,
+    ok: true,
+    label: mute
+      ? `⚠️ ${where} — deleting works, but it cannot post the "photos only" notice: missing Send Messages. ` +
+        'Grant it in the channel, or set PHOTO_ONLY_WARN=false to delete silently.'
+      : `✅ ${where} — watching.`,
+  };
 }
 
 /**
@@ -54,7 +68,7 @@ export async function checkWatchedChannels(client, config) {
   for (const id of config.channelIds) {
     const channel = await client.channels.fetch(id).catch(() => null);
     const botMember = channel?.guild?.members?.me ?? null;
-    results.push(describeChannel(id, channel, botMember));
+    results.push(describeChannel(id, channel, botMember, { warn: config.warn }));
   }
 
   return results;

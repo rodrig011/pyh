@@ -210,6 +210,8 @@ export function createPhotoBot(config = loadPhotoConfig()) {
   // and "the bot never hears about that channel". Reported once per channel so
   // it settles the question without narrating every photo forever.
   const firstSeen = new Set();
+  // Said once per channel: every deletion would otherwise repeat it forever.
+  const warnedAboutSilence = new Set();
 
   client.on(Events.MessageCreate, async (message) => {
     try {
@@ -242,13 +244,28 @@ export function createPhotoBot(config = loadPhotoConfig()) {
       await message.delete();
       log.info(`Deleted a message from ${message.author?.tag ?? 'unknown'} in #${message.channelId} (${verdict.reason})`);
 
+      // The notice is a courtesy and gets its own guard. Deleting needs Manage
+      // Messages, posting needs Send Messages, and a locked channel often grants
+      // one without the other — so a channel that is being policed perfectly
+      // well was reporting "Error handling message … Missing Permissions" and
+      // reading like the whole thing was broken.
       if (config.warn) {
-        const text = `${message.author ? `<@${message.author.id}> ` : ''}${REASON_MESSAGES[verdict.reason] ?? REASON_MESSAGES.no_image}`;
-        const notice = await message.channel.send({ content: text });
-        if (config.warnSeconds > 0) {
-          setTimeout(() => {
-            notice.delete().catch(() => {});
-          }, config.warnSeconds * 1000);
+        try {
+          const text = `${message.author ? `<@${message.author.id}> ` : ''}${REASON_MESSAGES[verdict.reason] ?? REASON_MESSAGES.no_image}`;
+          const notice = await message.channel.send({ content: text });
+          if (config.warnSeconds > 0) {
+            setTimeout(() => {
+              notice.delete().catch(() => {});
+            }, config.warnSeconds * 1000);
+          }
+        } catch (error) {
+          if (!warnedAboutSilence.has(message.channelId)) {
+            warnedAboutSilence.add(message.channelId);
+            log.warn(
+              `Deleted the message but could not post the notice in #${message.channelId}: ${error.message}. ` +
+                'Give the bot Send Messages in that channel, or set PHOTO_ONLY_WARN=false to delete silently.',
+            );
+          }
         }
       }
 
