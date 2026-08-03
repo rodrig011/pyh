@@ -6,6 +6,7 @@ import { TIER_NAMES } from '../lib/tiers.js';
 import { fetchSubscriptionState } from '../payments/stripe.js';
 import { sendDm, sendLog } from './notify.js';
 import { processPayment } from './paymentFlow.js';
+import { buildEvidence } from './evidence.js';
 import { revokeTierRoles } from './roles.js';
 import { endSubscription } from './subscriptions.js';
 
@@ -139,6 +140,64 @@ export async function applyStripeIntent(client, store, config, intent, stripe) {
 
       log.info(`Auto-renew off for ${subscription.userId}; access until ${new Date(subscription.expiresAt).toISOString()}`);
       return { status: 'autorenew_off', subscription };
+    }
+
+    // Nobody watches a Stripe inbox on a Saturday. The pack is built and posted
+    // the moment the dispute opens, so the deadline is met by reading Discord.
+    case 'dispute': {
+      const subscription =
+        (intent.userId ? store.getSubscription(config.guildId, intent.userId) : null) ??
+        (intent.customerId
+          ? store.listSubscriptions((sub) => sub.stripeCustomerId === intent.customerId)[0]
+          : null) ??
+        null;
+      const userId = subscription?.userId ?? intent.userId ?? null;
+
+      const evidence = userId
+        ? buildEvidence(
+            {
+              subscription,
+              payments: store.data.payments,
+              picks: store.listPicks((pick) => pick.guildId === config.guildId),
+              welcomes: store.listWelcomes(),
+              votes: store.listVotes(),
+              orders: store.listOrders(),
+            },
+            { userId },
+          )
+        : null;
+
+      const due = intent.dueBy
+        ? `Evidence is due <t:${Math.floor(intent.dueBy / 1000)}:R>.`
+        : 'Stripe gives about 7 days to respond.';
+
+      await sendLog(
+        client,
+        config,
+        new EmbedBuilder()
+          .setColor(COLORS.danger)
+          .setTitle('🚨 Card payment disputed')
+          .setDescription(
+            [
+              userId ? `<@${userId}> has disputed a payment.` : 'A payment was disputed.',
+              `Reason given: **${intent.reason}**. ${due}`,
+              '',
+              evidence
+                ? `They were given **${evidence.access.days} day(s)** of access and received ` +
+                  `**${evidence.delivery.calls}** signal(s) in that time.`
+                : 'No member could be matched to this charge — look it up in Stripe by charge id.',
+              '',
+              userId
+                ? `Run \`/vip-admin evidence user:<@${userId}>\` for the full pack to paste into Stripe.`
+                : `Charge: \`${intent.chargeId ?? 'unknown'}\``,
+            ].join('\n'),
+          )
+          .setTimestamp(),
+        { ping: true },
+      );
+
+      log.warn(`Dispute ${intent.disputeId} opened for ${userId ?? 'an unmatched charge'}`);
+      return { status: 'dispute', userId, evidence };
     }
 
     default:

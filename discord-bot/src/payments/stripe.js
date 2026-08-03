@@ -118,6 +118,22 @@ export function interpretStripeEvent(event) {
       return { action: 'ignore', reason: `subscription is ${object.status}` };
     }
 
+    // A dispute is a seven-day clock that starts without anybody being told,
+    // and it is lost by default if nothing is submitted. The one thing that
+    // must not happen is finding out about it after the deadline.
+    case 'charge.dispute.created':
+      return {
+        action: 'dispute',
+        disputeId: object.id ?? null,
+        chargeId: typeof object.charge === 'string' ? object.charge : (object.charge?.id ?? null),
+        amountCents: object.amount ?? null,
+        reason: object.reason ?? 'unknown',
+        dueBy: object.evidence_details?.due_by ? object.evidence_details.due_by * 1000 : null,
+        customerId:
+          typeof object.customer === 'string' ? object.customer : (object.customer?.id ?? null),
+        userId: object.metadata?.userId ?? null,
+      };
+
     default:
       return { action: 'ignore', reason: `unhandled event ${event?.type}` };
   }

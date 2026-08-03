@@ -25,6 +25,7 @@ import { COLORS } from '../lib/brand.js';
 import { postPermissionHelp } from '../lib/channelAccess.js';
 import { createLogger } from '../lib/logger.js';
 import { createSubscriptionCheckout } from '../payments/stripe.js';
+import { buildEvidence, formatEvidence, money } from './evidence.js';
 import { normalizeCode } from '../lib/codes.js';
 import { SUBSCRIPTION_STATUS, daysLeft } from '../lib/subscriptions.js';
 import { ORDER_STATUS, createOrder, expireStaleOrders } from './orders.js';
@@ -173,6 +174,14 @@ export function buildCommands(config) {
     )
     .addSubcommand((sub) =>
       withShare(sub.setName('stripe').setDescription('Check whether card payments are actually live')),
+    )
+    .addSubcommand((sub) =>
+      withShare(sub
+        .setName('evidence')
+        .setDescription('Build the dispute evidence pack for a member (chargebacks)')
+        .addUserOption((option) =>
+          option.setName('user').setDescription('Who is disputing').setRequired(true),
+        )),
     )
     .addSubcommand((sub) =>
       withShare(sub.setName('members').setDescription('List active VIP memberships and when they expire')),
@@ -1374,6 +1383,79 @@ async function handleAdminRevoke(interaction, { store, config, client }) {
  * button, and a webhook Stripe cannot reach means the money arrives and the
  * roles never do. Neither shows up in Discord, so this asks Stripe directly.
  */
+/**
+ * The paperwork for a card dispute, in the seven days the bank allows.
+ *
+ * Everything here was already recorded; it has just never been in one place,
+ * and a mod digging through Discord history under a deadline will miss half of
+ * it. Ephemeral by default — it carries payment references and the member's
+ * whole history.
+ */
+async function handleAdminEvidence(interaction, { store, config }) {
+  const user = interaction.options.getUser('user');
+  const guildId = interaction.guildId ?? config.guildId;
+
+  const evidence = buildEvidence(
+    {
+      subscription: store.getSubscription(guildId, user.id),
+      payments: store.data.payments,
+      picks: store.listPicks((pick) => pick.guildId === guildId),
+      welcomes: store.listWelcomes(),
+      votes: store.listVotes(),
+      orders: store.listOrders(),
+    },
+    { userId: user.id },
+  );
+
+  const text = formatEvidence(evidence, {
+    userTag: user.tag,
+    productName: `${config.subscriptionDays}-day VIP membership`,
+  });
+
+  const embed = new EmbedBuilder()
+    .setColor(evidence.weaknesses.length > 0 ? COLORS.warning : COLORS.success)
+    .setTitle(`🧾 Dispute evidence — ${user.username}`)
+    .setDescription(
+      evidence.hasCase
+        ? 'Paste the block below straight into Stripe → the disputed payment → **Submit evidence**.'
+        : 'Nothing is on record for this member.',
+    )
+    .setTimestamp();
+
+  if (evidence.hasCase) {
+    embed.addFields(
+      { name: 'Paid', value: money(evidence.totals.paidCents), inline: true },
+      { name: 'Access', value: `${evidence.access.days} day(s)`, inline: true },
+      { name: 'Signals delivered', value: String(evidence.delivery.calls), inline: true },
+    );
+  }
+
+  // Weaknesses go in the Discord message and never in the text handed to the
+  // bank. The mod needs to know the case is thin; the reviewer does not need
+  // to be told where to push.
+  if (evidence.weaknesses.length > 0) {
+    embed.addFields({
+      name: '⚠️ Where this is thin',
+      value: evidence.weaknesses.map((line) => `• ${line}`).join('\n'),
+    });
+  }
+
+  // Over Discord's limit the pack goes as a file rather than being cut off
+  // halfway through the delivery record.
+  const payload = { embeds: [embed] };
+  if (evidence.hasCase) {
+    if (text.length > 1900) {
+      payload.files = [
+        { attachment: Buffer.from(text, 'utf8'), name: `dispute-${user.id}.txt` },
+      ];
+    } else {
+      payload.content = `\`\`\`\n${text}\n\`\`\``;
+    }
+  }
+
+  await interaction.editReply(payload);
+}
+
 async function handleAdminStripe(interaction, { config, stripe }) {
   const lines = [];
   const settings = config.stripe;
@@ -1706,6 +1788,7 @@ export async function handleInteraction(interaction, context) {
     if (sub === 'cancel') return handleAdminCancel(interaction, context);
     if (sub === 'sync') return handleAdminSync(interaction, context);
     if (sub === 'stripe') return handleAdminStripe(interaction, context);
+    if (sub === 'evidence') return handleAdminEvidence(interaction, context);
     if (sub === 'members') return handleAdminMembers(interaction, context);
     if (sub === 'stats') return handleAdminStats(interaction, context);
     if (sub === 'panel') return handleAdminPanel(interaction, context);
