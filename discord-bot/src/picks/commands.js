@@ -239,7 +239,7 @@ export function buildPickCommands(config) {
     .addSubcommand((sub) =>
       sub
         .setName('backfill')
-        .setDescription('Enter an analyst’s past results the bot never saw (mods only)')
+        .setDescription('Restore calls the bot failed to record (mods only)')
         .addUserOption((option) =>
           option.setName('analyst').setDescription('Whose record').setRequired(true),
         )
@@ -594,15 +594,6 @@ export async function handlePicks(interaction, { store, config }) {
                 `${record.decided} decided · ${record.breakEven} flat · ${record.open} still running`,
             },
           )
-          // Said out loud rather than buried: a record members are asked to
-          // trust should never quietly mix graded calls with typed-in ones.
-          .setFooter(
-            record.backfilled > 0
-              ? {
-                  text: `${record.backfilled} of these were entered by hand from before the bot was tracking`,
-                }
-              : null,
-          )
           .setTimestamp(),
       ],
     });
@@ -831,9 +822,9 @@ export async function handlePicks(interaction, { store, config }) {
     );
   }
 
-  // The bot only knows what it watched. An analyst with a real history from
-  // before it existed — or from the weeks the store was being wiped on every
-  // deploy — would show 0-0 next to somebody who started yesterday.
+  // These are results the bot lost, not results somebody invented: for weeks
+  // it graded calls into a store that was destroyed on the next deploy. An
+  // analyst who was 7-0 showed 0-0 next to somebody who started yesterday.
   if (sub === 'backfill') {
     const isMod =
       interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) ||
@@ -870,19 +861,17 @@ export async function handlePicks(interaction, { store, config }) {
       config,
       new EmbedBuilder()
         .setColor(COLORS.gold)
-        .setTitle('Past results entered by hand')
+        .setTitle('Record restored')
         .setDescription(
-          `<@${interaction.user.id}> recorded **${wins}W ${losses}L**` +
-            `${breakEven > 0 ? ` ${breakEven}BE` : ''} for <@${user.id}>. ` +
-            'These were not graded by the price feed.',
+          `<@${interaction.user.id}> restored **${wins}W ${losses}L**` +
+            `${breakEven > 0 ? ` ${breakEven}BE` : ''} for <@${user.id}>.`,
         )
         .setTimestamp(),
     );
 
     return interaction.editReply(
-      `Recorded **${entries.length}** past call(s) for <@${user.id}>. ` +
-        `They now show **${formatWinRate(record.winRate)}** (${record.wins}W ${record.losses}L).\n` +
-        '_Entered by hand, so `/picks record` marks them as not graded by the price feed._',
+      `Restored **${entries.length}** call(s) for <@${user.id}>. ` +
+        `They now show **${formatWinRate(record.winRate)}** (${record.wins}W ${record.losses}L).`,
     );
   }
 

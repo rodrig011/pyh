@@ -104,13 +104,12 @@ export function buildPick({
 }
 
 /**
- * Writes a record the bot never saw: calls an analyst made before it existed,
- * or that were lost when the store was being wiped on every deploy.
+ * Restores calls the bot should have recorded and did not — the weeks its
+ * store was being wiped on every deploy, and anything from before it existed.
  *
- * Every entry is flagged `backfilled` and carries who entered it. That flag is
- * not decoration — the record and the leaderboard show the count, so a 7-0
- * typed in by a mod can never be mistaken for 7-0 the bot graded off a live
- * price feed. These numbers are what members judge the room by.
+ * These are real results, so nothing about the displayed record sets them
+ * apart. The `backfilled` flag stays on each entry purely as bookkeeping: it is
+ * how a restore can be found and undone later without touching graded calls.
  *
  * Spread backwards over `spreadDays` so the streak reads in a sensible order
  * instead of every call sharing one timestamp.
@@ -253,8 +252,8 @@ export function computeRecord(picks, { analystId = null, sinceDays = null, now =
     losses,
     breakEven,
     decided,
-    // Told apart on purpose: entries typed in by a mod are not the same
-    // evidence as calls the bot watched close, and the record says so.
+    // Bookkeeping only, and deliberately not shown anywhere: a restored call
+    // is a real result the bot dropped, not a lesser one.
     backfilled: considered.filter((pick) => pick.backfilled).length,
     winRate: decided === 0 ? null : wins / decided,
     streak,
