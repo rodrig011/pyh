@@ -240,7 +240,12 @@ export function loadPhotoConfig() {
     avatarPath: str('PHOTO_BOT_AVATAR', 'assets/avatar-512.png'),
     username: str('PHOTO_BOT_USERNAME'),
     channelIds: list('PHOTO_ONLY_CHANNEL_IDS'),
-    allowCaptions: bool('PHOTO_ONLY_ALLOW_CAPTIONS', false),
+    // A profits channel is screenshots with a word beside them: "+240%", "same
+    // play as yesterday". Deleting the photo because of the caption throws away
+    // the post people actually came to make, so captions ride along by default
+    // and only bare text gets removed. Set it to false for a pure wall of
+    // images.
+    allowCaptions: bool('PHOTO_ONLY_ALLOW_CAPTIONS', true),
     allowVideos: bool('PHOTO_ONLY_ALLOW_VIDEOS', false),
     allowLinks: bool('PHOTO_ONLY_ALLOW_LINKS', false),
     ignoreBots: bool('PHOTO_ONLY_IGNORE_BOTS', true),

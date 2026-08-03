@@ -558,7 +558,7 @@ not comply is deleted, and the bot leaves a notice that self-destructs after
 
 | Variable | Default | Effect |
 |----------|-------------|--------|
-| `PHOTO_ONLY_ALLOW_CAPTIONS` | `false` | When `false`, not even text next to the photo is allowed |
+| `PHOTO_ONLY_ALLOW_CAPTIONS` | `true` | A photo may carry a caption. Set it to `false` and not even a word next to the photo survives |
 | `PHOTO_ONLY_ALLOW_VIDEOS` | `false` | Also allow videos |
 | `PHOTO_ONLY_ALLOW_LINKS` | `false` | Allow image links with no attachment |
 | `PHOTO_ONLY_BYPASS_ROLE_IDS` | empty | Roles that may post text (moderators) |
