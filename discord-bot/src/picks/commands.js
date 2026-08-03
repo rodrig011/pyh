@@ -53,6 +53,7 @@ import {
   openMarkets,
   readMarketPrice,
 } from './kalshi.js';
+import { fetchBalance, fetchFills, foldFills, hasCredentials } from './kalshiAccount.js';
 import { sendLog } from '../vip/notify.js';
 import { fetchSpotPrice, formatChange, formatPrice, gradeByPrice } from './price.js';
 import {
@@ -218,6 +219,11 @@ export function buildPickCommands(config) {
     )
     .addSubcommand((sub) =>
       sub.setName('kalshi').setDescription('Check the Kalshi contract feed and show what it returned'),
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('account')
+        .setDescription('Check the connection to the analyst’s Kalshi account (mods only)'),
     )
     .addSubcommand((sub) =>
       sub
@@ -1049,6 +1055,78 @@ export async function handlePicks(interaction, { store, config }) {
           (record.averageLagSeconds !== null && record.averageLagSeconds > 120
             ? `\n_You also enter ${formatLag(record.averageLagSeconds)} after the call goes out. Getting there sooner is worth more than picking better._`
             : ''),
+      });
+    }
+
+    return interaction.editReply({ embeds: [embed] });
+  }
+
+  // Reading the account is how a record stops being self-reported. This proves
+  // the connection before anything is published from it.
+  if (sub === 'account') {
+    const isMod =
+      interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) ||
+      (config.modRoleIds ?? []).some((roleId) => interaction.member?.roles?.cache?.has(roleId));
+    if (!isMod) return interaction.editReply('Only the mods can check the account connection.');
+
+    const account = pickSettings(config).kalshi?.account ?? {};
+    if (!hasCredentials(account)) {
+      return interaction.editReply(
+        [
+          '❌ No Kalshi account is connected.',
+          '',
+          'Set **KALSHI_API_KEY_ID** and **KALSHI_PRIVATE_KEY** to read the analyst’s own fills.',
+          'The bot only ever signs `/portfolio/fills`, `/portfolio/positions` and `/portfolio/balance` — ' +
+            'it cannot place, change or cancel an order.',
+        ].join('\n'),
+      );
+    }
+
+    const [fillsResult, balanceResult] = await Promise.all([
+      fetchFills(account, { limit: 20 }),
+      fetchBalance(account),
+    ]);
+
+    if (fillsResult.error) {
+      return interaction.editReply(
+        `❌ Kalshi refused the account request: \`${fillsResult.error}\`\n` +
+          '_A 401 usually means the private key does not match the key id, or the PEM lost its line breaks._',
+      );
+    }
+
+    const positions = foldFills(fillsResult.fills, { seriesTicker: account.seriesTicker });
+    const open = positions.filter((position) => position.isOpen);
+
+    const embed = new EmbedBuilder()
+      .setColor(COLORS.success)
+      .setTitle('🔐 Kalshi account — connected')
+      .setDescription(
+        [
+          `Read **${fillsResult.fills.length}** recent fill(s), folded into **${positions.length}** position(s).`,
+          open.length > 0 ? `**${open.length}** still open.` : 'Nothing open right now.',
+          balanceResult.balanceCents === null
+            ? ''
+            : `Balance: **$${(balanceResult.balanceCents / 100).toFixed(2)}**`,
+        ]
+          .filter(Boolean)
+          .join('\n'),
+      )
+      .setTimestamp();
+
+    if (positions.length > 0) {
+      embed.addFields({
+        name: 'Most recent',
+        value: positions
+          .slice(-5)
+          .map(
+            (position) =>
+              `${position.direction === 'up' ? '🟢' : '🔴'} \`${position.ticker}\` — ` +
+              `in **${formatCents(position.entryCents)}**` +
+              (position.isOpen
+                ? ' · **still open**'
+                : ` out **${formatCents(position.exitCents)}** · **${formatChange(position.returnPercent)}**`),
+          )
+          .join('\n'),
       });
     }
 

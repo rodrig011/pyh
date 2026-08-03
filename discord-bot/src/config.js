@@ -202,6 +202,18 @@ export function loadVipConfig() {
         seriesTicker: str('KALSHI_SERIES_TICKER'),
         side: str('KALSHI_SIDE', 'yes'),
         apiKeyId: str('KALSHI_API_KEY_ID'),
+        // Reading the analyst's own account turns the record from "what he
+        // says he did" into "what the exchange saw him do". The key can trade,
+        // so it lives here and nowhere else — see src/picks/kalshiAccount.js.
+        account: {
+          keyId: str('KALSHI_API_KEY_ID'),
+          // Multi-line PEM survives an environment variable badly, so \n is
+          // accepted as an escape and turned back into real newlines.
+          privateKeyPem: (str('KALSHI_PRIVATE_KEY') ?? '').replace(/\\n/g, '\n') || null,
+          apiBase: str('KALSHI_API_BASE'),
+          seriesTicker: str('KALSHI_SERIES_TICKER'),
+          autoPublish: bool('KALSHI_AUTO_PUBLISH', false),
+        },
       },
     },
     // Card payments. Zelle is a one-off 30 days; Stripe bills again by itself

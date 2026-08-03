@@ -240,3 +240,21 @@ test('a closed call in the other direction does not block anything', async () =>
 
   assert.doesNotMatch(String(interaction.replies.at(-1)), /still have a/);
 });
+
+test('/picks account says what is missing before anyone hunts for a key', async () => {
+  const interaction = fakeInteraction('account');
+  await handlePicks(interaction, { store: freshStore(), config });
+
+  const said = String(interaction.replies.at(-1));
+  assert.match(said, /No Kalshi account is connected/);
+  assert.match(said, /KALSHI_PRIVATE_KEY/);
+  // The promise that matters: the credential can trade, this cannot.
+  assert.match(said, /cannot place, change or cancel an order/);
+});
+
+test('/picks account is refused to anyone who is not a mod', async () => {
+  const interaction = fakeInteraction('account', {}, { admin: false });
+  await handlePicks(interaction, { store: freshStore(), config });
+
+  assert.match(String(interaction.replies.at(-1)), /Only the mods/);
+});
