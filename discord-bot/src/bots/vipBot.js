@@ -112,7 +112,13 @@ export function createVipBot(config = loadVipConfig()) {
           'must take ownership of it at startup. Fix this before taking money.',
       );
     }
-    if (store.existedAtBoot) {
+    if (store.recoveredFrom) {
+      log.warn(
+        `The store was unreadable or missing, so it was rebuilt from ${store.recoveredFrom}: ` +
+          `${counts.subscriptions} membership(s), ${counts.picks} call(s), ${counts.orders} order(s). ` +
+          'Anything changed since that backup was written is gone — check the last few payments.',
+      );
+    } else if (store.existedAtBoot) {
       log.info(
         `Store at ${store.path}: ${counts.subscriptions} membership(s), ${counts.picks} call(s), ${counts.orders} order(s)`,
       );

@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { subscriptionKey } from './subscriptions.js';
 
@@ -22,17 +30,49 @@ const EMPTY = {
  */
 export function createStore(filePath) {
   const path = resolve(filePath);
+  // The copy of the last good state, written before every overwrite. Cheap
+  // insurance against the two ways this file dies that a volume does not
+  // cover: a write interrupted mid-flight, and a file that parses as garbage.
+  const backupPath = `${path}.bak`;
   let data = structuredClone(EMPTY);
+  let recoveredFrom = null;
+
   // Whether anything was on disk when this started. On a host with no volume
   // mounted, every deploy hands the bot an empty file and silently drops the
   // open calls and memberships that were there a minute earlier.
   const existedAtBoot = existsSync(path);
 
+  const readFrom = (from) => ({
+    ...structuredClone(EMPTY),
+    ...JSON.parse(readFileSync(from, 'utf8')),
+  });
+
   if (existedAtBoot) {
     try {
-      data = { ...structuredClone(EMPTY), ...JSON.parse(readFileSync(path, 'utf8')) };
+      data = readFrom(path);
     } catch (error) {
-      throw new Error(`Could not read the store at ${path}: ${error.message}`);
+      // Refusing to start would be the safe move for a database. Here it takes
+      // the whole server down — no calls, no payments, nobody let in — over a
+      // file the bot can rebuild from its own backup.
+      if (existsSync(backupPath)) {
+        try {
+          data = readFrom(backupPath);
+          recoveredFrom = backupPath;
+        } catch {
+          throw new Error(`Could not read the store at ${path}: ${error.message}`);
+        }
+      } else {
+        throw new Error(`Could not read the store at ${path}: ${error.message}`);
+      }
+    }
+  } else if (existsSync(backupPath)) {
+    // The store is gone but its backup is not: a wiped or half-mounted volume.
+    // Coming back with yesterday's memberships beats coming back with none.
+    try {
+      data = readFrom(backupPath);
+      recoveredFrom = backupPath;
+    } catch {
+      // A backup that will not parse either is no worse than no backup.
     }
   }
 
@@ -53,6 +93,17 @@ export function createStore(filePath) {
 
   function save() {
     mkdirSync(dirname(path), { recursive: true });
+
+    // Keep the last good state before replacing it. copyFile, not rename, so
+    // there is never an instant where neither file is complete.
+    if (existsSync(path)) {
+      try {
+        copyFileSync(path, backupPath);
+      } catch {
+        // A backup that cannot be written must never block the real write.
+      }
+    }
+
     const tmp = `${path}.tmp`;
     writeFileSync(tmp, JSON.stringify(data, null, 2));
     renameSync(tmp, path);
@@ -60,7 +111,10 @@ export function createStore(filePath) {
 
   return {
     path,
+    backupPath,
     existedAtBoot,
+    /** Set when this booted from the backup instead of the store itself. */
+    recoveredFrom,
     /** null when the store can be written; the reason it cannot, otherwise. */
     writeError,
 

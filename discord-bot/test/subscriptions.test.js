@@ -165,3 +165,55 @@ test('the store reports at boot when it cannot be written', async () => {
     }
   }
 });
+
+test('a corrupt store is rebuilt from its backup instead of refusing to start', async () => {
+  const { writeFileSync, existsSync } = await import('node:fs');
+  const dir = mkdtempSync(join(tmpdir(), 'store-'));
+  const path = join(dir, 'store.json');
+
+  const first = createStore(path);
+  first.putSubscription({ guildId: 'g', userId: 'u', tier: 1, status: 'active', expiresAt: 1 });
+  // A second write is what produces the backup: the first had nothing to copy.
+  first.putSubscription({ guildId: 'g', userId: 'u2', tier: 2, status: 'active', expiresAt: 1 });
+  assert.ok(existsSync(`${path}.bak`), 'saving twice must leave a backup');
+
+  writeFileSync(path, '{ this is not json');
+
+  const rebuilt = createStore(path);
+  assert.equal(rebuilt.recoveredFrom, `${path}.bak`);
+  assert.ok(rebuilt.getSubscription('g', 'u'), 'the earlier membership must come back');
+});
+
+test('a store that vanished comes back from its backup', async () => {
+  const { unlinkSync } = await import('node:fs');
+  const dir = mkdtempSync(join(tmpdir(), 'store-'));
+  const path = join(dir, 'store.json');
+
+  const first = createStore(path);
+  first.putSubscription({ guildId: 'g', userId: 'u', tier: 1, status: 'active', expiresAt: 1 });
+  first.putSubscription({ guildId: 'g', userId: 'u2', tier: 1, status: 'active', expiresAt: 1 });
+  unlinkSync(path);
+
+  const rebuilt = createStore(path);
+  assert.equal(rebuilt.recoveredFrom, `${path}.bak`);
+  assert.ok(rebuilt.getSubscription('g', 'u'));
+});
+
+test('a corrupt store with no backup still refuses rather than starting empty', async () => {
+  const { writeFileSync } = await import('node:fs');
+  const dir = mkdtempSync(join(tmpdir(), 'store-'));
+  const path = join(dir, 'store.json');
+  writeFileSync(path, '{ broken');
+
+  assert.throws(() => createStore(path), /Could not read the store/);
+});
+
+test('a healthy store is never reported as recovered', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'store-'));
+  const path = join(dir, 'store.json');
+
+  const first = createStore(path);
+  first.putSubscription({ guildId: 'g', userId: 'u', tier: 1, status: 'active', expiresAt: 1 });
+
+  assert.equal(createStore(path).recoveredFrom, null);
+});
