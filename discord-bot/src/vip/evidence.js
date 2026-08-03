@@ -208,8 +208,12 @@ export function formatEvidence(evidence, { userTag = null, productName = 'VIP me
     `Access began ${stamp(evidence.access.from)} and ran to ${stamp(evidence.access.until)} — ${evidence.access.days} day(s).`,
   );
   if (evidence.engagement.welcomeDeliveredAt) {
+    // Delivery is what Discord confirms. Whether it was read is not something
+    // this can know, and a claim a reviewer could pull apart weakens the ones
+    // that are solid.
     lines.push(
-      `The customer received and opened a direct message confirming their access at ${stamp(evidence.engagement.welcomeDeliveredAt)}.`,
+      `A direct message confirming their access was delivered to the customer at ${stamp(evidence.engagement.welcomeDeliveredAt)}`,
+      'and accepted by their account, which requires that they had not blocked messages from the seller.',
     );
   }
 

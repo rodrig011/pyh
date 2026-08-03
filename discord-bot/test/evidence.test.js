@@ -126,3 +126,19 @@ test('money and timestamps are written for somebody outside Discord', () => {
   assert.equal(money(null), '—');
   assert.match(stamp(Date.parse('2026-08-03T05:44:00Z')), /^2026-08-03 05:44:00 UTC$/);
 });
+
+test('the pack never claims the customer read anything', () => {
+  const text = formatEvidence(buildEvidence(world, { userId: 'buyer', now }), { userTag: 'buyer#1' });
+
+  // Discord confirms delivery, not that a message was opened. A claim a
+  // reviewer can pull apart costs the ones that would have held.
+  assert.match(text, /was delivered to the customer/);
+  assert.doesNotMatch(text, /opened a direct message/);
+});
+
+test('every line of the pack is in English, whoever runs the bot', () => {
+  const text = formatEvidence(buildEvidence(world, { userId: 'buyer', now }), { userTag: 'buyer#1' });
+
+  assert.doesNotMatch(text, /[áéíóúñ¿¡]/i);
+  assert.match(text, /^DISPUTE EVIDENCE/);
+});
