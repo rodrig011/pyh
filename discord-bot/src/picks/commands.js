@@ -53,6 +53,7 @@ import {
   openMarkets,
   readMarketPrice,
 } from './kalshi.js';
+import { sendLog } from '../vip/notify.js';
 import { fetchSpotPrice, formatChange, formatPrice, gradeByPrice } from './price.js';
 import {
   DIRECTIONS,
