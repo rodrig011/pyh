@@ -109,3 +109,11 @@ test('the change is reported with its sign', () => {
   assert.equal(formatPrice(97213.45), '$97,213.45');
   assert.equal(formatPrice(null), '—');
 });
+
+test('a move is written to one decimal, not three', () => {
+  // "-25.373%" beside a price reads as a machine talking to itself.
+  assert.equal(formatChange(-25.373), '-25.4%');
+  assert.equal(formatChange(28.1666), '+28.2%');
+  assert.equal(formatChange(0), '0.0%');
+  assert.equal(formatChange(null), '—');
+});

@@ -1735,6 +1735,14 @@ export async function handleInteraction(interaction, context) {
   if (interaction.isButton() && interaction.customId?.startsWith(SIZE_PREFIX)) {
     return handleSizeButton(interaction, context);
   }
+  // "This interaction failed" is Discord saying it got no answer within three
+  // seconds — which looks identical whether the bot threw, stalled, or was not
+  // running at all. One line per press tells those apart on the next restart
+  // instead of on the next guess.
+  if (interaction.isButton()) {
+    commandLog.debug(`Button ${interaction.customId} from ${interaction.user?.tag}`);
+  }
+
   if (interaction.isButton() && interaction.customId?.startsWith(FOLLOW_PREFIX)) {
     return handleFollowButton(interaction, context);
   }

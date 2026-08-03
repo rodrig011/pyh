@@ -114,8 +114,14 @@ export function formatPrice(value) {
   return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+/**
+ * A move, written the way a trader says it.
+ *
+ * Three decimals was precision nobody asked for and nobody trusts: "-25.373%"
+ * beside a price reads as a machine talking to itself. One decimal is the
+ * resolution the number actually has.
+ */
 export function formatChange(percent) {
   if (!Number.isFinite(percent)) return '—';
-  const rounded = Math.round(percent * 1000) / 1000;
-  return `${rounded > 0 ? '+' : ''}${rounded}%`;
+  return `${percent > 0 ? '+' : ''}${percent.toFixed(1)}%`;
 }

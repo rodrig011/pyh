@@ -163,7 +163,7 @@ export function managementMessage({ action, analystId, pick, note = null, price 
       name: 'Scored',
       value: `${verdict.outcome === 'win' ? '✅ Win' : verdict.outcome === 'loss' ? '❌ Loss' : '➖ Break even'}` +
         (Number.isFinite(verdict.changePercent)
-          ? ` · ${verdict.changePercent > 0 ? '+' : ''}${Math.round(verdict.changePercent * 1000) / 1000}%`
+          ? ` · ${verdict.changePercent > 0 ? '+' : ''}${verdict.changePercent.toFixed(1)}%`
           : ''),
       inline: true,
     });
