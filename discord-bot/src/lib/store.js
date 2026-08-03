@@ -22,6 +22,7 @@ const EMPTY = {
   picks: [],
   dmReplies: {},
   votes: [],
+  follows: [],
 };
 
 /**
@@ -255,6 +256,21 @@ export function createStore(filePath) {
       data.dmReplies[userId] = at;
       save();
       return at;
+    },
+
+    /**
+     * A member taking a call, at the price they saw. Kept flat rather than on
+     * the call itself so a busy room does not rewrite one growing object on
+     * every press.
+     */
+    addFollow(follow) {
+      data.follows.push(follow);
+      save();
+      return follow;
+    },
+
+    listFollows(filter = () => true) {
+      return data.follows.filter(filter);
     },
 
     recordVote(vote) {

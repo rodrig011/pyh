@@ -18,6 +18,9 @@ import {
   SIZE_MODAL,
   SIZE_PREFIX,
   VOTE_PREFIX,
+  FOLLOW_PREFIX,
+  followRow,
+  parseFollow,
   analystPanel,
   customSizeModal,
   entrySizeRow,
@@ -34,6 +37,14 @@ import {
   voteRow,
 } from './panel.js';
 import { castVote, emptyVote, formatShare, shareBar, tallyVote, votesDue } from './vote.js';
+import {
+  followerCount,
+  formatLag,
+  formatPercent,
+  memberRecord,
+  recordFollow,
+  roomVersusAnalyst,
+} from './following.js';
 import {
   currentContract,
   fetchMarkets,
@@ -187,6 +198,14 @@ export function buildPickCommands(config) {
         ),
     )
     .addSubcommand((sub) => sub.setName('open').setDescription('Calls still running'))
+    .addSubcommand((sub) =>
+      sub
+        .setName('me')
+        .setDescription('What YOU made on the calls you took')
+        .addIntegerOption((option) =>
+          option.setName('days').setDescription('Only the last N days').setRequired(false),
+        ),
+    )
     .addSubcommand((sub) =>
       sub.setName('panel').setDescription('Post the analyst console (analysts only can press it)'),
     )
@@ -541,6 +560,7 @@ export async function openCall(interaction, { store, config }, overrides = {}) {
   const posted = await channel.send({
     ...pingFor(settings),
     embeds: [pickEmbed(pick, config)],
+    components: [followRow(pick.id)],
   });
   pick.messageId = posted.id;
   pick.channelId = channel.id;
@@ -901,6 +921,60 @@ export async function handlePicks(interaction, { store, config }) {
     );
   }
 
+  if (sub === 'me') {
+    const days = interaction.options.getInteger('days');
+    const record = memberRecord(store.listFollows(), picks, interaction.user.id, { sinceDays: days });
+
+    if (record.followed === 0) {
+      return interaction.editReply(
+        'You have not taken a call yet. Press **🙋 I\'m in** on one and the bot starts keeping *your* record — ' +
+          'what you made on your own entry, not what the analyst made.',
+      );
+    }
+
+    const embed = new EmbedBuilder()
+      .setColor(record.returnPercent === null || record.returnPercent >= 0 ? COLORS.success : COLORS.danger)
+      .setTitle(`📊 Your record${days ? ` — last ${days} days` : ''}`)
+      .setDescription(
+        record.graded === 0
+          ? `You are in **${record.stillOpen}** call(s) that have not closed yet.`
+          : `On your own entries, across **${record.graded}** closed call(s).`,
+      )
+      .addFields(
+        { name: 'Your return', value: `**${formatPercent(record.returnPercent)}**`, inline: true },
+        { name: 'Record', value: `${record.wins}W — ${record.losses}L`, inline: true },
+        {
+          name: 'You enter',
+          value: record.averageLagSeconds === null ? '—' : `${formatLag(record.averageLagSeconds)} after the call`,
+          inline: true,
+        },
+      )
+      .setTimestamp();
+
+    if (record.best) {
+      embed.addFields({
+        name: 'Best / worst',
+        value: `${record.best.asset} **${formatPercent(record.best.percent)}** · ${record.worst.asset} **${formatPercent(record.worst.percent)}**`,
+      });
+    }
+
+    // The other half of the truth. A member who only ever sees their wins is
+    // being flattered, not informed — and the calls they skipped are usually
+    // the most useful thing this can tell them.
+    if (record.missed > 0) {
+      embed.addFields({
+        name: `The ${record.missed} you sat out`,
+        value:
+          `Taken at the analyst's entry they would have been **${formatPercent(record.missedReturnPercent)}**.` +
+          (record.averageLagSeconds !== null && record.averageLagSeconds > 120
+            ? `\n_You also enter ${formatLag(record.averageLagSeconds)} after the call goes out. Getting there sooner is worth more than picking better._`
+            : ''),
+      });
+    }
+
+    return interaction.editReply({ embeds: [embed] });
+  }
+
   if (sub === 'open') {
     const open = picks
       .filter((pick) => !pick.outcome)
@@ -929,6 +1003,84 @@ export async function handlePicks(interaction, { store, config }) {
   }
 
   return interaction.editReply('Unknown subcommand.');
+}
+
+/**
+ * A member says they took the call, and the bot stamps the price they saw.
+ *
+ * This is the whole feature: without a per-member entry there is no way to
+ * ever answer "did *I* make money", only "was the analyst right". Anyone in
+ * the channel may press it — it is not a claim on the room's money, it is the
+ * member's own diary.
+ */
+export async function handleFollowButton(interaction, { store, config }) {
+  const pickId = parseFollow(interaction.customId);
+  if (!pickId) return undefined;
+
+  const pick = store.getPick(pickId);
+  if (!pick) {
+    return interaction.reply({ content: 'That call is gone.', flags: MessageFlags.Ephemeral });
+  }
+  if (pick.outcome) {
+    return interaction.reply({
+      content: 'That call has already closed, so there is no entry price to record.',
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  const already = store.listFollows(
+    (follow) => follow.pickId === pickId && follow.userId === interaction.user.id,
+  )[0];
+  if (already) {
+    return interaction.reply({
+      content:
+        `You are already in this one at **${already.unit === 'cents' ? formatCents(already.price) : formatPrice(already.price)}**. ` +
+        'Pressing again does not open a second position.',
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  // Their price, not the analyst's. The gap between the two is the number this
+  // whole feature exists to expose.
+  const quote = await quoteFor(config, pick.asset, {
+    direction: pick.direction,
+    ticker: pick.marketTicker ?? null,
+    closesAt: pick.closesAt,
+  });
+
+  const { follow } = recordFollow(store.listFollows(), {
+    pickId,
+    userId: interaction.user.id,
+    price: quote.price,
+    unit: quote.unit,
+    at: Date.now(),
+  });
+  store.addFollow(follow);
+
+  const lag = Math.max(0, Math.round((follow.at - pick.createdAt) / 1000));
+  const behind =
+    Number.isFinite(pick.entry) && Number.isFinite(quote.price) && pick.entry > 0
+      ? ((quote.price - pick.entry) / pick.entry) * 100
+      : null;
+
+  return interaction.editReply(
+    [
+      `✅ You are in at **${quote.label}** — ${formatLag(lag)} after the call.`,
+      behind === null
+        ? ''
+        : Math.abs(behind) < 0.5
+          ? '_Same price the analyst got._'
+          : behind > 0
+            ? `_You paid **${formatPercent(behind)}** more than the analyst._`
+            : `_You got in **${formatPercent(Math.abs(behind))}** cheaper than the analyst._`,
+      '',
+      'Your own result gets recorded when this closes. `/picks me` any time.',
+    ]
+      .filter(Boolean)
+      .join('\n'),
+  );
 }
 
 /** The analyst console. Every button is gated on the analyst check. */
@@ -1165,6 +1317,7 @@ async function postManagement(interaction, { store, config }, { action, note = n
   }
 
   await refreshCallMessage(interaction.client, config, open);
+  const room = roomVersusAnalyst(store.listFollows(), open);
   await announce(
     interaction.client,
     config,
@@ -1173,6 +1326,7 @@ async function postManagement(interaction, { store, config }, { action, note = n
       outcome: verdict.outcome,
       entryLabel: open.entry == null ? null : priceLabel(open, open.entry),
       exitLabel: open.exit == null ? null : priceLabel(open, open.exit),
+      room,
     }),
   );
   await openVote(interaction.client, store, config, open);
@@ -1430,6 +1584,7 @@ export async function promptDueSettlements(client, store, config, now = Date.now
           outcome: verdict.outcome,
           entryLabel: pick.entry == null ? null : priceLabel(pick, pick.entry),
           exitLabel: pick.exit == null ? null : priceLabel(pick, pick.exit),
+          room: roomVersusAnalyst(store.listFollows(), pick),
         }),
       );
       await openVote(client, store, config, pick);

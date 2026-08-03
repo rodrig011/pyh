@@ -46,6 +46,7 @@ import {
   SETTLE_PREFIX,
   buildPickCommands,
   handleCall,
+  handleFollowButton,
   handlePanelButton,
   handlePickAutocomplete,
   handleSizeButton,
@@ -54,7 +55,7 @@ import {
   handlePicks,
   handleSettleButton,
 } from '../picks/commands.js';
-import { PANEL_PREFIX, SIZE_MODAL, SIZE_PREFIX, VOTE_PREFIX } from '../picks/panel.js';
+import { FOLLOW_PREFIX, PANEL_PREFIX, SIZE_MODAL, SIZE_PREFIX, VOTE_PREFIX } from '../picks/panel.js';
 
 const commandLog = createLogger('commands');
 
@@ -1734,6 +1735,10 @@ export async function handleInteraction(interaction, context) {
   if (interaction.isButton() && interaction.customId?.startsWith(SIZE_PREFIX)) {
     return handleSizeButton(interaction, context);
   }
+  if (interaction.isButton() && interaction.customId?.startsWith(FOLLOW_PREFIX)) {
+    return handleFollowButton(interaction, context);
+  }
+
   if (interaction.isButton() && interaction.customId?.startsWith(VOTE_PREFIX)) {
     return handleVoteButton(interaction, context);
   }

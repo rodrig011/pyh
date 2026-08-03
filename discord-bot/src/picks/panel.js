@@ -14,6 +14,7 @@ export const PANEL_PREFIX = 'pick:panel:';
 export const SIZE_PREFIX = 'pick:size:';
 export const VOTE_PREFIX = 'pick:vote:';
 export const SIZE_MODAL = 'pick:sizemodal:';
+export const FOLLOW_PREFIX = 'pick:in:';
 
 /**
  * How much of the portfolio to put in when the call opens.
@@ -382,7 +383,7 @@ export function simpleAnnouncement(pick, now = Date.now()) {
  * Each part appears only when it is actually known, so a call with no live
  * price still posts a clean line instead of a row of dashes.
  */
-export function simpleExit({ pick, outcome, entryLabel = null, exitLabel = null }) {
+export function simpleExit({ pick, outcome, entryLabel = null, exitLabel = null, room = null }) {
   const what =
     outcome === 'win'
       ? '💸 **CASH OUT — everything out, in profit**'
@@ -405,6 +406,17 @@ export function simpleExit({ pick, outcome, entryLabel = null, exitLabel = null 
       pick.changePercent >= 0
         ? `**${move} on the position**${pick.sizePercent ? ` · ${pick.sizePercent}% of port was in` : ''}`
         : `**${move}**${pick.sizePercent ? ` · ${pick.sizePercent}% of port was in` : ''}`,
+    );
+  }
+
+  // What the room got, beside what the analyst got. When the analyst wins and
+  // the room does not, the number says so — which is uncomfortable exactly
+  // once, and then it fixes how fast the calls get acted on.
+  if (room && Number.isFinite(room.roomPercent)) {
+    const move = `${room.roomPercent >= 0 ? '+' : ''}${room.roomPercent.toFixed(1)}%`;
+    parts.push(
+      `👥 **${room.followers}** took it · the room averaged **${move}** · ` +
+        `${room.inProfit}/${room.followers} in profit`,
     );
   }
 
@@ -441,4 +453,27 @@ export function voteResultMessage({ pick, tally, outcome, shareBarText, sharePer
     .setTimestamp();
 
   return { embeds: [embed] };
+}
+
+/**
+ * The one button that turns a broadcast into a record.
+ *
+ * Pressed at the moment a member takes the call, it stamps the price they
+ * actually saw — which is the only way to ever tell them what they made rather
+ * than what the analyst made.
+ */
+export function followRow(pickId) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`${FOLLOW_PREFIX}${pickId}`)
+      .setStyle(ButtonStyle.Primary)
+      .setLabel("I'm in")
+      .setEmoji('🙋'),
+  );
+}
+
+/** "pick:in:abc123" -> "abc123". */
+export function parseFollow(customId) {
+  if (!customId?.startsWith(FOLLOW_PREFIX)) return null;
+  return customId.slice(FOLLOW_PREFIX.length) || null;
 }
