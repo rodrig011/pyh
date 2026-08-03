@@ -258,3 +258,29 @@ test('/picks account is refused to anyone who is not a mod', async () => {
 
   assert.match(String(interaction.replies.at(-1)), /Only the mods/);
 });
+
+test('/picks account names the markets traded, so a wrong series filter is visible', async () => {
+  const { generateKeyPairSync } = await import('node:crypto');
+  const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+
+  const fetchImpl = async (url) => ({
+    ok: true,
+    json: async () =>
+      url.includes('/fills')
+        ? { fills: [{ ticker: 'KXBTCD-26AUG03-T63000', side: 'yes', action: 'buy', count: 1, yes_price_dollars: '0.40', created_time: '2026-08-03T06:00:00Z' }] }
+        : { balance: 855 },
+  });
+
+  const { fetchFills, foldFills } = await import('../src/picks/kalshiAccount.js');
+  const account = {
+    keyId: 'k',
+    privateKeyPem: privateKey.export({ type: 'pkcs8', format: 'pem' }),
+    seriesTicker: 'KXBTC15M',
+  };
+
+  const { fills } = await fetchFills(account, { fetchImpl });
+  // He traded the daily series; the filter is watching the 15-minute one.
+  assert.equal(fills.length, 1);
+  assert.equal(foldFills(fills, { seriesTicker: 'KXBTC15M' }).length, 0);
+  assert.equal(foldFills(fills, { seriesTicker: 'KXBTCD' }).length, 1);
+});

@@ -1130,6 +1130,24 @@ export async function handlePicks(interaction, { store, config }) {
       )
       .setTimestamp();
 
+    embed.addFields({
+      name: `Markets in the last ${fillsResult.fills.length} fill(s)`,
+      value:
+        seen.length === 0
+          ? 'None — this account has no recent fills at all.'
+          : seen.slice(0, 12).map((ticker) => `\`${ticker}\``).join('\n'),
+    });
+
+    if (account.seriesTicker && seen.length > 0 && matching.length === 0) {
+      embed.setColor(COLORS.warning).addFields({
+        name: '⚠️ Nothing will publish',
+        value:
+          `KALSHI_SERIES_TICKER is **${account.seriesTicker}**, and none of the markets above start with it. ` +
+          'The account is connected and readable — it is the filter that is looking at the wrong series. ' +
+          'Set it to the prefix of the market he actually trades.',
+      });
+    }
+
     if (positions.length > 0) {
       embed.addFields({
         name: 'Most recent',
