@@ -634,3 +634,48 @@ test('/vip-admin sync quotes the wording when no payer name was found', async (t
   assert.match(replies[0], /deposited into your account/, 'the wording is quoted');
   assert.match(replies[0], /need a mod to assign/, 'and the consequence is spelled out');
 });
+
+test('/vip-admin adopt with a user adopts only them', async (t) => {
+  const store = freshStore(t);
+  const { interaction, replies } = fakeInteraction('vip-admin', 'adopt', {
+    user: { id: 'buyer1' },
+  });
+
+  const client = {
+    guilds: {
+      fetch: async () => ({
+        id: 'g',
+        members: {
+          fetch: async () => ({
+            id: 'buyer1',
+            user: { bot: false },
+            roles: { cache: new Map([['role-2', {}]]) },
+          }),
+        },
+      }),
+    },
+    users: { fetch: async () => ({ send: async () => {} }) },
+    channels: { fetch: async () => null },
+  };
+
+  await handleInteraction(interaction, {
+    store,
+    config: { ...config, guildId: 'g', subscriptionDays: 30 },
+    client,
+  });
+
+  assert.equal(store.listSubscriptions().length, 1, 'one person, one membership');
+  assert.equal(store.listSubscriptions()[0].userId, 'buyer1');
+  assert.equal(store.listSubscriptions()[0].tier, 2, 'read from the role they hold');
+  assert.match(replies[0], /now tracked/);
+});
+
+test('/vip-admin adopt with neither a user nor a tier says which to give', async (t) => {
+  const store = freshStore(t);
+  const { interaction, replies } = fakeInteraction('vip-admin', 'adopt');
+
+  await handleInteraction(interaction, { store, config, client: fakeClient });
+
+  assert.match(replies[0], /tier.*or.*user/i);
+  assert.equal(store.listSubscriptions().length, 0);
+});

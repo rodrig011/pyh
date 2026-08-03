@@ -82,6 +82,40 @@ export function planAdoption(members, { roleId, modRoleIds = [], hasActiveSubscr
   return result;
 }
 
+/**
+ * The tier a member's roles already entitle them to — the highest one held.
+ *
+ * Tiers stack, so somebody with tier 3 also carries 1 and 2; taking the highest
+ * is the only reading that does not quietly demote them.
+ */
+export function tierFromRoles(roleIds, tiersConfig) {
+  let best = null;
+  for (const tier of Object.keys(tiersConfig).map(Number).sort((a, b) => a - b)) {
+    if (tiersConfig[tier]?.roleId && roleIds.includes(tiersConfig[tier].roleId)) best = tier;
+  }
+  return best;
+}
+
+/**
+ * Adopting one named member, rather than sweeping a whole role.
+ *
+ * Staff are not skipped here, unlike the bulk sweep: skipping them in bulk
+ * stops a mod's own role being mistaken for a paid membership, but naming
+ * somebody is a deliberate act and second-guessing it would just be confusing.
+ *
+ * @returns {{ok: boolean, tier?: number, reason?: string}}
+ */
+export function planIndividualAdoption(member, { tiersConfig, tier = null, hasActiveSubscription }) {
+  if (member.isBot) return { ok: false, reason: 'bot' };
+
+  const resolved = tier ?? tierFromRoles(member.roleIds ?? [], tiersConfig);
+  if (!resolved) return { ok: false, reason: 'no_tier' };
+  if (!tiersConfig[resolved]) return { ok: false, reason: 'unknown_tier' };
+  if (hasActiveSubscription(member.id)) return { ok: false, reason: 'already_tracked', tier: resolved };
+
+  return { ok: true, tier: resolved };
+}
+
 export function activeSubscriptions(store, now = Date.now()) {
   return store.listSubscriptions(
     (subscription) => subscription.status === SUBSCRIPTION_STATUS.ACTIVE && subscription.expiresAt > now,

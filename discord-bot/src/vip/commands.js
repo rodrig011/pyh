@@ -34,6 +34,7 @@ import {
   activeSubscriptions,
   endSubscription,
   planAdoption,
+  planIndividualAdoption,
   upsertSubscription,
 } from './subscriptions.js';
 import { sendDm, sendLog } from './notify.js';
@@ -208,12 +209,18 @@ export function buildCommands(config) {
     .addSubcommand((sub) =>
       withShare(sub
         .setName('adopt')
-        .setDescription('Start tracking members who already hold a tier role but have no membership')
+        .setDescription('Start tracking somebody who already holds a tier role but has no membership')
+        .addUserOption((option) =>
+          option
+            .setName('user')
+            .setDescription('One person to adopt. Leave empty to sweep a whole tier')
+            .setRequired(false),
+        )
         .addIntegerOption((option) =>
           option
             .setName('tier')
-            .setDescription('Tier whose role holders should be adopted')
-            .setRequired(true)
+            .setDescription('Tier to give them. With a user, defaults to the highest role they hold')
+            .setRequired(false)
             .addChoices(...tierChoices),
         )
         .addIntegerOption((option) =>
@@ -904,6 +911,77 @@ async function handleAdminStats(interaction, { store, config }) {
 }
 
 /**
+ * Adopting one named member.
+ *
+ * The bulk sweep is the wrong tool for somebody verified by hand: it works off
+ * a whole role, and it deliberately skips staff. Naming a person says the
+ * checking already happened.
+ */
+async function adoptOne(interaction, { store, config, client }, { user, tier, days }) {
+  const guild = await client.guilds.fetch(interaction.guildId);
+  const member = await guild.members.fetch(user.id).catch(() => null);
+
+  if (!member) {
+    await interaction.editReply(`<@${user.id}> is not in this server.`);
+    return;
+  }
+
+  const plan = planIndividualAdoption(
+    { id: member.id, isBot: member.user.bot, roleIds: [...member.roles.cache.keys()] },
+    {
+      tiersConfig: config.tiers,
+      tier,
+      hasActiveSubscription: (userId) =>
+        store.getSubscription(interaction.guildId, userId)?.status === SUBSCRIPTION_STATUS.ACTIVE,
+    },
+  );
+
+  if (!plan.ok) {
+    const said = {
+      bot: 'That is a bot.',
+      no_tier: `<@${user.id}> holds no tier role, so there is nothing to read. Pass **tier** to say which one they should get, or use \`/vip-admin grant\` to hand them the roles as well.`,
+      unknown_tier: 'That tier is not configured.',
+      already_tracked: `<@${user.id}> already has a tracked membership. \`/vip-admin members\` shows when it ends.`,
+    }[plan.reason];
+    await interaction.editReply(said ?? 'Nothing to do.');
+    return;
+  }
+
+  const subscription = upsertSubscription(store, {
+    guildId: interaction.guildId,
+    userId: member.id,
+    tier: plan.tier,
+    code: null,
+    days,
+  });
+  subscription.source = 'migration';
+  subscription.autoRenew = false;
+  subscription.grantReason = `adopted by hand by ${interaction.user.tag}`;
+  store.putSubscription(subscription);
+
+  const expiresAt = Math.floor(subscription.expiresAt / 1000);
+
+  await sendLog(
+    client,
+    config,
+    new EmbedBuilder()
+      .setColor(COLORS.gold)
+      .setTitle('Membership adopted by hand')
+      .setDescription(
+        `<@${interaction.user.id}> started tracking <@${member.id}> on **${tierTitle(plan.tier, config.tiers)}** ` +
+          `for ${days} days${tier ? '' : ' (read from the role they already hold)'}.`,
+      )
+      .setTimestamp(),
+  );
+
+  await interaction.editReply(
+    `<@${member.id}> is now tracked on **${tierTitle(plan.tier, config.tiers)}** until ${time(expiresAt, 'f')}` +
+      `${tier ? '' : ' — read from the role they already hold'}. ` +
+      'They get the usual reminders, and the roles come off if it is not renewed.',
+  );
+}
+
+/**
  * Sends the mod the same DM a new arrival gets. Reading the code is not proof
  * it arrives, and waiting for a stranger to join is not a test.
  */
@@ -1052,8 +1130,18 @@ async function handleAdminNotify(interaction, { store, config, client }) {
 async function handleAdminAdopt(interaction, { store, config, client }) {
   const tier = interaction.options.getInteger('tier');
   const days = interaction.options.getInteger('days') ?? config.subscriptionDays;
-  const roleId = config.tiers[tier]?.roleId;
+  const user = interaction.options.getUser('user');
 
+  if (user) return adoptOne(interaction, { store, config, client }, { user, tier, days });
+
+  if (!tier) {
+    await interaction.editReply(
+      'Pick a **tier** to sweep, or a **user** to adopt on their own.',
+    );
+    return;
+  }
+
+  const roleId = config.tiers[tier]?.roleId;
   if (!roleId) {
     await interaction.editReply(`Tier ${tier} has no role configured, so there is nobody to adopt.`);
     return;

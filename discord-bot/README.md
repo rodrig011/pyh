@@ -76,6 +76,24 @@ Every payment buys `SUBSCRIPTION_DAYS` (30 by default) of access, not a permanen
 Mods see every active membership with `/vip-admin members` and can end one immediately
 with `/vip-admin revoke` (useful for a Zelle chargeback).
 
+`/vip-admin adopt` starts tracking somebody who already holds a tier role but has no
+membership on record — the migration case, and the one where a payment was verified by
+hand:
+
+```
+/vip-admin adopt user:@them              reads the tier from the role they already hold
+/vip-admin adopt user:@them tier:VIP     says which tier outright
+/vip-admin adopt tier:VIP                sweeps everyone holding that role
+```
+
+Naming one person differs from the sweep in two ways: the tier is read from the highest
+role they hold (tiers stack, so the lowest would demote them), and **staff are not
+skipped**. The sweep skips mods so a moderator's own role is not mistaken for a paid
+membership; naming somebody says that checking already happened.
+
+Use `/vip-admin grant` instead when they do **not** have the roles yet — adopt reads
+roles, grant hands them out.
+
 ## The storefront
 
 `/vip-admin panel` posts a buttoned storefront: a button per tier that opens the
