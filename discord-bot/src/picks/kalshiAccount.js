@@ -280,7 +280,7 @@ export function sizePercentOf(position, balanceCents) {
  * @param {object[]} picks every call this analyst has on record
  * @returns {{open: object[], close: Array<{pick: object, position: object}>}}
  */
-export function planPublication(positions, picks) {
+export function planPublication(positions, picks, { since = null, now = Date.now() } = {}) {
   const openPicks = (picks ?? []).filter((pick) => !pick.outcome);
   const byTicker = new Map(openPicks.filter((pick) => pick.marketTicker).map((pick) => [pick.marketTicker, pick]));
   const known = new Set((picks ?? []).map((pick) => pick.marketTicker).filter(Boolean));
@@ -292,7 +292,17 @@ export function planPublication(positions, picks) {
     if (position.isOpen) {
       // A position the room has never been told about. Announced once: the
       // ticker is what makes that judgement, not the timing of the poll.
-      if (!known.has(position.ticker)) open.push(position);
+      if (known.has(position.ticker)) continue;
+
+      // And only if it is news. Reading the last 25 fills at boot means most
+      // of them are history; publishing those posted a wall of calls that were
+      // already over, each one settling itself seconds later.
+      if (since !== null && (position.openedAt ?? 0) <= since) continue;
+
+      // A signal for a market that has already closed is not a signal.
+      if (position.marketClosesAt && position.marketClosesAt <= now) continue;
+
+      open.push(position);
       continue;
     }
 

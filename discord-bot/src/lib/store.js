@@ -23,6 +23,7 @@ const EMPTY = {
   dmReplies: {},
   votes: [],
   follows: [],
+  kalshiSince: null,
 };
 
 /**
@@ -263,6 +264,21 @@ export function createStore(filePath) {
      * the call itself so a busy room does not rewrite one growing object on
      * every press.
      */
+    /**
+     * The newest fill already turned into a call. Kept on disk because the
+     * alternative — trusting process uptime — republished the whole recent
+     * history as fresh calls on every deploy.
+     */
+    kalshiSince() {
+      return data.kalshiSince ?? null;
+    },
+
+    markKalshiSince(at) {
+      data.kalshiSince = at;
+      save();
+      return at;
+    },
+
     addFollow(follow) {
       data.follows.push(follow);
       save();

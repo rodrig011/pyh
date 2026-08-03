@@ -385,3 +385,32 @@ test('a fill that cannot be read is printed raw rather than silently dropped', a
     globalThis.fetch = realFetch;
   }
 });
+
+test('/picks undo-auto removes only what the account published', async () => {
+  const store = freshStore();
+  const now = Date.now();
+
+  store.recordPick({ id: 'auto-1', guildId: 'g', fromAccount: true, createdAt: now, outcome: 'win' });
+  store.recordPick({ id: 'auto-2', guildId: 'g', fromAccount: true, createdAt: now, outcome: 'loss' });
+  // Sent by hand from the console: never collateral damage.
+  store.recordPick({ id: 'by-hand', guildId: 'g', createdAt: now, outcome: 'win' });
+  // Published automatically, but yesterday.
+  store.recordPick({ id: 'old', guildId: 'g', fromAccount: true, createdAt: now - 86_400_000 });
+
+  const preview = fakeInteraction('undo-auto', { minutes: 60 });
+  await handlePicks(preview, { store, config });
+  assert.match(String(preview.replies.at(-1)), /would delete \*\*2\*\*/);
+  assert.equal(store.listPicks().length, 4, 'a preview destroys nothing');
+
+  const confirmed = fakeInteraction('undo-auto', { minutes: 60, confirm: true });
+  await handlePicks(confirmed, { store, config });
+
+  const left = store.listPicks().map((pick) => pick.id).sort();
+  assert.deepEqual(left, ['by-hand', 'old']);
+});
+
+test('/picks undo-auto is refused to anyone who is not a mod', async () => {
+  const interaction = fakeInteraction('undo-auto', {}, { admin: false });
+  await handlePicks(interaction, { store: freshStore(), config });
+  assert.match(String(interaction.replies.at(-1)), /Only the mods/);
+});

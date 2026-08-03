@@ -237,6 +237,21 @@ export function buildPickCommands(config) {
     )
     .addSubcommand((sub) =>
       sub
+        .setName('undo-auto')
+        .setDescription('Delete calls the Kalshi account published automatically (mods only)')
+        .addIntegerOption((option) =>
+          option
+            .setName('minutes')
+            .setDescription('How far back to undo (default: 60)')
+            .setRequired(false)
+            .setMinValue(1),
+        )
+        .addBooleanOption((option) =>
+          option.setName('confirm').setDescription('Required — this cannot be undone').setRequired(false),
+        ),
+    )
+    .addSubcommand((sub) =>
+      sub
         .setName('edit')
         .setDescription('Change the result of a call (mods only)')
         .addStringOption((option) =>
@@ -1193,6 +1208,55 @@ export async function handlePicks(interaction, { store, config }) {
     return interaction.editReply({ embeds: [embed] });
   }
 
+  // A flood published from history has to be reversible from Discord. Deleting
+  // fifty embeds by hand is not a recovery plan.
+  if (sub === 'undo-auto') {
+    const isMod =
+      interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) ||
+      (config.modRoleIds ?? []).some((roleId) => interaction.member?.roles?.cache?.has(roleId));
+    if (!isMod) return interaction.editReply('Only the mods can undo published calls.');
+
+    const minutes = interaction.options.getInteger('minutes') ?? 60;
+    const cutoff = Date.now() - minutes * 60_000;
+    const doomed = picks.filter((pick) => pick.fromAccount && pick.createdAt >= cutoff);
+
+    if (doomed.length === 0) {
+      return interaction.editReply(
+        `No automatically published calls in the last ${minutes} minute(s). ` +
+          'Calls sent from the console are never touched by this.',
+      );
+    }
+
+    if (!interaction.options.getBoolean('confirm')) {
+      return interaction.editReply(
+        `This would delete **${doomed.length}** call(s) published from the Kalshi account in the ` +
+          `last ${minutes} minute(s), and their messages.\n` +
+          'Calls sent by hand from the console are left alone.\n\n' +
+          'Run it again with `confirm:True`. **This cannot be undone.**',
+      );
+    }
+
+    let removedMessages = 0;
+    for (const pick of doomed) {
+      if (!pick.messageId || !pick.channelId) continue;
+      const channel = await interaction.client.channels.fetch(pick.channelId).catch(() => null);
+      if (!channel?.isTextBased?.()) continue;
+      const message = await channel.messages.fetch(pick.messageId).catch(() => null);
+      if (message) {
+        await message.delete().catch(() => null);
+        removedMessages += 1;
+      }
+    }
+
+    const ids = new Set(doomed.map((pick) => pick.id));
+    store.removePicks((pick) => ids.has(pick.id));
+
+    return interaction.editReply(
+      `Deleted **${doomed.length}** automatically published call(s) and **${removedMessages}** message(s). ` +
+        'The record no longer counts them.',
+    );
+  }
+
   if (sub === 'open') {
     const open = picks
       .filter((pick) => !pick.outcome)
@@ -1801,7 +1865,26 @@ export async function syncKalshiAccount(client, store, config, { fetchImpl, now 
 
   const guildId = config.guildId;
   const mine = store.listPicks((pick) => pick.guildId === guildId);
-  const plan = planPublication(positions, mine);
+
+  // The first pass on a fresh store publishes nothing. It only writes down
+  // where "now" is, so what follows is what happens next rather than the last
+  // hour of history replayed as live calls.
+  let since = store.kalshiSince();
+  if (since === null) {
+    since = now;
+    store.markKalshiSince(now);
+    log.info('Kalshi auto-publish armed from this moment — earlier fills are not republished');
+  }
+
+  const plan = planPublication(positions, mine, { since, now });
+
+  // Move the cursor past everything seen, whether or not it was published, so
+  // a fill that was skipped for being old is never reconsidered.
+  const newest = positions.reduce(
+    (latest, position) => Math.max(latest, position.openedAt ?? 0, position.closedAt ?? 0),
+    since,
+  );
+  if (newest > since) store.markKalshiSince(newest);
 
   let published = 0;
   let closed = 0;

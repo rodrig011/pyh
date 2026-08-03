@@ -307,7 +307,7 @@ test('the balance is read once a minute, not on every pass', async () => {
     guildId: 'g',
     picks: { kalshi: { account: { ...credentials, autoPublish: true, seriesTicker: 'KXBTC15M' } } },
   };
-  const store = { listPicks: () => [] };
+  const store = { listPicks: () => [], kalshiSince: () => 0, markKalshiSince: () => {} };
 
   const now = Date.now();
   await syncKalshiAccount({}, store, config, { fetchImpl, now });
@@ -332,10 +332,49 @@ test('only the newest fills are asked for, so the poll stays cheap', async () =>
 
   await syncKalshiAccount(
     {},
-    { listPicks: () => [] },
+    { listPicks: () => [], kalshiSince: () => 0, markKalshiSince: () => {} },
     { guildId: 'g', picks: { kalshi: { account: { ...credentials, autoPublish: true } } } },
     { fetchImpl, now: Date.now() + 120_000 },
   );
 
   assert.match(seen, /limit=25/);
+});
+
+test('history is never republished as live calls', async () => {
+  const { planPublication } = await import('../src/picks/kalshiAccount.js');
+  const now = Date.parse('2026-08-03T18:00:00Z');
+
+  const old = {
+    ticker: 'KXBTC15M-OLD',
+    direction: 'up',
+    entryCents: 68,
+    isOpen: true,
+    openedAt: now - 3 * 3600_000,
+  };
+  const fresh = { ...old, ticker: 'KXBTC15M-NEW', openedAt: now - 5000 };
+
+  // This is the flood: a boot that read the last 25 fills and announced all of
+  // them, each one already over, each settling itself seconds later.
+  assert.equal(planPublication([old, fresh], [], { since: null, now }).open.length, 2);
+
+  // With a cursor, only what happened after it.
+  const plan = planPublication([old, fresh], [], { since: now - 60_000, now });
+  assert.equal(plan.open.length, 1);
+  assert.equal(plan.open[0].ticker, 'KXBTC15M-NEW');
+});
+
+test('a market that has already closed is not announced as a signal', async () => {
+  const { planPublication } = await import('../src/picks/kalshiAccount.js');
+  const now = Date.parse('2026-08-03T18:00:00Z');
+
+  const expired = {
+    ticker: 'KXBTC15M-DEAD',
+    direction: 'up',
+    entryCents: 68,
+    isOpen: true,
+    openedAt: now - 1000,
+    marketClosesAt: now - 500,
+  };
+
+  assert.equal(planPublication([expired], [], { since: now - 60_000, now }).open.length, 0);
 });
