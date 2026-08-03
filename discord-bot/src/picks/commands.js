@@ -900,6 +900,12 @@ export async function handlePicks(interaction, { store, config }) {
       return interaction.editReply(error.message);
     }
 
+    // Replace, never append. Adding on every run turned "their record is 7-0",
+    // repeated a few times while testing, into 83-18 — the bot recording
+    // exactly what it was told, over and over. A restore states what the record
+    // IS, so running it twice has to leave the same answer as running it once.
+    const replaced = store.removePicks((pick) => pick.backfilled && pick.analystId === user.id);
+
     for (const entry of entries) store.putPick(entry);
 
     const record = computeRecord(store.listPicks(), { analystId: user.id });
@@ -918,7 +924,10 @@ export async function handlePicks(interaction, { store, config }) {
 
     return interaction.editReply(
       `Restored **${entries.length}** call(s) for <@${user.id}>. ` +
-        `They now show **${formatWinRate(record.winRate)}** (${record.wins}W ${record.losses}L).`,
+        `They now show **${formatWinRate(record.winRate)}** (${record.wins}W ${record.losses}L).` +
+        (replaced > 0
+          ? `\n_Replaced ${replaced} previously restored call(s). Calls the bot graded live were left alone._`
+          : ''),
     );
   }
 

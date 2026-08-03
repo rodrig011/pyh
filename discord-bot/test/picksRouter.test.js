@@ -93,3 +93,51 @@ test('/picks record, board and open all answer on an empty store', async () => {
     assert.ok(interaction.replies.length === 1, `${sub} replied exactly once`);
   }
 });
+
+test('backfill replaces its own previous entries instead of stacking them', async () => {
+  const store = freshStore();
+  const analyst = { id: 'kingt', tag: 'kingt_67', username: 'kingt_67' };
+
+  // The bug: running it four times while testing turned 7-0 into 28-0.
+  for (let run = 0; run < 4; run += 1) {
+    await handlePicks(fakeInteraction('backfill', { analyst, wins: 7, losses: 0 }), { store, config });
+  }
+
+  assert.equal(store.listPicks().length, 7);
+});
+
+test('a restore never touches calls the bot graded live', async () => {
+  const store = freshStore();
+  const analyst = { id: 'kingt', tag: 'kingt_67', username: 'kingt_67' };
+
+  store.recordPick({
+    id: 'live-1',
+    analystId: 'kingt',
+    guildId: 'g',
+    asset: 'BTC',
+    outcome: 'win',
+    createdAt: Date.now(),
+  });
+
+  await handlePicks(fakeInteraction('backfill', { analyst, wins: 7, losses: 0 }), { store, config });
+  await handlePicks(fakeInteraction('backfill', { analyst, wins: 3, losses: 1 }), { store, config });
+
+  const kept = store.listPicks();
+  assert.equal(kept.filter((pick) => pick.backfilled).length, 4);
+  assert.ok(kept.some((pick) => pick.id === 'live-1'), 'the live call survives every restore');
+});
+
+test('one analyst’s restore leaves another analyst alone', async () => {
+  const store = freshStore();
+  await handlePicks(
+    fakeInteraction('backfill', { analyst: { id: 'a', tag: 'a', username: 'a' }, wins: 5, losses: 0 }),
+    { store, config },
+  );
+  await handlePicks(
+    fakeInteraction('backfill', { analyst: { id: 'b', tag: 'b', username: 'b' }, wins: 2, losses: 0 }),
+    { store, config },
+  );
+
+  assert.equal(store.listPicks((pick) => pick.analystId === 'a').length, 5);
+  assert.equal(store.listPicks((pick) => pick.analystId === 'b').length, 2);
+});
