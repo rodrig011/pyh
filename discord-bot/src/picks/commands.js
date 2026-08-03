@@ -109,10 +109,12 @@ export function buildPickCommands(config) {
     .setName('call')
     .setDescription('Post a trading call the room can be held to')
     .setDMPermission(false)
-    // Visibility is gated on a permission bit because Discord cannot gate on a
-    // role; the analyst check in code is the real authority.
+    // Discord can gate visibility on a permission bit but never on a role, so
+    // the code check is the real authority. This has to read the same list that
+    // check does — reading only the analyst roles hid the command from a mod
+    // who was allowed to use it, whenever the analysts were configured as mods.
     .setDefaultMemberPermissions(
-      settings.analystRoleIds.length > 0 ? null : PermissionFlagsBits.ManageMessages,
+      callerRoleIds(config).length > 0 ? null : PermissionFlagsBits.ManageMessages,
     )
     .addStringOption((option) =>
       option
@@ -237,10 +239,21 @@ export function buildPickCommands(config) {
   return [call.toJSON(), picks.toJSON()];
 }
 
+/**
+ * Every role allowed to send calls.
+ *
+ * Mods count: in most rooms the analysts *are* the mods, and keeping two lists
+ * that mean the same thing invites them to disagree. One source, used by both
+ * the permission check and the command's visibility.
+ */
+export function callerRoleIds(config) {
+  return [...pickSettings(config).analystRoleIds, ...(config.modRoleIds ?? [])];
+}
+
 /** Only the analysts may call. Administrators always pass. */
 export function isAnalyst(interaction, config) {
   if (interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return true;
-  const allowed = [...pickSettings(config).analystRoleIds, ...(config.modRoleIds ?? [])];
+  const allowed = callerRoleIds(config);
   // With no analyst roles set, only administrators may call. Manage Messages is
   // held by every moderator in most servers, and a member pressing BUY UP by
   // accident sends a real signal to everyone paying for one.

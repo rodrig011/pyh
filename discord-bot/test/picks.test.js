@@ -318,6 +318,7 @@ import {
   PANEL_ACTIONS,
 } from '../src/picks/panel.js';
 import {
+  callerRoleIds,
   gradeQuote,
   pickEmbed,
   pickSettings,
@@ -1190,4 +1191,37 @@ test('the one-line announcement always carries the size', () => {
     direction: DIRECTIONS.UP, asset: 'BTC', minutes: 15, sizePercent: 50, entry: null,
   });
   assert.match(line.content, /50% of port/);
+});
+
+// In most rooms the analysts are the mods. The permission check has always
+// known that; the command's visibility did not, so /call hid behind Manage
+// Messages from the very people allowed to use it.
+
+test('mods count as callers, so /call is not hidden from them', () => {
+  const modsOnly = { ...routingConfig, modRoleIds: ['mod-role'], picks: { ...routingConfig.picks, analystRoleIds: [] } };
+
+  assert.deepEqual(callerRoleIds(modsOnly), ['mod-role']);
+
+  const call = buildCommands(modsOnly).find((command) => command.name === 'call');
+  assert.equal(call.default_member_permissions, null, 'visible to everyone, gated in code');
+});
+
+test('with neither list set the command stays behind a permission', () => {
+  const call = buildCommands(routingConfig).find((command) => command.name === 'call');
+  assert.ok(call.default_member_permissions, 'nothing configured means nothing open');
+});
+
+test('a mod can press the console when only the mod role is configured', async (t) => {
+  const store = routingStore(t);
+  const { interaction, replies } = panelPress('up', 'a-mod');
+  interaction.memberPermissions = { has: () => false };
+  interaction.member = { roles: { cache: { has: (id) => id === 'mod-role' } } };
+
+  await handleInteraction(interaction, {
+    store,
+    config: { ...routingConfig, modRoleIds: ['mod-role'] },
+    client: interaction.client,
+  });
+
+  assert.match(replies[0].content, /how much of the port/i, 'let through, not turned away');
 });
