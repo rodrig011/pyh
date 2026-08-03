@@ -106,6 +106,14 @@ export function createPhotoBot(config = loadPhotoConfig()) {
 
   client.once(Events.ClientReady, async (ready) => {
     log.info(`Logged in as ${ready.user.tag}`);
+
+    // Reaching this line proves the privileged intent is on: Discord refuses
+    // the connection outright when a bot asks for Message Content without it.
+    // Saying so beats leaving the owner to work it out — a bot that cannot read
+    // text connects, reports the channel it is watching, and deletes nothing,
+    // which looks exactly like a bot that is simply broken.
+    log.info('Message Content is enabled — text in those channels will be read and removed');
+
     if (config.channelIds.length === 0) {
       log.warn('PHOTO_ONLY_CHANNEL_IDS is empty: the bot is not watching any channel');
     } else {
