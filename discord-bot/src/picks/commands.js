@@ -1140,6 +1140,29 @@ export async function handlePicks(interaction, { store, config }) {
           : seen.slice(0, 12).map((ticker) => `\`${ticker}\``).join('\n'),
     });
 
+    // Tickers in the right series but nothing folded means the fills parsed as
+    // unusable — a price or a quantity under a field name this does not know.
+    // Same failure the market feed had, and same fix: print what came back
+    // instead of guessing at it.
+    if (matching.length > 0 && positions.length === 0) {
+      const sample = fillsResult.fills.find((fill) =>
+        account.seriesTicker ? fill?.ticker?.startsWith(account.seriesTicker) : true,
+      );
+      embed.setColor(COLORS.warning).addFields({
+        name: '⚠️ Fills are in the right series but none could be read',
+        value:
+          'The price or the quantity is under a field name this does not recognise. ' +
+          'Here is one fill exactly as Kalshi returned it:',
+      });
+      if (sample) {
+        await interaction.editReply({
+          embeds: [embed],
+          content: `\`\`\`json\n${JSON.stringify(sample, null, 2).slice(0, 1800)}\n\`\`\``,
+        });
+        return undefined;
+      }
+    }
+
     if (account.seriesTicker && seen.length > 0 && matching.length === 0) {
       embed.setColor(COLORS.warning).addFields({
         name: '⚠️ Nothing will publish',

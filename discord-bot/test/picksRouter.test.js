@@ -342,3 +342,46 @@ test('/picks account answers with credentials set, all the way through', async (
     globalThis.fetch = realFetch;
   }
 });
+
+test('a fill that cannot be read is printed raw rather than silently dropped', async () => {
+  const { generateKeyPairSync } = await import('node:crypto');
+  const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+
+  const withAccount = {
+    guildId: 'g',
+    picks: {
+      kalshi: {
+        account: {
+          keyId: 'key-1',
+          privateKeyPem: privateKey.export({ type: 'pkcs8', format: 'pem' }),
+          seriesTicker: 'KXBTC15M',
+        },
+      },
+    },
+  };
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => ({
+    ok: true,
+    text: async () => '',
+    json: async () =>
+      String(url).includes('/fills')
+        ? {
+            // Right series, but the price is under a name the folder does not
+            // know — which is how "connected, 0 positions" happens.
+            fills: [{ ticker: 'KXBTC15M-26AUG031630-30', side: 'yes', action: 'buy', quantity: 3, price_fp: '390000' }],
+          }
+        : { balance: 140 },
+  });
+
+  try {
+    const interaction = fakeInteraction('account');
+    await handlePicks(interaction, { store: freshStore(), config: withAccount });
+
+    const text = JSON.stringify(interaction.replies.at(-1));
+    assert.match(text, /none could be read/);
+    assert.match(text, /price_fp/, 'the unknown field has to be visible to be fixed');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
