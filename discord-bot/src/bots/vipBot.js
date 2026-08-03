@@ -104,6 +104,14 @@ export function createVipBot(config = loadVipConfig()) {
     // are simply gone. Saying what was found makes it visible on the first
     // restart rather than the first time somebody's call disappears.
     const counts = store.summary();
+    if (store.writeError) {
+      log.error(
+        `THE STORE CANNOT BE WRITTEN: ${store.writeError}. Nothing will be saved — ` +
+          'every payment, membership and call will be lost the moment it happens. ' +
+          `On Railway this is the volume at ${store.path} being owned by root; the container ` +
+          'must take ownership of it at startup. Fix this before taking money.',
+      );
+    }
     if (store.existedAtBoot) {
       log.info(
         `Store at ${store.path}: ${counts.subscriptions} membership(s), ${counts.picks} call(s), ${counts.orders} order(s)`,

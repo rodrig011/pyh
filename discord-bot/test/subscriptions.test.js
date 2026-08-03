@@ -146,3 +146,22 @@ test('the store keeps subscriptions across a restart', (t) => {
   assert.equal(reloaded.tier, 2);
   assert.equal(reloaded.expiresAt, NOW + 30 * DAY_MS);
 });
+
+test('the store reports at boot when it cannot be written', async () => {
+  const { chmodSync } = await import('node:fs');
+
+  const dir = mkdtempSync(join(tmpdir(), 'store-'));
+  const good = createStore(join(dir, 'store.json'));
+  assert.equal(good.writeError, null);
+
+  // Root ignores the mode bits, so a read-only directory proves nothing there.
+  if (process.getuid && process.getuid() !== 0) {
+    chmodSync(dir, 0o500);
+    try {
+      const locked = createStore(join(dir, 'locked', 'store.json'));
+      assert.ok(locked.writeError, 'a store in an unwritable directory must say so');
+    } finally {
+      chmodSync(dir, 0o700);
+    }
+  }
+});

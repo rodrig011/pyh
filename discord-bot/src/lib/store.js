@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { subscriptionKey } from './subscriptions.js';
 
@@ -36,6 +36,21 @@ export function createStore(filePath) {
     }
   }
 
+  // A store that cannot be written is worse than no store: the bot logs in,
+  // answers commands, posts calls, and then throws on the first save — which
+  // in practice means the first sale. A mounted volume owned by root does
+  // exactly this. One probe at boot turns it into something the owner can read
+  // and act on, instead of an EACCES in front of a paying customer.
+  let writeError = null;
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    const probe = `${path}.probe`;
+    writeFileSync(probe, '');
+    unlinkSync(probe);
+  } catch (error) {
+    writeError = error.message;
+  }
+
   function save() {
     mkdirSync(dirname(path), { recursive: true });
     const tmp = `${path}.tmp`;
@@ -46,6 +61,8 @@ export function createStore(filePath) {
   return {
     path,
     existedAtBoot,
+    /** null when the store can be written; the reason it cannot, otherwise. */
+    writeError,
 
     /** What is actually on disk, for a startup line worth reading. */
     summary() {
