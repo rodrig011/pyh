@@ -57,6 +57,7 @@ import {
   formatStreak,
   formatWinRate,
   leaderboard,
+  nextCandleClose,
   settlePick,
 } from './picks.js';
 
@@ -391,7 +392,7 @@ export function settleRow(pickId) {
  * ended answers a question nobody asked. Spot stays as the fallback because a
  * feed that is down must cost automatic grading, not the call itself.
  */
-export async function quoteFor(config, asset, { direction = null } = {}) {
+export async function quoteFor(config, asset, { direction = null, ticker = null, closesAt = null } = {}) {
   const settings = pickSettings(config);
 
   if (settings.kalshi?.enabled) {
@@ -401,12 +402,13 @@ export async function quoteFor(config, asset, { direction = null } = {}) {
     // of what they paid — a 39¢ entry read as 61¢, and every result inverted.
     const side =
       direction === DIRECTIONS.DOWN ? 'no' : direction === DIRECTIONS.UP ? 'yes' : settings.kalshi.side;
-    const contract = await currentContract({ ...settings.kalshi, side });
+    const contract = await currentContract({ ...settings.kalshi, side }, { ticker, closesAt });
     if (contract.price !== null) {
       return {
         price: contract.price,
         unit: 'cents',
         source: `kalshi:${contract.market?.ticker ?? 'market'}`,
+        ticker: contract.market?.ticker ?? null,
         label: formatCents(contract.price),
       };
     }
@@ -414,8 +416,8 @@ export async function quoteFor(config, asset, { direction = null } = {}) {
 
   const spot = await fetchSpotPrice(asset);
   return spot.price === null
-    ? { price: null, unit: null, source: null, label: '—' }
-    : { price: spot.price, unit: 'usd', source: spot.source, label: formatPrice(spot.price) };
+    ? { price: null, unit: null, source: null, ticker: null, label: '—' }
+    : { price: spot.price, unit: 'usd', source: spot.source, ticker: null, label: formatPrice(spot.price) };
 }
 
 /** Formats a price in whatever unit the call was opened in. */
@@ -486,14 +488,26 @@ export async function openCall(interaction, { store, config }, overrides = {}) {
   // The price at the moment of the call is what makes it gradeable later. A
   // feed that is down must not block the call — it only costs automatic
   // grading, and the analyst can still settle it by hand.
+  // Worked out before the quote so both ends agree on which 15-minute market
+  // this call belongs to, and frozen so buildPick cannot land on the next
+  // candle a few milliseconds later.
+  const now = Date.now();
+  const minutes = overrides.minutes ?? settings.defaultMinutes;
+  const closesAt = nextCandleClose(now, minutes);
+
   let entry = overrides.entry ?? null;
   let priceSource = null;
   let priceUnit = 'usd';
+  let marketTicker = null;
   if (entry === null) {
-    const quote = await quoteFor(config, asset, { direction: overrides.direction ?? null });
+    const quote = await quoteFor(config, asset, {
+      direction: overrides.direction ?? null,
+      closesAt,
+    });
     entry = quote.price;
     priceSource = quote.source;
     priceUnit = quote.unit ?? 'usd';
+    marketTicker = quote.ticker ?? null;
   }
 
   const pick = buildPick({
@@ -502,15 +516,21 @@ export async function openCall(interaction, { store, config }, overrides = {}) {
     guildId: interaction.guildId ?? config.guildId,
     direction: overrides.direction,
     asset,
-    minutes: overrides.minutes ?? settings.defaultMinutes,
+    minutes,
     sizePercent,
     entry,
     target: overrides.target ?? null,
     stop: overrides.stop ?? null,
     note: overrides.note ?? null,
+    now,
   });
   pick.entrySource = priceSource;
   pick.priceUnit = priceUnit;
+  // The exact contract the analyst bought. By the time they press CASH OUT the
+  // market may have rolled over, and "the current market" would be a different
+  // trade — so the exit is priced against this ticker, not against whatever is
+  // open at that second.
+  pick.marketTicker = marketTicker;
 
   const channel = settings.channelId
     ? await interaction.client.channels.fetch(settings.channelId).catch(() => null)
@@ -1098,6 +1118,8 @@ async function postManagement(interaction, { store, config }, { action, note = n
   // against a contract the analyst never held.
   const quote = await quoteFor(config, open?.asset ?? settings.defaultAsset, {
     direction: open?.direction ?? null,
+    ticker: open?.marketTicker ?? null,
+    closesAt: open?.closesAt ?? null,
   });
 
   const closes = CLOSING_ACTIONS.has(action);
@@ -1374,7 +1396,11 @@ export async function promptDueSettlements(client, store, config, now = Date.now
     const quote =
       pick.entry === null
         ? { price: null, label: '—' }
-        : await quoteFor(config, pick.asset, { direction: pick.direction });
+        : await quoteFor(config, pick.asset, {
+            direction: pick.direction,
+            ticker: pick.marketTicker ?? null,
+            closesAt: pick.closesAt,
+          });
     const verdict = quote.price === null ? null : gradeQuote(pick, quote.price);
 
     if (verdict) {

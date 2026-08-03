@@ -131,15 +131,91 @@ export async function fetchMarkets(settings, { fetchImpl = globalThis.fetch, tim
   }
 }
 
-/** The market a call should be priced against, and its price right now. */
+/**
+ * The market whose window matches the call's.
+ *
+ * A new 15-minute market opens every quarter hour, so "the soonest one to
+ * close" is a different contract depending on the second you ask. A call
+ * opened at 02:14 belongs to the 02:15 market, and a call opened at 02:14:55
+ * belongs to the 02:30 one — the same rule the call's own clock already used.
+ * Matching on the close time keeps both ends of a trade on one contract.
+ */
+export function marketForClose(markets, closesAt = null, now = Date.now()) {
+  const open = openMarkets(markets, now);
+  if (open.length === 0) return null;
+  if (!closesAt) return open[0];
+
+  const closeOf = (market) => Date.parse(market.close_time ?? market.expiration_time ?? '');
+  let best = null;
+  let bestDistance = Infinity;
+  for (const market of open) {
+    const closes = closeOf(market);
+    if (Number.isNaN(closes)) continue;
+    const distance = Math.abs(closes - closesAt);
+    if (distance < bestDistance) {
+      best = market;
+      bestDistance = distance;
+    }
+  }
+  return best ?? open[0];
+}
+
+/**
+ * One named market. Used to close a call against the very contract it was
+ * opened on — by the time an exit is pressed, that market may have rolled over
+ * and "the current market" is a different trade entirely.
+ */
+export async function fetchMarket(settings, ticker, { fetchImpl = globalThis.fetch, timeoutMs = 6000 } = {}) {
+  const base = settings.apiBase ?? DEFAULT_API_BASE;
+  const url = `${base}/markets/${encodeURIComponent(ticker)}`;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetchImpl(url, {
+      signal: controller.signal,
+      headers: settings.apiKeyId ? { 'KALSHI-ACCESS-KEY': settings.apiKeyId } : {},
+    });
+    if (!response.ok) return { market: null, error: `HTTP ${response.status}`, url };
+    const body = await response.json();
+    return { market: body?.market ?? null, error: null, url, body };
+  } catch (error) {
+    return { market: null, error: error.name === 'AbortError' ? 'timed out' : error.message, url };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * The market a call should be priced against, and its price right now.
+ *
+ * `ticker` pins it to a contract already chosen; `closesAt` picks the one
+ * covering that window. Without either it falls back to whatever closes next,
+ * which is only right for a quote nobody is trading against.
+ */
 export async function currentContract(settings, options = {}) {
+  const { ticker = null, closesAt = null, now = Date.now() } = options;
+
+  if (ticker) {
+    const { market, error, url } = await fetchMarket(settings, ticker, options);
+    if (error || !market) return { price: null, market: null, error: error ?? 'no such market', url };
+    const price = readMarketPrice(market, settings.side ?? 'yes');
+    return {
+      price: price?.cents ?? null,
+      priceSource: price?.source ?? null,
+      market,
+      error: price ? null : 'no usable price on that market',
+      url,
+    };
+  }
+
   const { markets, error, url } = await fetchMarkets(settings, options);
   if (error) return { price: null, market: null, error, url };
 
-  const open = openMarkets(markets);
-  if (open.length === 0) return { price: null, market: null, error: 'no open markets', url };
+  const market = marketForClose(markets, closesAt, now);
+  if (!market) return { price: null, market: null, error: 'no open markets', url };
 
-  const market = open[0];
   const price = readMarketPrice(market, settings.side ?? 'yes');
   return {
     price: price?.cents ?? null,

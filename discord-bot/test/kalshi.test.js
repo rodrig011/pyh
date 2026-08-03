@@ -4,6 +4,7 @@ import {
   contractReturn,
   currentContract,
   formatCents,
+  marketForClose,
   gradeByContract,
   isPriceCents,
   openMarkets,
@@ -143,4 +144,46 @@ test('the same move is a win on one side and a loss on the other', () => {
   assert.equal(gradeByContract(39, 50).outcome, 'win');
   // Read off the YES side instead, the identical trade reports a loss.
   assert.equal(gradeByContract(61, 50).outcome, 'loss');
+});
+
+test('a call is priced against the market covering its own window', () => {
+  const now = Date.parse('2026-08-03T02:14:00Z');
+  const markets = [
+    { ticker: 'KXBTC15M-26AUG030215', status: 'open', close_time: '2026-08-03T02:15:00Z', last_price: 39 },
+    { ticker: 'KXBTC15M-26AUG030230', status: 'open', close_time: '2026-08-03T02:30:00Z', last_price: 52 },
+  ];
+
+  // Opened at 02:14 with a minute to run: the 02:15 contract.
+  assert.equal(
+    marketForClose(markets, Date.parse('2026-08-03T02:15:00Z'), now).ticker,
+    'KXBTC15M-26AUG030215',
+  );
+
+  // Opened seconds before the bell, so the call rolled to the next candle —
+  // and the contract has to roll with it.
+  assert.equal(
+    marketForClose(markets, Date.parse('2026-08-03T02:30:00Z'), now).ticker,
+    'KXBTC15M-26AUG030230',
+  );
+});
+
+test('with no window given it falls back to whatever closes next', () => {
+  const now = Date.parse('2026-08-03T02:14:00Z');
+  const markets = [
+    { ticker: 'later', status: 'open', close_time: '2026-08-03T02:30:00Z' },
+    { ticker: 'sooner', status: 'open', close_time: '2026-08-03T02:15:00Z' },
+  ];
+
+  assert.equal(marketForClose(markets, null, now).ticker, 'sooner');
+});
+
+test('a market that already closed is never chosen', () => {
+  const now = Date.parse('2026-08-03T02:20:00Z');
+  const markets = [
+    { ticker: 'gone', status: 'open', close_time: '2026-08-03T02:15:00Z' },
+    { ticker: 'live', status: 'open', close_time: '2026-08-03T02:30:00Z' },
+  ];
+
+  // Even though its close time is nearer the asked-for window.
+  assert.equal(marketForClose(markets, Date.parse('2026-08-03T02:15:00Z'), now).ticker, 'live');
 });
