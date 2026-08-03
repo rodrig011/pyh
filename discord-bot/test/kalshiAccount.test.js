@@ -95,13 +95,74 @@ test('no credentials means no request, not a broken one', async () => {
   assert.equal(hasCredentials(credentials), true);
 });
 
-// Partial fills are the normal case on a scalp, not the exception.
+// Partial fills are the normal case on a scalp, not the exception. A real fill
+// carries both sides of the contract, and they are complements.
 const fills = [
-  { ticker: 'KXBTC15M-A', side: 'no', action: 'buy', count: 10, yes_price_dollars: '0.60', created_time: '2026-08-03T06:20:00Z' },
-  { ticker: 'KXBTC15M-A', side: 'no', action: 'buy', count: 10, yes_price_dollars: '0.62', created_time: '2026-08-03T06:20:30Z' },
-  { ticker: 'KXBTC15M-A', side: 'no', action: 'sell', count: 20, yes_price_dollars: '0.75', created_time: '2026-08-03T06:26:00Z' },
-  { ticker: 'OTHER-B', side: 'yes', action: 'buy', count: 5, yes_price_dollars: '0.40', created_time: '2026-08-03T06:21:00Z' },
+  { ticker: 'KXBTC15M-A', side: 'no', action: 'buy', count_fp: '10', no_price_dollars: '0.60', yes_price_dollars: '0.40', created_time: '2026-08-03T06:20:00Z' },
+  { ticker: 'KXBTC15M-A', side: 'no', action: 'buy', count_fp: '10', no_price_dollars: '0.62', yes_price_dollars: '0.38', created_time: '2026-08-03T06:20:30Z' },
+  { ticker: 'KXBTC15M-A', side: 'no', action: 'sell', count_fp: '20', no_price_dollars: '0.75', yes_price_dollars: '0.25', created_time: '2026-08-03T06:26:00Z' },
+  { ticker: 'OTHER-B', side: 'yes', action: 'buy', count_fp: '5', yes_price_dollars: '0.40', created_time: '2026-08-03T06:21:00Z' },
 ];
+
+test('the NO price is read for a NO position, not the YES price', () => {
+  // The same fill quotes 0.60 on the side bought and 0.40 on the other. Reading
+  // the wrong one reports a trader who paid 60 as having paid 40.
+  const [position] = foldFills([fills[0]], { seriesTicker: 'KXBTC15M' });
+  assert.equal(position.entryCents, 60);
+});
+
+test('a fill quoting only the YES side still prices a NO position', () => {
+  const [position] = foldFills(
+    [{ ticker: 'K-A', side: 'no', action: 'buy', count_fp: '1', yes_price_dollars: '0.39' }],
+    {},
+  );
+  assert.equal(position.entryCents, 61);
+});
+
+test('fractional contracts are counted, because Kalshi fills them that way', () => {
+  // Straight from a live account: 0.92 contracts at 86 cents.
+  const [position] = foldFills(
+    [
+      {
+        ticker: 'KXBTC15M-26AUG031630-30',
+        side: 'yes',
+        outcome_side: 'yes',
+        action: 'buy',
+        count_fp: '0.92',
+        fee_cost: '0.007800',
+        yes_price_dollars: '0.8600',
+        no_price_dollars: '0.1400',
+        created_time: '2026-08-03T20:26:39.36522Z',
+      },
+    ],
+    { seriesTicker: 'KXBTC15M' },
+  );
+
+  assert.equal(position.contracts, 0.92);
+  assert.equal(position.entryCents, 86);
+  assert.equal(position.isOpen, true);
+  assert.equal(position.feeCents, 0.78);
+});
+
+test('the return is net of the exchange fee', () => {
+  const [gross] = foldFills(
+    [
+      { ticker: 'K-A', side: 'yes', action: 'buy', count_fp: '10', yes_price_dollars: '0.40' },
+      { ticker: 'K-A', side: 'yes', action: 'sell', count_fp: '10', yes_price_dollars: '0.50' },
+    ],
+    {},
+  );
+  const [net] = foldFills(
+    [
+      { ticker: 'K-A', side: 'yes', action: 'buy', count_fp: '10', yes_price_dollars: '0.40', fee_cost: '0.20' },
+      { ticker: 'K-A', side: 'yes', action: 'sell', count_fp: '10', yes_price_dollars: '0.50', fee_cost: '0.20' },
+    ],
+    {},
+  );
+
+  assert.equal(Math.round(gross.returnPercent), 25);
+  assert.ok(net.returnPercent < gross.returnPercent, 'fees have to come out of the return');
+});
 
 test('partial fills fold into one position at the average price paid', () => {
   const [position] = foldFills(fills, { seriesTicker: 'KXBTC15M' });

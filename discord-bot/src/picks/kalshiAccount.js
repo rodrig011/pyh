@@ -95,17 +95,62 @@ export async function readAccount(settings, path, { fetchImpl = globalThis.fetch
   }
 }
 
-/** Prices come back as dollar strings on the newer fields, cents on the old. */
-function centsOf(fill) {
-  for (const name of ['yes_price_dollars', 'price_dollars', 'yes_price', 'price']) {
-    const raw = fill?.[name];
+function numberFrom(source, names) {
+  for (const name of names) {
+    const raw = source?.[name];
     if (raw === null || raw === undefined || raw === '') continue;
     const value = typeof raw === 'string' ? Number.parseFloat(raw) : Number(raw);
-    if (!Number.isFinite(value)) continue;
-    const cents = name.endsWith('_dollars') ? value * 100 : value;
-    if (isPriceCents(cents)) return cents;
+    if (Number.isFinite(value)) return { value, name };
   }
   return null;
+}
+
+/**
+ * What this fill cost per contract, on the side that was actually bought.
+ *
+ * A fill carries both sides — `yes_price_dollars` and `no_price_dollars` — and
+ * they are complements. Reading the YES price for a NO position reports 86
+ * where the trader paid 14, so the side decides which one is the price.
+ */
+function centsOf(fill, side = 'yes') {
+  const names =
+    side === 'no'
+      ? ['no_price_dollars', 'no_price', 'price_dollars', 'price']
+      : ['yes_price_dollars', 'yes_price', 'price_dollars', 'price'];
+
+  const found = numberFrom(fill, names);
+  if (found) {
+    const cents = found.name.endsWith('_dollars') ? found.value * 100 : found.value;
+    if (isPriceCents(cents)) return cents;
+  }
+
+  // Older fills carry only the YES price. The two sides of a contract are
+  // complements, so the NO price is what is left of a dollar.
+  if (side === 'no') {
+    const yes = numberFrom(fill, ['yes_price_dollars', 'yes_price']);
+    if (yes) {
+      const cents = yes.name.endsWith('_dollars') ? yes.value * 100 : yes.value;
+      if (isPriceCents(cents)) return 100 - cents;
+    }
+  }
+  return null;
+}
+
+/**
+ * How many contracts. Kalshi reports this as `count_fp` — fixed point, and
+ * genuinely fractional: a real fill came back as 0.92 contracts. Looking only
+ * for `count` found nothing and skipped every fill, which is how a connected
+ * account with twenty real trades folded into zero positions.
+ */
+function countOf(fill) {
+  const found = numberFrom(fill, ['count_fp', 'count', 'quantity']);
+  return found && found.value > 0 ? found.value : null;
+}
+
+/** Exchange fees, in cents. Ignoring them reports a return nobody received. */
+function feeCentsOf(fill) {
+  const found = numberFrom(fill, ['fee_cost', 'fee_dollars', 'fee']);
+  return found ? Math.max(0, found.value * 100) : 0;
 }
 
 /**
@@ -126,11 +171,11 @@ export function foldFills(fills, { seriesTicker = null } = {}) {
     if (!ticker) continue;
     if (seriesTicker && !ticker.startsWith(seriesTicker)) continue;
 
-    const cents = centsOf(fill);
-    const count = Number(fill.count);
-    if (cents === null || !Number.isFinite(count) || count <= 0) continue;
+    const side = (fill.side ?? fill.outcome_side) === 'no' ? 'no' : 'yes';
+    const cents = centsOf(fill, side);
+    const count = countOf(fill);
+    if (cents === null || count === null) continue;
 
-    const side = fill.side === 'no' ? 'no' : 'yes';
     const buying = (fill.action ?? 'buy') === 'buy';
     const at = Date.parse(fill.created_time ?? '') || null;
 
@@ -141,9 +186,12 @@ export function foldFills(fills, { seriesTicker = null } = {}) {
       entryCost: 0,
       exitValue: 0,
       exited: 0,
+      fees: 0,
       openedAt: null,
       closedAt: null,
     };
+
+    position.fees += feeCentsOf(fill);
 
     if (buying) {
       position.side = side;
@@ -175,9 +223,16 @@ export function foldFills(fills, { seriesTicker = null } = {}) {
       isOpen: open > 0,
       openedAt: position.openedAt,
       closedAt: open > 0 ? null : position.closedAt,
-      // What the trade actually returned, on the money that actually went in.
+      feeCents: Math.round(position.fees * 100) / 100,
+      // What the trade actually returned, on the money that actually went in —
+      // after the exchange took its cut, because a return quoted before fees
+      // is a number the analyst never received.
       returnPercent:
-        entry === null || exit === null || entry <= 0 ? null : ((exit - entry) / entry) * 100,
+        entry === null || exit === null || entry <= 0 || position.contracts <= 0
+          ? null
+          : ((exit * position.exited - entry * position.contracts - position.fees) /
+              (entry * position.contracts)) *
+            100,
     };
   });
 }
