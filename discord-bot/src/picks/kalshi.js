@@ -33,19 +33,46 @@ export function isPriceCents(value) {
  * reported as unusable rather than guessed at, because a made-up entry price
  * produces a made-up profit.
  */
+/**
+ * Kalshi reports prices as dollar strings — "0.3900" for a 39¢ contract — and
+ * kept the older whole-cent integers on some fields. Both are read, because a
+ * live market answered with only the dollar form and the bot, looking for the
+ * integers alone, reported "no usable price" on a market trading perfectly
+ * well.
+ */
+function priceCentsFrom(market, names) {
+  for (const name of names) {
+    const raw = market[name];
+    if (raw === null || raw === undefined || raw === '') continue;
+    const value = typeof raw === 'string' ? Number.parseFloat(raw) : Number(raw);
+    if (!Number.isFinite(value)) continue;
+    const cents = name.endsWith('_dollars') ? value * 100 : value;
+    if (isPriceCents(cents)) return cents;
+  }
+  return null;
+}
+
 export function readMarketPrice(market, side = 'yes') {
   if (!market || typeof market !== 'object') return null;
 
-  const last = Number(market.last_price);
-  if (isPriceCents(last) && last > 0) {
-    return { cents: side === 'yes' ? last : 100 - last, source: 'last_price' };
-  }
-
-  const bid = Number(side === 'yes' ? market.yes_bid : market.no_bid);
-  const ask = Number(side === 'yes' ? market.yes_ask : market.no_ask);
-  if (isPriceCents(bid) && isPriceCents(ask) && (bid > 0 || ask > 0)) {
+  // The side's own book first. On a two-sided market the NO quotes are the
+  // real cost of taking the down side; deriving them from the YES last trade
+  // is a second-hand estimate of a number the exchange already published.
+  const bid = priceCentsFrom(market, [`${side}_bid_dollars`, `${side}_bid`]);
+  const ask = priceCentsFrom(market, [`${side}_ask_dollars`, `${side}_ask`]);
+  if (bid !== null && ask !== null && (bid > 0 || ask > 0)) {
     return { cents: Math.round((bid + ask) / 2), source: 'mid' };
   }
+
+  // last_price is the YES side's last trade, so the NO price is its complement.
+  const last = priceCentsFrom(market, ['last_price_dollars', 'last_price']);
+  if (last !== null && last > 0) {
+    return { cents: Math.round(side === 'yes' ? last : 100 - last), source: 'last_price' };
+  }
+
+  // One-sided book: better than nothing, and named so the room can see it.
+  const only = bid ?? ask;
+  if (only !== null && only > 0) return { cents: Math.round(only), source: 'one_sided' };
 
   return null;
 }

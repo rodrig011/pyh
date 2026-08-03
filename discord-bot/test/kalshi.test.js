@@ -35,8 +35,16 @@ test('a price is only a price inside 0–100 cents', () => {
   assert.equal(isPriceCents('47'), false);
 });
 
-test('the last traded price is preferred, since that is what a scalper gets', () => {
-  assert.deepEqual(readMarketPrice(market), { cents: 47, source: 'last_price' });
+test("the side's own book is preferred over the last trade", () => {
+  // last_price is the YES side's last trade and can be minutes stale. The
+  // published bid/ask for the side actually being taken is what a scalper can
+  // get right now — and on the NO side it is a real quote rather than 100
+  // minus somebody else's fill.
+  assert.deepEqual(readMarketPrice(market), { cents: 47, source: 'mid' });
+  assert.deepEqual(readMarketPrice(market, 'no'), { cents: 53, source: 'mid' });
+
+  // With no book, the last trade still answers.
+  assert.deepEqual(readMarketPrice({ last_price: 47 }), { cents: 47, source: 'last_price' });
 });
 
 test('the no side is the complement of the yes side', () => {
@@ -186,4 +194,65 @@ test('a market that already closed is never chosen', () => {
 
   // Even though its close time is nearer the asked-for window.
   assert.equal(marketForClose(markets, Date.parse('2026-08-03T02:15:00Z'), now).ticker, 'live');
+});
+
+// Captured live from /picks kalshi on 2026-08-03. Kalshi reports dollar
+// strings; the bot had been looking for whole-cent integers and called a
+// perfectly liquid market unpriceable.
+const liveMarket = {
+  ticker: 'KXBTC15M-26AUG030230-30',
+  event_ticker: 'KXBTC15M-26AUG030230',
+  status: 'active',
+  market_type: 'binary',
+  can_close_early: true,
+  close_time: '2026-08-03T06:30:00Z',
+  open_time: '2026-08-03T06:15:00Z',
+  expiration_time: '2026-08-10T06:30:00Z',
+  floor_strike: 62772.53,
+  last_price_dollars: '0.3900',
+  no_ask_dollars: '0.6100',
+  no_bid_dollars: '0.6000',
+  notional_value_dollars: '1.0000',
+  previous_price_dollars: '0.0000',
+  previous_yes_ask_dollars: '0.0000',
+  previous_yes_bid_dollars: '0.0000',
+  liquidity_dollars: '0.0000',
+  open_interest_fp: '148631.49',
+};
+
+test('a live market quoted in dollar strings is priced, not rejected', () => {
+  const down = readMarketPrice(liveMarket, 'no');
+  assert.equal(down.cents, 61);
+  assert.equal(down.source, 'mid');
+
+  // No YES book on this one, so the YES side falls back to the last trade.
+  const up = readMarketPrice(liveMarket, 'yes');
+  assert.equal(up.cents, 39);
+  assert.equal(up.source, 'last_price');
+});
+
+test('the two sides of a live market still add up to a whole contract', () => {
+  const up = readMarketPrice(liveMarket, 'yes').cents;
+  const down = readMarketPrice(liveMarket, 'no').cents;
+
+  assert.ok(Math.abs(up + down - 100) <= 1, `${up} + ${down} should be about 100`);
+});
+
+test('the old whole-cent fields still work', () => {
+  assert.equal(readMarketPrice({ yes_bid: 46, yes_ask: 48 }, 'yes').cents, 47);
+  assert.equal(readMarketPrice({ last_price: 61 }, 'no').cents, 39);
+});
+
+test('a dollar string of zero is not a price', () => {
+  assert.equal(readMarketPrice({ last_price_dollars: '0.0000' }, 'yes'), null);
+  assert.equal(readMarketPrice({ yes_bid_dollars: '', yes_ask_dollars: '' }, 'yes'), null);
+});
+
+test('the live market is open and matched to its own window', () => {
+  const now = Date.parse('2026-08-03T06:20:00Z');
+  assert.equal(openMarkets([liveMarket], now).length, 1);
+  assert.equal(
+    marketForClose([liveMarket], Date.parse('2026-08-03T06:30:00Z'), now).ticker,
+    'KXBTC15M-26AUG030230-30',
+  );
 });
