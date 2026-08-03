@@ -186,6 +186,32 @@ export function createVipBot(config = loadVipConfig()) {
     // The guard matters more than the interval. A pass that runs long — a slow
     // Kalshi, a rate limit — must not have the next one start on top of it and
     // publish the same fill twice.
+    // Whether this is armed at all is invisible otherwise: the loop only writes
+    // a line when it publishes something, so "connected but silent" and "never
+    // started" look exactly the same from the logs.
+    const kalshiAccount = config.picks?.kalshi?.account ?? {};
+    const hasKalshiKey = Boolean(kalshiAccount.keyId && kalshiAccount.privateKeyPem);
+    if (!kalshiAccount.autoPublish) {
+      log.info(
+        'Kalshi auto-publish is OFF (KALSHI_AUTO_PUBLISH is not true) — calls come from the console only',
+      );
+    } else if (!hasKalshiKey) {
+      log.error(
+        'KALSHI_AUTO_PUBLISH is on but the account credentials are missing, so nothing will ever publish. ' +
+          'Set KALSHI_API_KEY_ID and KALSHI_PRIVATE_KEY.',
+      );
+    } else if (!config.picks?.channelId) {
+      log.error(
+        'Kalshi auto-publish is on but PICKS_CHANNEL_ID is not set, so a fill has nowhere to be posted.',
+      );
+    } else {
+      log.info(
+        `Kalshi auto-publish is ON: reading ${kalshiAccount.seriesTicker ?? 'every series'} every ` +
+          `${kalshiAccount.pollSeconds ?? 3}s for ${kalshiAccount.analystTag ?? 'the configured analyst'}, ` +
+          `posting to channel ${config.picks.channelId}`,
+      );
+    }
+
     const pollMs = Math.max(1000, (config.picks?.kalshi?.account?.pollSeconds ?? 3) * 1000);
     let syncing = false;
     setInterval(() => {

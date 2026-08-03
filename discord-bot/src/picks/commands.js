@@ -1102,6 +1102,16 @@ export async function handlePicks(interaction, { store, config }) {
     }
 
     const positions = foldFills(fillsResult.fills, { seriesTicker: account.seriesTicker });
+
+  // Said once, on the first pass that works. Proof the loop is alive without a
+  // line every three seconds forever.
+  if (!syncKalshiAccount.reported) {
+    syncKalshiAccount.reported = true;
+    commandLog.info(
+      `Kalshi account reachable: ${fillsResult.fills.length} recent fill(s), ` +
+        `${positions.length} in ${account.seriesTicker ?? 'any series'}. Watching for new ones.`,
+    );
+  }
     const open = positions.filter((position) => position.isOpen);
 
     const embed = new EmbedBuilder()
