@@ -154,9 +154,35 @@ export function createPhotoBot(config = loadPhotoConfig()) {
     }
   });
 
+  // Whether messages are arriving at all is the one thing the startup check
+  // cannot answer, and it is the difference between "the bot is misconfigured"
+  // and "the bot never hears about that channel". Reported once per channel so
+  // it settles the question without narrating every photo forever.
+  const firstSeen = new Set();
+
   client.on(Events.MessageCreate, async (message) => {
     try {
-      if (!config.channelIds.includes(message.channelId)) return;
+      if (!config.channelIds.includes(message.channelId)) {
+        // A message in the wrong place is worth one line, once: a thread inside
+        // the watched channel has its own id, and that is a very easy mistake.
+        if (!firstSeen.has('elsewhere')) {
+          firstSeen.add('elsewhere');
+          log.info(
+            `Seeing messages in #${message.channelId}, which is not in PHOTO_ONLY_CHANNEL_IDS ` +
+              `(watching: ${config.channelIds.join(', ') || 'nothing'})`,
+          );
+        }
+        return;
+      }
+
+      if (!firstSeen.has(message.channelId)) {
+        firstSeen.add(message.channelId);
+        const readable = (message.content ?? '').length > 0;
+        log.info(
+          `First message seen in the watched channel — text is ${readable ? 'readable' : 'EMPTY, which means Message Content is off'}`,
+        );
+      }
+
       if (message.author?.id === client.user.id) return;
 
       const verdict = evaluateMessage(toPlainMessage(message), config);
