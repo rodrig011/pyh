@@ -28,6 +28,7 @@ export function isVideoAttachment(attachment = {}) {
  * @param {Array<{contentType?: string, name?: string}>} [message.attachments]
  * @param {Array<{type?: string, image?: object, thumbnail?: object}>} [message.embeds]
  * @param {string[]} [message.memberRoleIds]
+ * @param {string} [message.authorId]
  * @param {boolean} [message.isSystem]
  * @param {object} options
  * @param {boolean} [options.allowCaptions=false] allow text alongside the photo
@@ -35,6 +36,7 @@ export function isVideoAttachment(attachment = {}) {
  * @param {boolean} [options.allowLinks=false] allow image links without an attachment
  * @param {boolean} [options.ignoreBots=true]
  * @param {string[]} [options.bypassRoleIds=[]]
+ * @param {string[]} [options.bypassUserIds=[]] named people, whatever roles they hold
  * @returns {{allowed: boolean, reason: string}}
  */
 export function evaluateMessage(message = {}, options = {}) {
@@ -44,10 +46,18 @@ export function evaluateMessage(message = {}, options = {}) {
     allowLinks = false,
     ignoreBots = true,
     bypassRoleIds = [],
+    bypassUserIds = [],
   } = options;
 
   if (message.isSystem) return { allowed: true, reason: 'system message' };
   if (ignoreBots && message.authorIsBot) return { allowed: true, reason: 'bot message' };
+
+  // One person, by name. A role is the wrong tool for "let Kenson post text":
+  // it either exists only for this and clutters the role list, or it is a real
+  // role and everybody who has it gets the exemption too.
+  if (message.authorId && bypassUserIds.includes(message.authorId)) {
+    return { allowed: true, reason: 'bypass user' };
+  }
 
   const roles = message.memberRoleIds ?? [];
   if (bypassRoleIds.length > 0 && roles.some((roleId) => bypassRoleIds.includes(roleId))) {

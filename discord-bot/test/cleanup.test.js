@@ -172,3 +172,60 @@ test('a channel with no permission data is not reported as broken', () => {
   assert.deepEqual(missingPostPermissions({}, guild), []);
   assert.deepEqual(missingPostPermissions(channelWhere(ALL), {}), []);
 });
+
+test('one named person can be spared without inventing a role for them', () => {
+  const messages = [text('1', { authorId: 'kenson' }), text('2', { authorId: 'someone' })];
+  const plan = planCleanup(messages, config, { now, exceptUserIds: ['kenson'] });
+
+  assert.deepEqual(
+    plan.remove.map((message) => message.id),
+    ['2'],
+  );
+  assert.equal(plan.skipped, 1);
+});
+
+test('sparing a person beats a role filter that would have caught them', () => {
+  const messages = [text('1', { authorId: 'kenson', memberRoleIds: ['tier1'] })];
+  const plan = planCleanup(messages, config, {
+    now,
+    onlyRoleIds: ['tier1'],
+    exceptUserIds: ['kenson'],
+  });
+
+  assert.deepEqual(plan.remove, []);
+  assert.equal(plan.keep.length, 1);
+});
+
+test('only_person narrows the sweep to that one member', () => {
+  const messages = [text('1', { authorId: 'kenson' }), text('2', { authorId: 'someone' })];
+  const plan = planCleanup(messages, config, { now, onlyUserIds: ['kenson'] });
+
+  assert.deepEqual(
+    plan.remove.map((message) => message.id),
+    ['1'],
+  );
+});
+
+test('with both only filters set, matching either one puts a message in scope', () => {
+  const messages = [
+    text('1', { authorId: 'kenson' }),
+    text('2', { memberRoleIds: ['tier1'] }),
+    text('3', { authorId: 'stranger' }),
+  ];
+  const plan = planCleanup(messages, config, { now, onlyUserIds: ['kenson'], onlyRoleIds: ['tier1'] });
+
+  assert.deepEqual(
+    plan.remove.map((message) => message.id),
+    ['1', '2'],
+  );
+  assert.equal(plan.skipped, 1);
+});
+
+test('a pinned message survives even the person filters', () => {
+  const plan = planCleanup([text('1', { authorId: 'kenson', pinned: true })], config, {
+    now,
+    onlyUserIds: ['kenson'],
+  });
+
+  assert.deepEqual(plan.remove, []);
+});

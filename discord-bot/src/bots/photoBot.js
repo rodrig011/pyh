@@ -24,6 +24,7 @@ function toPlainMessage(message) {
     id: message.id,
     createdTimestamp: message.createdTimestamp,
     pinned: message.pinned ?? false,
+    authorId: message.author?.id,
     authorIsBot: message.author?.bot ?? false,
     content: message.content ?? '',
     attachments: [...message.attachments.values()].map((attachment) => ({
@@ -67,12 +68,30 @@ export function buildPhotoCommands() {
           .setDescription('Never delete anything from members with this role (e.g. MOD)')
           .setRequired(false),
       )
+      .addUserOption((option) =>
+        option
+          .setName('except_person')
+          .setDescription('Never delete anything from this one person, whatever roles they have')
+          .setRequired(false),
+      )
       .addRoleOption((option) =>
         option
           .setName('only_from')
           .setDescription('Only delete messages from members with this role')
           .setRequired(false),
       )
+      .addUserOption((option) =>
+        option
+          .setName('only_person')
+          .setDescription('Only delete messages from this one person')
+          .setRequired(false),
+      )
+      .toJSON(),
+    new SlashCommandBuilder()
+      .setName('photo-status')
+      .setDescription('Show which channels this bot is watching and what it lets through')
+      .setDMPermission(false)
+      .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
       .toJSON(),
   ];
 }
@@ -152,7 +171,7 @@ export function createPhotoBot(config = loadPhotoConfig()) {
     for (const guild of guilds) {
       try {
         await guild.commands.set(buildPhotoCommands());
-        say('info', `✅ /photo-clean registered in ${guild.name}`);
+        say('info', `✅ /photo-clean and /photo-status registered in ${guild.name}`);
       } catch (error) {
         say(
           'error',
@@ -258,7 +277,51 @@ export function createPhotoBot(config = loadPhotoConfig()) {
   });
 
   client.on(Events.InteractionCreate, async (interaction) => {
-    if (!interaction.isChatInputCommand() || interaction.commandName !== 'photo-clean') return;
+    if (!interaction.isChatInputCommand()) return;
+
+    // "It is not deleting" and "it is not watching this channel" look identical
+    // from inside Discord. This answers it there, without anybody reading a
+    // deploy log on a phone.
+    if (interaction.commandName === 'photo-status') {
+      const checks = await checkWatchedChannels(client, config);
+      const rules = [
+        `Photos: **always allowed**`,
+        `Caption next to a photo: **${config.allowCaptions ? 'allowed' : 'deleted'}**`,
+        `Text with no photo: **deleted**`,
+        `Videos: **${config.allowVideos ? 'allowed' : 'deleted'}**`,
+        `Image links with no upload: **${config.allowLinks ? 'allowed' : 'deleted'}**`,
+        `Other bots: **${config.ignoreBots ? 'left alone' : 'policed too'}**`,
+      ];
+      const exempt = [
+        ...config.bypassRoleIds.map((id) => `<@&${id}>`),
+        ...config.bypassUserIds.map((id) => `<@${id}>`),
+      ];
+
+      await interaction.reply({
+        flags: MessageFlags.Ephemeral,
+        embeds: [
+          new EmbedBuilder()
+            .setColor(checks.some((check) => check.ok) ? COLORS.success : COLORS.danger)
+            .setTitle('📸 Photos bot — status')
+            .setDescription(
+              checks.length === 0
+                ? '❌ No channel is configured, so nothing is being watched.'
+                : checks.map((check) => check.label).join('\n'),
+            )
+            .addFields(
+              { name: 'Rules', value: rules.join('\n') },
+              {
+                name: 'May post anything',
+                value: exempt.length > 0 ? exempt.join(', ') : 'Nobody — the rules apply to everyone',
+              },
+            )
+            .setTimestamp(),
+        ],
+      });
+      return;
+    }
+
+    if (interaction.commandName !== 'photo-clean') return;
 
     try {
       const channel = interaction.options.getChannel('channel') ?? interaction.channel;
@@ -286,17 +349,23 @@ export function createPhotoBot(config = loadPhotoConfig()) {
 
       const exceptRole = interaction.options.getRole('except_from');
       const onlyRole = interaction.options.getRole('only_from');
+      const exceptUser = interaction.options.getUser('except_person');
+      const onlyUser = interaction.options.getUser('only_person');
 
       const messages = await fetchAllMessages(channel);
       const plan = planCleanup(messages.map(toPlainMessage), config, {
         keepPinned,
         exceptRoleIds: exceptRole ? [exceptRole.id] : [],
         onlyRoleIds: onlyRole ? [onlyRole.id] : [],
+        exceptUserIds: exceptUser ? [exceptUser.id] : [],
+        onlyUserIds: onlyUser ? [onlyUser.id] : [],
       });
 
       const scope = [
         exceptRole ? `never touching **@${exceptRole.name}**` : '',
+        exceptUser ? `never touching <@${exceptUser.id}>` : '',
         onlyRole ? `only members with **@${onlyRole.name}**` : '',
+        onlyUser ? `only messages from <@${onlyUser.id}>` : '',
       ].filter(Boolean);
 
       // Deleting a channel's history cannot be undone, and the count is the
@@ -307,7 +376,7 @@ export function createPhotoBot(config = loadPhotoConfig()) {
             `**Preview — nothing has been deleted.**`,
             `Scanned **${messages.length}** message(s) in ${channel}${scope.length > 0 ? `, ${scope.join(' and ')}` : ''}.`,
             `Would delete **${plan.remove.length}** and keep **${plan.keep.length}**.`,
-            plan.skipped > 0 ? `_${plan.skipped} left alone by the role filter._` : '',
+            plan.skipped > 0 ? `_${plan.skipped} left alone by the filters._` : '',
             plan.old.length > 0
               ? `_${plan.old.length} are over 14 days old and have to go one by one, which is slower._`
               : '',
@@ -354,7 +423,7 @@ export function createPhotoBot(config = loadPhotoConfig()) {
       await interaction.editReply(
         [
           `**Done.** Deleted **${deleted}** message(s) from ${channel}, kept **${plan.keep.length}**.`,
-          plan.skipped > 0 ? `**${plan.skipped}** were left alone by the role filter.` : '',
+          plan.skipped > 0 ? `**${plan.skipped}** were left alone by the filters.` : '',
           failed > 0 ? `**${failed}** could not be deleted — usually too old or already gone.` : '',
         ]
           .filter(Boolean)

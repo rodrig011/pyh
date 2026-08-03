@@ -250,6 +250,7 @@ export function loadPhotoConfig() {
     allowLinks: bool('PHOTO_ONLY_ALLOW_LINKS', false),
     ignoreBots: bool('PHOTO_ONLY_IGNORE_BOTS', true),
     bypassRoleIds: list('PHOTO_ONLY_BYPASS_ROLE_IDS'),
+    bypassUserIds: list('PHOTO_ONLY_BYPASS_USER_IDS'),
     warn: bool('PHOTO_ONLY_WARN', true),
     warnSeconds: int('PHOTO_ONLY_WARN_SECONDS', 8),
     logChannelId: str('PHOTO_ONLY_LOG_CHANNEL_ID'),

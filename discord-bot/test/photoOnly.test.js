@@ -63,3 +63,14 @@ test('bypass roles may post text', () => {
   assert.equal(evaluateMessage(message, { bypassRoleIds: ['mod'] }).allowed, true);
   assert.equal(evaluateMessage(message, { bypassRoleIds: ['other'] }).allowed, false);
 });
+
+test('a named person may post text without holding any role', () => {
+  const message = { authorId: 'kenson', content: 'gm' };
+  assert.equal(evaluateMessage(message).allowed, false);
+  assert.equal(evaluateMessage(message, { bypassUserIds: ['kenson'] }).allowed, true);
+  assert.equal(evaluateMessage(message, { bypassUserIds: ['someone-else'] }).allowed, false);
+});
+
+test('an unknown author is never mistaken for an exempt one', () => {
+  assert.equal(evaluateMessage({ content: 'gm' }, { bypassUserIds: ['kenson'] }).allowed, false);
+});

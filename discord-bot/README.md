@@ -562,6 +562,7 @@ not comply is deleted, and the bot leaves a notice that self-destructs after
 | `PHOTO_ONLY_ALLOW_VIDEOS` | `false` | Also allow videos |
 | `PHOTO_ONLY_ALLOW_LINKS` | `false` | Allow image links with no attachment |
 | `PHOTO_ONLY_BYPASS_ROLE_IDS` | empty | Roles that may post text (moderators) |
+| `PHOTO_ONLY_BYPASS_USER_IDS` | empty | Named people who may post text, whatever roles they hold |
 | `PHOTO_ONLY_LOG_CHANNEL_ID` | empty | Channel to log what was deleted |
 
 It also watches **edits**: if someone posts a valid photo and then edits text into it,
