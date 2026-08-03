@@ -25,7 +25,7 @@ import { sweepSubscriptions } from '../vip/subscriptionSweeper.js';
 import { checkRoleSetup, grantTierRoles } from '../vip/roles.js';
 import { storefrontMessage } from '../vip/storefront.js';
 import { shouldGreetDm } from '../vip/dmGreeting.js';
-import { promptDueSettlements, publishVoteResults } from '../picks/commands.js';
+import { promptDueSettlements, publishVoteResults, syncKalshiAccount } from '../picks/commands.js';
 
 const log = createLogger('vip');
 
@@ -178,6 +178,15 @@ export function createVipBot(config = loadVipConfig()) {
         log.error(`Could not publish a vote result: ${error.message}`),
       );
     }, 60 * 1000).unref();
+
+    // The analyst's own fills, when the account is connected and publishing is
+    // switched on. Faster than the minute loop because a 15-minute scalp is
+    // over before a slower poll would notice it opened.
+    setInterval(() => {
+      syncKalshiAccount(client, store, config).catch((error) =>
+        log.error(`Kalshi account sync failed: ${error.message}`),
+      );
+    }, 20 * 1000).unref();
   });
 
   // Nobody reads pinned messages on the way in. A DM with the buttons is the

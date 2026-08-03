@@ -213,3 +213,37 @@ export function sizePercentOf(position, balanceCents) {
   const spent = position.entryCents * position.contracts;
   return Math.min(100, Math.round((spent / (spent + balanceCents)) * 100));
 }
+
+/**
+ * What the account says should happen to the room's calls.
+ *
+ * Kept apart from any publishing so the decision can be checked against fixed
+ * input: this is the function that would post somebody's trades to a paying
+ * audience, and it must never invent a position or close the wrong one.
+ *
+ * @param {object[]} positions folded fills
+ * @param {object[]} picks every call this analyst has on record
+ * @returns {{open: object[], close: Array<{pick: object, position: object}>}}
+ */
+export function planPublication(positions, picks) {
+  const openPicks = (picks ?? []).filter((pick) => !pick.outcome);
+  const byTicker = new Map(openPicks.filter((pick) => pick.marketTicker).map((pick) => [pick.marketTicker, pick]));
+  const known = new Set((picks ?? []).map((pick) => pick.marketTicker).filter(Boolean));
+
+  const open = [];
+  const close = [];
+
+  for (const position of positions ?? []) {
+    if (position.isOpen) {
+      // A position the room has never been told about. Announced once: the
+      // ticker is what makes that judgement, not the timing of the poll.
+      if (!known.has(position.ticker)) open.push(position);
+      continue;
+    }
+
+    const pick = byTicker.get(position.ticker);
+    if (pick && Number.isFinite(position.exitCents)) close.push({ pick, position });
+  }
+
+  return { open, close };
+}

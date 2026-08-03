@@ -53,7 +53,14 @@ import {
   openMarkets,
   readMarketPrice,
 } from './kalshi.js';
-import { fetchBalance, fetchFills, foldFills, hasCredentials } from './kalshiAccount.js';
+import {
+  fetchBalance,
+  fetchFills,
+  foldFills,
+  hasCredentials,
+  planPublication,
+  sizePercentOf,
+} from './kalshiAccount.js';
 import { sendLog } from '../vip/notify.js';
 import { fetchSpotPrice, formatChange, formatPrice, gradeByPrice } from './price.js';
 import {
@@ -1690,6 +1697,112 @@ export async function handleSettleButton(interaction, { store, config }) {
  * already says is how records end up half-finished and flattering. Only calls
  * with no usable price fall back to the buttons.
  */
+/**
+ * Publishes the analyst's real trades as calls, from the exchange's own record.
+ *
+ * Off unless KALSHI_AUTO_PUBLISH says otherwise, because this posts somebody's
+ * money to a paying room without anyone pressing anything. When it is on, an
+ * entry becomes a call at the price actually filled and the size actually
+ * risked, and the exit closes it at the price actually received.
+ *
+ * Never throws: a feed that is down costs automation, not the room.
+ */
+export async function syncKalshiAccount(client, store, config, { fetchImpl } = {}) {
+  const settings = pickSettings(config);
+  const account = settings.kalshi?.account ?? {};
+  if (!account.autoPublish || !hasCredentials(account)) return { published: 0, closed: 0 };
+
+  const analystId = account.analystId ?? settings.autoAnalystId ?? null;
+
+  const [fillsResult, balanceResult] = await Promise.all([
+    fetchFills(account, { limit: 100, ...(fetchImpl ? { fetchImpl } : {}) }),
+    fetchBalance(account, fetchImpl ? { fetchImpl } : {}),
+  ]);
+  if (fillsResult.error) {
+    commandLog.warn(`Kalshi account: ${fillsResult.error}`);
+    return { published: 0, closed: 0, error: fillsResult.error };
+  }
+
+  const positions = foldFills(fillsResult.fills, { seriesTicker: account.seriesTicker });
+  const guildId = config.guildId;
+  const mine = store.listPicks((pick) => pick.guildId === guildId);
+  const plan = planPublication(positions, mine);
+
+  let published = 0;
+  let closed = 0;
+
+  const channel = settings.channelId
+    ? await client.channels.fetch(settings.channelId).catch(() => null)
+    : null;
+
+  for (const position of plan.open) {
+    if (!channel?.isTextBased()) break;
+
+    const now = position.openedAt ?? Date.now();
+    const pick = buildPick({
+      analystId,
+      analystTag: account.analystTag ?? null,
+      guildId,
+      direction: position.direction,
+      asset: settings.defaultAsset,
+      minutes: settings.defaultMinutes,
+      sizePercent: sizePercentOf(position, balanceResult.balanceCents) ?? 100,
+      entry: position.entryCents,
+      now,
+    });
+    pick.priceUnit = 'cents';
+    pick.entrySource = `kalshi-fill:${position.ticker}`;
+    pick.marketTicker = position.ticker;
+    // Says out loud where this came from. A call nobody pressed a button for
+    // should not be indistinguishable from one somebody did.
+    pick.fromAccount = true;
+
+    const posted = await channel
+      .send({ ...pingFor(settings), embeds: [pickEmbed(pick, config)], components: [followRow(pick.id)] })
+      .catch(() => null);
+    if (!posted) continue;
+
+    pick.messageId = posted.id;
+    pick.channelId = channel.id;
+    store.recordPick(pick);
+    published += 1;
+
+    await announce(client, config, simpleAnnouncement({
+      ...pick,
+      entryLabel: priceLabel(pick, pick.entry),
+    }));
+  }
+
+  for (const { pick, position } of plan.close) {
+    const verdict = gradeByContract(pick.entry, position.exitCents);
+    settlePick(pick, {
+      outcome: verdict?.outcome ?? OUTCOMES.BREAK_EVEN,
+      settledBy: 'kalshi-fill',
+      exit: position.exitCents,
+      closedBy: 'exit',
+      now: position.closedAt ?? Date.now(),
+    });
+    pick.changePercent = verdict?.changePercent ?? null;
+    store.putPick(pick);
+    closed += 1;
+
+    await refreshCallMessage(client, config, pick);
+    await announce(client, config, simpleExit({
+      pick,
+      outcome: pick.outcome,
+      entryLabel: priceLabel(pick, pick.entry),
+      exitLabel: priceLabel(pick, pick.exit),
+      room: roomVersusAnalyst(store.listFollows(), pick),
+    }));
+    await openVote(client, store, config, pick);
+  }
+
+  if (published || closed) {
+    commandLog.info(`Kalshi account: ${published} call(s) opened, ${closed} closed from real fills`);
+  }
+  return { published, closed };
+}
+
 export async function promptDueSettlements(client, store, config, now = Date.now()) {
   const due = dueForSettlement(store.listPicks(), now).filter((pick) => !pick.promptedAt);
   const settings = pickSettings(config);

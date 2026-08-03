@@ -146,3 +146,89 @@ test('the size of a position is measured, not claimed', () => {
   assert.equal(sizePercentOf(position, 0), null);
   assert.equal(sizePercentOf(null, 5000), null);
 });
+
+// This decides what gets published to a paying room as somebody's trades.
+const openPosition = {
+  ticker: 'KXBTC15M-A',
+  direction: 'up',
+  entryCents: 39,
+  exitCents: null,
+  isOpen: true,
+  contracts: 10,
+};
+const closedPosition = { ...openPosition, isOpen: false, exitCents: 50, returnPercent: 28.2 };
+
+test('a position the room has not been told about is opened once', async () => {
+  const { planPublication } = await import('../src/picks/kalshiAccount.js');
+
+  assert.equal(planPublication([openPosition], []).open.length, 1);
+
+  // Already published: seen again on the next poll, and not announced twice.
+  const existing = [{ id: 'p1', marketTicker: 'KXBTC15M-A', outcome: null }];
+  assert.equal(planPublication([openPosition], existing).open.length, 0);
+});
+
+test('a call is closed only against the position on its own market', async () => {
+  const { planPublication } = await import('../src/picks/kalshiAccount.js');
+  const picks = [
+    { id: 'p1', marketTicker: 'KXBTC15M-A', outcome: null },
+    { id: 'p2', marketTicker: 'KXBTC15M-B', outcome: null },
+  ];
+
+  const plan = planPublication([closedPosition], picks);
+  assert.equal(plan.close.length, 1);
+  assert.equal(plan.close[0].pick.id, 'p1');
+});
+
+test('a call already settled is never closed again', async () => {
+  const { planPublication } = await import('../src/picks/kalshiAccount.js');
+  const picks = [{ id: 'p1', marketTicker: 'KXBTC15M-A', outcome: 'win' }];
+
+  assert.equal(planPublication([closedPosition], picks).close.length, 0);
+  // And it is not reopened either.
+  assert.equal(planPublication([openPosition], picks).open.length, 0);
+});
+
+test('a closed position with no exit price closes nothing', async () => {
+  const { planPublication } = await import('../src/picks/kalshiAccount.js');
+  const picks = [{ id: 'p1', marketTicker: 'KXBTC15M-A', outcome: null }];
+
+  assert.equal(planPublication([{ ...closedPosition, exitCents: null }], picks).close.length, 0);
+});
+
+test('nothing at all is planned from an empty account', async () => {
+  const { planPublication } = await import('../src/picks/kalshiAccount.js');
+  const plan = planPublication([], []);
+
+  assert.deepEqual(plan.open, []);
+  assert.deepEqual(plan.close, []);
+});
+
+test('nothing is published while the switch is off', async () => {
+  const { syncKalshiAccount } = await import('../src/picks/commands.js');
+
+  const result = await syncKalshiAccount(
+    {},
+    { listPicks: () => [] },
+    {
+      guildId: 'g',
+      picks: { kalshi: { account: { ...credentials, autoPublish: false } } },
+    },
+    { fetchImpl: () => assert.fail('a switched-off sync must not reach the network') },
+  );
+
+  assert.deepEqual(result, { published: 0, closed: 0 });
+});
+
+test('publishing without credentials does nothing rather than half-working', async () => {
+  const { syncKalshiAccount } = await import('../src/picks/commands.js');
+
+  const result = await syncKalshiAccount(
+    {},
+    { listPicks: () => [] },
+    { guildId: 'g', picks: { kalshi: { account: { autoPublish: true } } } },
+    { fetchImpl: () => assert.fail('should not reach the network') },
+  );
+
+  assert.deepEqual(result, { published: 0, closed: 0 });
+});
