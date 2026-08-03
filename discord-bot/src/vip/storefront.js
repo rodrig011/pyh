@@ -28,6 +28,13 @@ export function tierFromButton(customId) {
 export function storefrontMessage(config, { includeTicket = true, welcome = false } = {}) {
   const sellable = availableTiers(config.tiers);
 
+  // Read the same three variables that decide whether the card button actually
+  // appears further in. Advertising a payment method the checkout then cannot
+  // offer is worse than not mentioning it.
+  const cardsOn = Boolean(
+    config.stripe?.enabled && config.stripe?.secretKey && config.stripe?.webhookSecret,
+  );
+
   const embed = new EmbedBuilder()
     .setColor(COLORS.gold)
     .setTitle(welcome ? '👑 Welcome to KING T PARLAYS' : '👑 KING T PARLAYS — VIP access')
@@ -38,6 +45,10 @@ export function storefrontMessage(config, { includeTicket = true, welcome = fals
           : 'Tap the tier you want. You get a private code and payment instructions — nothing public, nobody sees what you picked.',
         '',
         `Every tier is a **${config.subscriptionDays}-day membership** and includes everything below it.`,
+        '',
+        cardsOn
+          ? '💳 **Card** — instant access, renews itself, cancel whenever.\n🏦 **Zelle** — pay by bank, access as soon as it lands.'
+          : '🏦 Paid by **Zelle** — access as soon as the payment lands.',
       ].join('\n'),
     )
     .addFields(

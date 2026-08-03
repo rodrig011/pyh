@@ -60,3 +60,35 @@ test('the button id says which tier was pressed', () => {
   assert.equal(tierFromButton('vip:status'), null);
   assert.equal(tierFromButton(undefined), null);
 });
+
+test('the storefront advertises cards only when the checkout can really offer them', () => {
+  const base = {
+    subscriptionDays: 30,
+    tiers: {
+      1: { priceCents: 5000, roleId: 'r1', perks: ['a'] },
+      2: { priceCents: 10000, roleId: 'r2', perks: ['b'] },
+      3: { priceCents: 20000, perks: ['c'] },
+    },
+  };
+  const describe = (message) => message.embeds[0].data.description;
+
+  assert.match(describe(storefrontMessage({ ...base })), /Zelle/);
+  assert.doesNotMatch(describe(storefrontMessage({ ...base })), /Card/);
+
+  const live = {
+    ...base,
+    stripe: { enabled: true, secretKey: 'sk_live_x', webhookSecret: 'whsec_x' },
+  };
+  assert.match(describe(storefrontMessage(live)), /\*\*Card\*\*/);
+  assert.match(describe(storefrontMessage(live)), /\*\*Zelle\*\*/);
+});
+
+test('a half-configured Stripe never advertises cards', () => {
+  const base = {
+    subscriptionDays: 30,
+    tiers: { 1: { priceCents: 5000, roleId: 'r1', perks: ['a'] }, 2: { priceCents: 1, perks: [] }, 3: { priceCents: 1, perks: [] } },
+  };
+  const half = { ...base, stripe: { enabled: true, secretKey: 'sk_live_x', webhookSecret: null } };
+
+  assert.doesNotMatch(storefrontMessage(half).embeds[0].data.description, /Card/);
+});
