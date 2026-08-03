@@ -172,6 +172,9 @@ export function buildCommands(config) {
       withShare(sub.setName('sync').setDescription('Check the Zelle mailbox right now')),
     )
     .addSubcommand((sub) =>
+      withShare(sub.setName('stripe').setDescription('Check whether card payments are actually live')),
+    )
+    .addSubcommand((sub) =>
       withShare(sub.setName('members').setDescription('List active VIP memberships and when they expire')),
     )
     .addSubcommand((sub) =>
@@ -1289,6 +1292,79 @@ async function handleAdminRevoke(interaction, { store, config, client }) {
   );
 }
 
+/**
+ * Whether card payments are genuinely live, checked rather than assumed.
+ *
+ * Stripe fails quietly in both directions: a key that is not set means no
+ * button, and a webhook Stripe cannot reach means the money arrives and the
+ * roles never do. Neither shows up in Discord, so this asks Stripe directly.
+ */
+async function handleAdminStripe(interaction, { config, stripe }) {
+  const lines = [];
+  const settings = config.stripe;
+
+  if (!settings.enabled) {
+    lines.push('❌ `STRIPE_ENABLED` is not `true` — card payments are switched off.');
+  }
+  if (!settings.secretKey) {
+    lines.push('❌ `STRIPE_SECRET_KEY` is not set.');
+  }
+  if (!settings.webhookSecret) {
+    lines.push(
+      '❌ `STRIPE_WEBHOOK_SECRET` is not set. Without it nothing can verify a payment, ' +
+        'so the button stays off on purpose — a checkout nobody can verify takes money and grants nothing.',
+    );
+  }
+
+  let account = null;
+  if (stripe) {
+    try {
+      account = await stripe.accounts.retrieve();
+      const live = !settings.secretKey.startsWith('sk_test');
+      lines.push(
+        `✅ Connected to **${account.business_profile?.name ?? account.id}** in ` +
+          `**${live ? 'LIVE' : 'TEST'}** mode.`,
+      );
+      if (!account.charges_enabled) {
+        lines.push(
+          '⚠️ This account cannot take charges yet — Stripe still has it under review or needs more details.',
+        );
+      }
+      if (!live) {
+        lines.push('⚠️ Test mode: real cards will be declined. Swap to the `sk_live_` key when ready.');
+      }
+    } catch (error) {
+      lines.push(`❌ Stripe refused the key: ${error.message}`);
+    }
+  } else if (settings.enabled && settings.secretKey && settings.webhookSecret) {
+    lines.push('❌ The Stripe client failed to start. Check the boot logs.');
+  }
+
+  if (settings.webhookSecret) {
+    lines.push(
+      `ℹ️ Webhook endpoint: \`POST ${settings.webhookPath}\` on port \`${settings.port}\`. ` +
+        'Stripe must be able to reach it over the public internet — on Railway that means the service ' +
+        'needs a generated domain, and the endpoint URL in Stripe must end in that same path.',
+    );
+  }
+
+  await interaction.editReply({
+    embeds: [
+      new EmbedBuilder()
+        .setColor(
+          lines.some((line) => line.startsWith('❌'))
+            ? COLORS.danger
+            : lines.some((line) => line.startsWith('⚠️'))
+              ? COLORS.warning
+              : COLORS.success,
+        )
+        .setTitle('💳 Card payments')
+        .setDescription(lines.join('\n\n'))
+        .setTimestamp(),
+    ],
+  });
+}
+
 async function handleAdminSync(interaction, { watcher }) {
   if (!watcher) {
     await interaction.editReply('The mailbox watcher is not running (check your IMAP settings).');
@@ -1554,6 +1630,7 @@ export async function handleInteraction(interaction, context) {
     if (sub === 'pending') return handleAdminPending(interaction, context);
     if (sub === 'cancel') return handleAdminCancel(interaction, context);
     if (sub === 'sync') return handleAdminSync(interaction, context);
+    if (sub === 'stripe') return handleAdminStripe(interaction, context);
     if (sub === 'members') return handleAdminMembers(interaction, context);
     if (sub === 'stats') return handleAdminStats(interaction, context);
     if (sub === 'panel') return handleAdminPanel(interaction, context);
