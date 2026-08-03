@@ -48,6 +48,7 @@ import {
   DIRECTION_LABEL,
   OUTCOMES,
   OUTCOME_LABEL,
+  buildBackfill,
   buildPick,
   computeRecord,
   describePick,
@@ -233,6 +234,37 @@ export function buildPickCommands(config) {
         )
         .addBooleanOption((option) =>
           option.setName('confirm').setDescription('Required — this cannot be undone').setRequired(false),
+        ),
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('backfill')
+        .setDescription('Enter an analyst’s past results the bot never saw (mods only)')
+        .addUserOption((option) =>
+          option.setName('analyst').setDescription('Whose record').setRequired(true),
+        )
+        .addIntegerOption((option) =>
+          option.setName('wins').setDescription('Wins to record').setRequired(true).setMinValue(0),
+        )
+        .addIntegerOption((option) =>
+          option.setName('losses').setDescription('Losses to record').setRequired(true).setMinValue(0),
+        )
+        .addIntegerOption((option) =>
+          option
+            .setName('break_even')
+            .setDescription('Break-evens to record (default: 0)')
+            .setRequired(false)
+            .setMinValue(0),
+        )
+        .addStringOption((option) =>
+          option.setName('asset').setDescription('Asset these were on (default: BTC)').setRequired(false),
+        )
+        .addIntegerOption((option) =>
+          option
+            .setName('days')
+            .setDescription('Spread them over the last N days (default: 30)')
+            .setRequired(false)
+            .setMinValue(1),
         ),
     );
 
@@ -562,6 +594,15 @@ export async function handlePicks(interaction, { store, config }) {
                 `${record.decided} decided · ${record.breakEven} flat · ${record.open} still running`,
             },
           )
+          // Said out loud rather than buried: a record members are asked to
+          // trust should never quietly mix graded calls with typed-in ones.
+          .setFooter(
+            record.backfilled > 0
+              ? {
+                  text: `${record.backfilled} of these were entered by hand from before the bot was tracking`,
+                }
+              : null,
+          )
           .setTimestamp(),
       ],
     });
@@ -787,6 +828,61 @@ export async function handlePicks(interaction, { store, config }) {
     store.removePicks((pick) => pick.analystId === user.id);
     return interaction.editReply(
       `Wiped **${theirs.length}** call(s) for <@${user.id}>. Their record starts from zero.`,
+    );
+  }
+
+  // The bot only knows what it watched. An analyst with a real history from
+  // before it existed — or from the weeks the store was being wiped on every
+  // deploy — would show 0-0 next to somebody who started yesterday.
+  if (sub === 'backfill') {
+    const isMod =
+      interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) ||
+      (config.modRoleIds ?? []).some((roleId) => interaction.member?.roles?.cache?.has(roleId));
+    if (!isMod) return interaction.editReply('Only the mods can enter past results.');
+
+    const user = interaction.options.getUser('analyst');
+    const wins = interaction.options.getInteger('wins');
+    const losses = interaction.options.getInteger('losses');
+    const breakEven = interaction.options.getInteger('break_even') ?? 0;
+
+    let entries;
+    try {
+      entries = buildBackfill({
+        analystId: user.id,
+        analystTag: user.tag,
+        guildId: interaction.guildId,
+        wins,
+        losses,
+        breakEven,
+        asset: interaction.options.getString('asset') ?? 'BTC',
+        by: interaction.user.tag,
+        spreadDays: interaction.options.getInteger('days') ?? 30,
+      });
+    } catch (error) {
+      return interaction.editReply(error.message);
+    }
+
+    for (const entry of entries) store.putPick(entry);
+
+    const record = computeRecord(store.listPicks(), { analystId: user.id });
+    await sendLog(
+      interaction.client,
+      config,
+      new EmbedBuilder()
+        .setColor(COLORS.gold)
+        .setTitle('Past results entered by hand')
+        .setDescription(
+          `<@${interaction.user.id}> recorded **${wins}W ${losses}L**` +
+            `${breakEven > 0 ? ` ${breakEven}BE` : ''} for <@${user.id}>. ` +
+            'These were not graded by the price feed.',
+        )
+        .setTimestamp(),
+    );
+
+    return interaction.editReply(
+      `Recorded **${entries.length}** past call(s) for <@${user.id}>. ` +
+        `They now show **${formatWinRate(record.winRate)}** (${record.wins}W ${record.losses}L).\n` +
+        '_Entered by hand, so `/picks record` marks them as not graded by the price feed._',
     );
   }
 

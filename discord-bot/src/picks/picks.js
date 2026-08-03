@@ -103,6 +103,67 @@ export function buildPick({
   };
 }
 
+/**
+ * Writes a record the bot never saw: calls an analyst made before it existed,
+ * or that were lost when the store was being wiped on every deploy.
+ *
+ * Every entry is flagged `backfilled` and carries who entered it. That flag is
+ * not decoration — the record and the leaderboard show the count, so a 7-0
+ * typed in by a mod can never be mistaken for 7-0 the bot graded off a live
+ * price feed. These numbers are what members judge the room by.
+ *
+ * Spread backwards over `spreadDays` so the streak reads in a sensible order
+ * instead of every call sharing one timestamp.
+ */
+export function buildBackfill({
+  analystId,
+  analystTag = null,
+  guildId,
+  wins = 0,
+  losses = 0,
+  breakEven = 0,
+  asset = 'BTC',
+  minutes = 15,
+  by,
+  note = null,
+  spreadDays = 30,
+  now = Date.now(),
+}) {
+  const counts = [
+    [OUTCOMES.WIN, wins],
+    [OUTCOMES.LOSS, losses],
+    [OUTCOMES.BREAK_EVEN, breakEven],
+  ];
+  const total = counts.reduce((sum, [, count]) => sum + count, 0);
+  if (total <= 0) throw new Error('Give at least one win, loss or break-even to record');
+  if (counts.some(([, count]) => !Number.isInteger(count) || count < 0)) {
+    throw new Error('Wins, losses and break-evens have to be whole numbers, zero or more');
+  }
+
+  const outcomes = counts.flatMap(([outcome, count]) => Array.from({ length: count }, () => outcome));
+  const step = (spreadDays * 86400000) / (total + 1);
+
+  return outcomes.map((outcome, index) => {
+    // Oldest first, so the most recent entry is the last one listed.
+    const at = now - step * (total - index);
+    const pick = buildPick({
+      analystId,
+      analystTag,
+      guildId,
+      direction: outcome === OUTCOMES.LOSS ? DIRECTIONS.DOWN : DIRECTIONS.UP,
+      asset,
+      minutes,
+      note,
+      alignToCandle: false,
+      now: at,
+    });
+    settlePick(pick, { outcome, settledBy: by, closedBy: 'window', now: at + minutes * 60 * 1000 });
+    pick.backfilled = true;
+    pick.backfilledBy = by;
+    return pick;
+  });
+}
+
 /** Calls whose window has closed but that nobody has graded yet. */
 export function dueForSettlement(picks, now = Date.now()) {
   return picks.filter((pick) => !pick.outcome && pick.closesAt <= now);
@@ -192,6 +253,9 @@ export function computeRecord(picks, { analystId = null, sinceDays = null, now =
     losses,
     breakEven,
     decided,
+    // Told apart on purpose: entries typed in by a mod are not the same
+    // evidence as calls the bot watched close, and the record says so.
+    backfilled: considered.filter((pick) => pick.backfilled).length,
     winRate: decided === 0 ? null : wins / decided,
     streak,
     open: picks.filter(

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   DIRECTIONS,
   OUTCOMES,
+  buildBackfill,
   buildPick,
   computeRecord,
   dueForSettlement,
@@ -1395,4 +1396,52 @@ test('three impatient presses do not produce three consoles', async (t) => {
   }
 
   assert.equal(panelsIn(posted).length, 1, 'debounced to one');
+});
+
+test('backfill writes a record the bot never watched', () => {
+  const entries = buildBackfill({
+    analystId: 'kingt',
+    guildId: 'g',
+    wins: 7,
+    losses: 0,
+    by: 'rodrig0.11',
+    now: 1_000_000_000_000,
+  });
+
+  assert.equal(entries.length, 7);
+  const record = computeRecord(entries, { now: 1_000_000_000_000 });
+  assert.equal(record.wins, 7);
+  assert.equal(record.losses, 0);
+  assert.equal(record.winRate, 1);
+  assert.equal(record.streak, 7);
+});
+
+test('every backfilled call is marked as such and counted apart', () => {
+  const entries = buildBackfill({ analystId: 'a', guildId: 'g', wins: 2, losses: 1, by: 'mod' });
+
+  assert.ok(entries.every((pick) => pick.backfilled === true));
+  assert.ok(entries.every((pick) => pick.backfilledBy === 'mod'));
+  assert.equal(computeRecord(entries).backfilled, 3);
+});
+
+test('a graded call is never counted as backfilled', () => {
+  const pick = buildPick({ analystId: 'a', guildId: 'g', direction: 'up', asset: 'BTC', minutes: 15 });
+  settlePick(pick, { outcome: 'win', settledBy: 'feed' });
+
+  assert.equal(computeRecord([pick]).backfilled, 0);
+});
+
+test('backfilled entries are spread out so the streak has an order', () => {
+  const entries = buildBackfill({ analystId: 'a', guildId: 'g', wins: 3, losses: 0, by: 'mod' });
+  const times = entries.map((pick) => pick.createdAt);
+
+  assert.deepEqual([...times].sort((a, b) => a - b), times, 'oldest first');
+  assert.equal(new Set(times).size, 3, 'no two share a timestamp');
+});
+
+test('backfill refuses to record nothing', () => {
+  assert.throws(
+    () => buildBackfill({ analystId: 'a', guildId: 'g', wins: 0, losses: 0, by: 'mod' }),
+    /at least one/,
+  );
 });
