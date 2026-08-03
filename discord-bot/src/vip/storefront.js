@@ -47,8 +47,8 @@ export function storefrontMessage(config, { includeTicket = true, welcome = fals
         `Every tier is a **${config.subscriptionDays}-day membership** and includes everything below it.`,
         '',
         cardsOn
-          ? '💳 **Card** — instant access, renews itself, cancel whenever.\n🏦 **Zelle** — pay by bank, access as soon as it lands.'
-          : '🏦 Paid by **Zelle** — access as soon as the payment lands.',
+          ? '💳 **Card** — instant access, renews itself, cancel whenever.\n🏦 **Zelle**, 💸 **Venmo** or 🟩 **Cash App** — pay how you already pay.'
+          : '🏦 **Zelle**, 💸 **Venmo** or 🟩 **Cash App** — pay how you already pay.',
       ].join('\n'),
     )
     .addFields(

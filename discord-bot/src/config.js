@@ -110,6 +110,11 @@ export function loadVipConfig() {
     // in the note. Leave the handle empty and it is simply not offered.
     venmoRecipient: str('VENMO_RECIPIENT'),
     venmoRecipientName: str('VENMO_RECIPIENT_NAME'),
+    // Cash App sends no email the bot can read, so a mod confirms these by
+    // hand. Offered anyway: a payment method somebody already has beats a
+    // better one they have to sign up for.
+    cashAppRecipient: str('CASHAPP_RECIPIENT'),
+    cashAppRecipientName: str('CASHAPP_RECIPIENT_NAME'),
     orderTtlHours: int('ORDER_TTL_HOURS', 48),
     // How much the payment may fall short (in cents) and still count. 0 = exact amount.
     amountToleranceCents: money('AMOUNT_TOLERANCE', 0),

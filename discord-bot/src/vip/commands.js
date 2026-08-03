@@ -351,13 +351,43 @@ export function comingSoonSection(config, cardEnabled) {
  * one payment, identified by the code in the note — so they share one block of
  * instructions. A method with no handle configured is simply not shown.
  */
+/**
+ * The pay-by-hand options, and which of them the bot can actually see.
+ *
+ * Zelle arrives as an email the bot reads, so those grant access on their own.
+ * Venmo and Cash App send nothing it can watch — a mod confirms them. Both are
+ * still offered, because a payment method somebody already has beats a better
+ * one they have to sign up for — but the difference has to reach the buyer, or
+ * they sit waiting for roles that were never coming without a human.
+ */
 export function manualMethods(config) {
   const methods = [];
   if (config.zelleRecipient && !config.zelleRecipient.startsWith('(set ')) {
-    methods.push({ emoji: '🏦', label: 'Zelle', handle: config.zelleRecipient, name: config.zelleRecipientName });
+    methods.push({
+      emoji: '🏦',
+      label: 'Zelle',
+      handle: config.zelleRecipient,
+      name: config.zelleRecipientName,
+      automatic: true,
+    });
   }
   if (config.venmoRecipient) {
-    methods.push({ emoji: '💸', label: 'Venmo', handle: config.venmoRecipient, name: config.venmoRecipientName });
+    methods.push({
+      emoji: '💸',
+      label: 'Venmo',
+      handle: config.venmoRecipient,
+      name: config.venmoRecipientName,
+      automatic: false,
+    });
+  }
+  if (config.cashAppRecipient) {
+    methods.push({
+      emoji: '🟩',
+      label: 'Cash App',
+      handle: config.cashAppRecipient,
+      name: config.cashAppRecipientName,
+      automatic: false,
+    });
   }
   return methods;
 }
@@ -367,30 +397,57 @@ export function manualSection(config, order) {
   const methods = manualMethods(config);
   if (methods.length === 0) return [];
 
-  const heading =
-    methods.length === 1
-      ? `**${methods[0].emoji} ${methods[0].label} — one payment**`
-      : `**${methods.map((method) => `${method.emoji} ${method.label}`).join(' or ')} — one payment**`;
+  const named = methods.map((method) => `${method.emoji} ${method.label}`);
+  const listed =
+    named.length === 1 ? named[0] : `${named.slice(0, -1).join(', ')} or ${named.at(-1)}`;
+  const heading = `**${listed} — one payment**`;
+
+  const anyAutomatic = methods.some((method) => method.automatic);
+  const anyManual = methods.some((method) => !method.automatic);
+
+  let step = 3;
+  const closing = [];
+
+  // Some banks forward the memo and some do not, and the buyer cannot tell
+  // which theirs is. Saying the name is what identifies them keeps them from
+  // assuming the code alone did the job when their bank quietly dropped it.
+  if (order.payerName) {
+    closing.push(
+      `**${step++}.** Pay from the account under **${order.payerName}** — that is how you are recognised if the note does not come through.`,
+    );
+  }
+
+  // Promising roles that "land by themselves" on a method nobody is watching
+  // is how a paid member ends up waiting in silence. Each half says only what
+  // is true of it.
+  if (anyAutomatic && anyManual) {
+    closing.push(
+      `**${step++}.** **Zelle** lets you in on its own, usually within a minute. ` +
+        '**Venmo and Cash App need a mod to check the payment** — you are let in as soon as one does. ' +
+        'If it has been a while, hit **Payment problem** on the panel and a mod is pinged.',
+    );
+  } else if (anyManual) {
+    closing.push(
+      `**${step++}.** A mod checks the payment and lets you in. ` +
+        'If it has been a while, hit **Payment problem** on the panel and a mod is pinged.',
+    );
+  } else {
+    closing.push(`**${step++}.** Done — the roles land by themselves.`);
+  }
+
+  closing.push(`Covers **${config.subscriptionDays} days**, then you renew by hand.`);
 
   return [
     heading,
-    `**1.** Send **${formatMoney(order.amountCents)}** to:`,
+    `**1.** Send **${formatMoney(order.amountCents)}** to whichever you use:`,
     ...methods.map(
-      (method) => `> ${method.emoji} **${method.label}:** \`${method.handle}\`${method.name ? ` (${method.name})` : ''}`,
+      (method) =>
+        `> ${method.emoji} **${method.label}:** \`${method.handle}\`${method.name ? ` (${method.name})` : ''}` +
+        (method.automatic ? '' : ' — checked by a mod'),
     ),
     '**2.** Put **exactly** this code in the memo / note:',
     `> # ${order.code}`,
-    // Some banks forward the memo and some do not, and the buyer cannot tell
-    // which theirs is. Saying the name is what identifies them keeps them from
-    // assuming the code alone did the job when their bank quietly dropped it.
-    ...(order.payerName
-      ? [
-          `**3.** Pay from the account under **${order.payerName}** — that is how you are recognised if your bank does not pass the note along.`,
-          `**4.** Done — the roles land by themselves. Covers **${config.subscriptionDays} days**, then you renew by hand.`,
-        ]
-      : [
-          `**3.** Done — the roles land by themselves. Covers **${config.subscriptionDays} days**, then you renew by hand.`,
-        ]),
+    ...closing,
   ];
 }
 

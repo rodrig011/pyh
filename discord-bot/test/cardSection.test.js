@@ -82,3 +82,50 @@ test('a checkout URL too long for a button becomes a link instead', async () => 
   assert.ok(real.length > BUTTON_URL_MAX, 'the fixture has to exceed the limit to prove anything');
   assert.equal(BUTTON_URL_MAX, 512);
 });
+
+test('Cash App and Venmo are offered but never promise automatic access', () => {
+  const config = {
+    subscriptionDays: 30,
+    zelleRecipient: 'pay@example.com',
+    venmoRecipient: '@Rodrigo-Herrera-57',
+    cashAppRecipient: '$rherrera651',
+  };
+  const order = { amountCents: 5000, code: 'KT-1234', payerName: 'Rodrigo Herrera' };
+  const text = manualSection(config, order).join('\n');
+
+  assert.match(text, /\$rherrera651/);
+  assert.match(text, /@Rodrigo-Herrera-57/);
+  assert.match(text, /Cash App/);
+  // The whole point: the buyer is told which one needs a human.
+  assert.match(text, /checked by a mod/);
+  assert.match(text, /Zelle\*\* lets you in on its own/);
+  assert.doesNotMatch(text, /roles land by themselves/);
+});
+
+test('with only automatic methods the copy still promises automatic access', () => {
+  const config = { subscriptionDays: 30, zelleRecipient: 'pay@example.com' };
+  const text = manualSection(config, { amountCents: 5000, code: 'KT-1' }).join('\n');
+
+  assert.match(text, /land by themselves/);
+  assert.doesNotMatch(text, /checked by a mod/);
+});
+
+test('with only hand-checked methods nothing claims to be automatic', () => {
+  const config = { subscriptionDays: 30, cashAppRecipient: '$rherrera651' };
+  const text = manualSection(config, { amountCents: 5000, code: 'KT-1' }).join('\n');
+
+  assert.match(text, /A mod checks the payment/);
+  assert.doesNotMatch(text, /land by themselves/);
+  assert.doesNotMatch(text, /on its own/);
+});
+
+test('the steps stay numbered in order however many methods there are', () => {
+  const config = { subscriptionDays: 30, zelleRecipient: 'p@e.com', cashAppRecipient: '$x' };
+  const withName = manualSection(config, { amountCents: 100, code: 'A', payerName: 'Rod' }).join('\n');
+
+  assert.match(withName, /\*\*1\.\*\*/);
+  assert.match(withName, /\*\*2\.\*\*/);
+  assert.match(withName, /\*\*3\.\*\*/);
+  assert.match(withName, /\*\*4\.\*\*/);
+  assert.doesNotMatch(withName, /\*\*5\.\*\*/);
+});
