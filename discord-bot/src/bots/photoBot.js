@@ -14,6 +14,7 @@ import { COLORS } from '../lib/brand.js';
 import { createLogger } from '../lib/logger.js';
 import { REASON_MESSAGES, evaluateMessage } from '../photo/photoOnly.js';
 import { planCleanup } from '../photo/cleanup.js';
+import { checkWatchedChannels, isMissingCommandScope } from '../photo/setupCheck.js';
 
 const log = createLogger('photos');
 
@@ -114,18 +115,42 @@ export function createPhotoBot(config = loadPhotoConfig()) {
     // which looks exactly like a bot that is simply broken.
     log.info('Message Content is enabled — text in those channels will be read and removed');
 
+    const guilds = [...ready.guilds.cache.values()];
+    log.info(
+      guilds.length === 0
+        ? 'The bot is not in any server — the invite link was never opened, or it was removed'
+        : `In ${guilds.length} server(s): ${guilds.map((guild) => guild.name).join(', ')}`,
+    );
+
     if (config.channelIds.length === 0) {
       log.warn('PHOTO_ONLY_CHANNEL_IDS is empty: the bot is not watching any channel');
     } else {
-      log.info(`Watching ${config.channelIds.length} photos-only channel(s)`);
+      // Each id is resolved rather than counted. The old line counted entries in
+      // an environment variable and said "Watching 1 channel(s)" for an id that
+      // pointed at nothing.
+      const checks = await checkWatchedChannels(client, config);
+      for (const check of checks) {
+        if (check.ok) log.info(check.label);
+        else log.error(check.label);
+      }
+      const live = checks.filter((check) => check.ok).length;
+      if (live === 0) log.error('No configured channel can actually be policed — nothing will be deleted');
     }
 
     // Registered per guild rather than globally: guild commands appear at once,
     // global ones can take an hour, and nobody waits an hour to tidy a channel.
-    for (const guild of ready.guilds.cache.values()) {
-      await guild.commands.set(buildPhotoCommands()).catch((error) => {
-        log.error(`Could not register /photo-clean in ${guild.id}: ${error.message}`);
-      });
+    for (const guild of guilds) {
+      try {
+        await guild.commands.set(buildPhotoCommands());
+        log.info(`/photo-clean registered in ${guild.name}`);
+      } catch (error) {
+        log.error(
+          isMissingCommandScope(error)
+            ? `Discord refused the commands in ${guild.name}: the bot was invited without the ` +
+              '"applications.commands" scope. Re-invite it with that scope — nothing in the code can fix this.'
+            : `Could not register /photo-clean in ${guild.name}: ${error.message}`,
+        );
+      }
     }
   });
 
