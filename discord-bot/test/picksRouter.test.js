@@ -284,3 +284,61 @@ test('/picks account names the markets traded, so a wrong series filter is visib
   assert.equal(foldFills(fills, { seriesTicker: 'KXBTC15M' }).length, 0);
   assert.equal(foldFills(fills, { seriesTicker: 'KXBTCD' }).length, 1);
 });
+
+test('/picks account answers with credentials set, all the way through', async () => {
+  const { generateKeyPairSync } = await import('node:crypto');
+  const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+
+  // The account path was only ever tested without credentials, so it returned
+  // early and never ran the half of the handler that reads a live account —
+  // which is exactly where an undefined name survived to production.
+  const withAccount = {
+    guildId: 'g',
+    picks: {
+      defaultAsset: 'BTC',
+      defaultMinutes: 15,
+      kalshi: {
+        account: {
+          keyId: 'key-1',
+          privateKeyPem: privateKey.export({ type: 'pkcs8', format: 'pem' }),
+          seriesTicker: 'KXBTC15M',
+        },
+      },
+    },
+  };
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => ({
+    ok: true,
+    text: async () => '',
+    json: async () =>
+      String(url).includes('/fills')
+        ? {
+            fills: [
+              {
+                ticker: 'KXBTCD-26AUG03-T63000',
+                side: 'yes',
+                action: 'buy',
+                count: 1,
+                yes_price_dollars: '0.40',
+                created_time: '2026-08-03T06:00:00Z',
+              },
+            ],
+          }
+        : { balance: 855 },
+  });
+
+  try {
+    const interaction = fakeInteraction('account');
+    await handlePicks(interaction, { store: freshStore(), config: withAccount });
+
+    const payload = interaction.replies.at(-1);
+    const text = JSON.stringify(payload);
+    assert.match(text, /connected/i);
+    assert.match(text, /KXBTCD-26AUG03-T63000/);
+    // He trades the daily series while the filter watches the 15-minute one.
+    assert.match(text, /Nothing will publish/);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});

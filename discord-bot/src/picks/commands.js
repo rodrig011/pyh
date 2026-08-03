@@ -61,6 +61,7 @@ import {
   planPublication,
   sizePercentOf,
 } from './kalshiAccount.js';
+import { createLogger } from '../lib/logger.js';
 import { sendLog } from '../vip/notify.js';
 import { fetchSpotPrice, formatChange, formatPrice, gradeByPrice } from './price.js';
 import {
@@ -80,6 +81,8 @@ import {
   nextCandleClose,
   settlePick,
 } from './picks.js';
+
+const log = createLogger('picks');
 
 export const SETTLE_PREFIX = 'pick:settle:';
 
@@ -1102,17 +1105,16 @@ export async function handlePicks(interaction, { store, config }) {
     }
 
     const positions = foldFills(fillsResult.fills, { seriesTicker: account.seriesTicker });
-
-  // Said once, on the first pass that works. Proof the loop is alive without a
-  // line every three seconds forever.
-  if (!syncKalshiAccount.reported) {
-    syncKalshiAccount.reported = true;
-    commandLog.info(
-      `Kalshi account reachable: ${fillsResult.fills.length} recent fill(s), ` +
-        `${positions.length} in ${account.seriesTicker ?? 'any series'}. Watching for new ones.`,
-    );
-  }
     const open = positions.filter((position) => position.isOpen);
+
+    // Every market the account actually traded, ignoring the series filter.
+    // "Connected, reading fills, publishing nothing" is almost always this: the
+    // filter is watching a series the analyst does not trade, and the only way
+    // to see that is to look at what he does trade.
+    const seen = [...new Set(fillsResult.fills.map((fill) => fill?.ticker).filter(Boolean))];
+    const matching = account.seriesTicker
+      ? seen.filter((ticker) => ticker.startsWith(account.seriesTicker))
+      : seen;
 
     const embed = new EmbedBuilder()
       .setColor(COLORS.success)
@@ -1758,11 +1760,22 @@ export async function syncKalshiAccount(client, store, config, { fetchImpl, now 
   }
   const balanceResult = { balanceCents: balanceCache.cents };
   if (fillsResult.error) {
-    commandLog.warn(`Kalshi account: ${fillsResult.error}`);
+    log.warn(`Kalshi account: ${fillsResult.error}`);
     return { published: 0, closed: 0, error: fillsResult.error };
   }
 
   const positions = foldFills(fillsResult.fills, { seriesTicker: account.seriesTicker });
+
+  // Said once, on the first pass that reaches Kalshi. Proof the loop is alive
+  // without a line every three seconds forever.
+  if (!syncKalshiAccount.reported) {
+    syncKalshiAccount.reported = true;
+    log.info(
+      `Kalshi account reachable: ${fillsResult.fills.length} recent fill(s), ` +
+        `${positions.length} in ${account.seriesTicker ?? 'any series'}. Watching for new ones.`,
+    );
+  }
+
   const guildId = config.guildId;
   const mine = store.listPicks((pick) => pick.guildId === guildId);
   const plan = planPublication(positions, mine);
@@ -1837,7 +1850,7 @@ export async function syncKalshiAccount(client, store, config, { fetchImpl, now 
   }
 
   if (published || closed) {
-    commandLog.info(`Kalshi account: ${published} call(s) opened, ${closed} closed from real fills`);
+    log.info(`Kalshi account: ${published} call(s) opened, ${closed} closed from real fills`);
   }
   return { published, closed };
 }
