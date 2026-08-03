@@ -661,7 +661,7 @@ test('cashing out with nothing open says so instead of inventing a message', asy
   await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
 
   assert.equal(posted.length, 0, 'the room was not told to close a position nobody opened');
-  assert.match(replies[0], /no open call/i);
+  assert.match(replies[0], /No call has been opened yet/i);
 });
 
 test('a member who is not an analyst cannot press anything', async (t) => {
@@ -1266,13 +1266,28 @@ test('your own open call wins over somebody else\'s', async (t) => {
   assert.ok(store.getPick(mine.id).outcome, 'mine closed');
 });
 
-test('with nothing open at all it still says so', async (t) => {
+test('with nothing open at all it says so', async (t) => {
   const store = routingStore(t);
   const { interaction, replies } = panelPress('cash_out');
 
   await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
 
-  assert.match(replies[0], /no open call/i);
+  assert.match(replies[0], /No call has been opened yet/i);
+});
+
+test('with the last call already closed it says which one and when', async (t) => {
+  const store = routingStore(t);
+  const pick = openCallIn(store, { direction: DIRECTIONS.DOWN, analystId: 'potleaf' });
+  settlePick(pick, { outcome: OUTCOMES.LOSS, settledBy: 'price-feed', closedBy: 'window' });
+  store.putPick(pick);
+
+  const { interaction, replies } = panelPress('cash_out');
+  await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
+
+  // A dead end is not an answer: the usual reason is that it already closed.
+  assert.match(replies[0], /<@potleaf>/);
+  assert.match(replies[0], /Loss/);
+  assert.match(replies[0], /window ran out/);
 });
 
 test('the original call message is rewritten when it settles', async (t) => {
