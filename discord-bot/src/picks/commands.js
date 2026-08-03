@@ -394,6 +394,27 @@ export function gradeQuote(pick, exitPrice) {
     : gradeByPrice(pick.direction, pick.entry, exitPrice);
 }
 
+/**
+ * Rewrites the call's own message with its result.
+ *
+ * The result was posted as a new message, so the original went on saying
+ * "closes 6 minutes ago" forever. Anyone scrolling back read a live call that
+ * had been settled an hour earlier, which makes the whole channel look broken.
+ * Best effort: a deleted message must not undo a settlement already saved.
+ */
+export async function refreshCallMessage(client, config, pick) {
+  if (!pick?.messageId || !pick.channelId) return false;
+
+  const channel = await client.channels.fetch(pick.channelId).catch(() => null);
+  if (!channel?.messages?.fetch) return false;
+
+  return channel.messages
+    .fetch(pick.messageId)
+    .then((message) => message.edit({ embeds: [pickEmbed(pick, config)] }))
+    .then(() => true)
+    .catch(() => false);
+}
+
 /** Mirrors a one-line version into the chat channel, when one is configured. */
 async function announce(client, config, payload) {
   const settings = pickSettings(config);
@@ -941,9 +962,18 @@ export async function handleVoteButton(interaction, { store }) {
 async function postManagement(interaction, { store, config }, { action, note = null }) {
   const settings = pickSettings(config);
 
-  const open = store
-    .listPicks((pick) => pick.analystId === interaction.user.id && !pick.outcome)
-    .sort((a, b) => b.createdAt - a.createdAt)[0];
+  // Your own open call first — if you have one running, that is the one you
+  // mean. Failing that, the room's: the console is shared, one call runs at a
+  // time, and whoever is at the desk when it needs closing is not always the
+  // one who opened it. Refusing there left a live call with nobody able to
+  // close it but its author.
+  const guildId = interaction.guildId ?? config.guildId;
+  const openCalls = store
+    .listPicks((pick) => pick.guildId === guildId && !pick.outcome)
+    .sort((a, b) => b.createdAt - a.createdAt);
+
+  const open = openCalls.find((pick) => pick.analystId === interaction.user.id) ?? openCalls[0];
+  const someoneElses = Boolean(open) && open.analystId !== interaction.user.id;
 
   const channel = open?.channelId
     ? await interaction.client.channels.fetch(open.channelId).catch(() => null)
@@ -955,7 +985,7 @@ async function postManagement(interaction, { store, config }, { action, note = n
 
   if (!open && action !== PANEL_ACTIONS.HOLD) {
     return interaction.editReply(
-      'You have no open call to close. Open one with 🟢 BUY UP or 🔴 BUY DOWN first — ' +
+      'There is no open call to close. Open one with 🟢 BUY UP or 🔴 BUY DOWN first — ' +
         'otherwise there is nothing for the room to act on and nothing to score.',
     );
   }
@@ -1004,15 +1034,18 @@ async function postManagement(interaction, { store, config }, { action, note = n
     );
   }
 
+  await refreshCallMessage(interaction.client, config, open);
   await announce(interaction.client, config, simpleExit({ pick: open, outcome: verdict.outcome }));
   await openVote(interaction.client, store, config, open);
   await repostPanel(interaction.client, config, channel.id);
 
-  const record = computeRecord(store.listPicks(), { analystId: interaction.user.id });
+  // The record follows the analyst who made the call, not whoever closed it.
+  const record = computeRecord(store.listPicks(), { analystId: open.analystId });
   return interaction.editReply(
-    `Closed your **${open.asset}** call as **${OUTCOME_LABEL[verdict.outcome]}**` +
+    `Closed ${someoneElses ? `<@${open.analystId}>'s` : 'your'} **${open.asset}** call as ` +
+      `**${OUTCOME_LABEL[verdict.outcome]}**` +
       (quote.price === null ? ' (no price available).' : ` at ${quote.label}.`) +
-      ` You are now **${formatWinRate(record.winRate)}** (${record.wins}W ${record.losses}L).`,
+      ` <@${open.analystId}> is now **${formatWinRate(record.winRate)}** (${record.wins}W ${record.losses}L).`,
   );
 }
 
@@ -1173,6 +1206,7 @@ export async function handleSettleButton(interaction, { store, config }) {
 
   const record = computeRecord(store.listPicks(), { analystId: pick.analystId });
 
+  await refreshCallMessage(interaction.client, config, pick);
   await repostPanel(interaction.client, config, pick.channelId);
 
   await interaction.update({
@@ -1230,6 +1264,7 @@ export async function promptDueSettlements(client, store, config, now = Date.now
         })
         .catch(() => null);
 
+      await refreshCallMessage(client, config, pick);
       await announce(client, config, simpleExit({ pick, outcome: verdict.outcome }));
       await openVote(client, store, config, pick);
       await repostPanel(client, config, channel.id);

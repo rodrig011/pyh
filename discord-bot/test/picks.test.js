@@ -321,6 +321,7 @@ import {
   callerRoleIds,
   gradeQuote,
   pickEmbed,
+  refreshCallMessage,
   pickSettings,
   priceLabel,
   promptDueSettlements,
@@ -1224,4 +1225,95 @@ test('a mod can press the console when only the mod role is configured', async (
   });
 
   assert.match(replies[0].content, /how much of the port/i, 'let through, not turned away');
+});
+
+// The console is shared and one call runs at a time, so whoever is at the desk
+// when a call needs closing is not always the one who opened it.
+
+test('an analyst can close a call somebody else opened', async (t) => {
+  const store = routingStore(t);
+  const pick = openCallIn(store, { direction: DIRECTIONS.UP, entry: 63300, analystId: 'potleaf' });
+  withPrice(t, 63400);
+
+  const { interaction, replies } = panelPress('cash_out', 'someone-else');
+  await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
+
+  assert.equal(store.getPick(pick.id).outcome, OUTCOMES.WIN, 'the call actually closed');
+  assert.match(replies[0], /<@potleaf>'s/, 'and says whose it was');
+});
+
+test('the record follows whoever made the call, not whoever closed it', async (t) => {
+  const store = routingStore(t);
+  const pick = openCallIn(store, { direction: DIRECTIONS.UP, entry: 63300, analystId: 'potleaf' });
+  withPrice(t, 63400);
+
+  const { interaction } = panelPress('cash_out', 'someone-else');
+  await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
+
+  assert.equal(computeRecord(store.listPicks(), { analystId: 'potleaf' }).wins, 1);
+  assert.equal(computeRecord(store.listPicks(), { analystId: 'someone-else' }).wins, 0);
+});
+
+test('your own open call wins over somebody else\'s', async (t) => {
+  const store = routingStore(t);
+  openCallIn(store, { direction: DIRECTIONS.UP, entry: 63300, analystId: 'potleaf' });
+  const mine = openCallIn(store, { direction: DIRECTIONS.UP, entry: 63300, analystId: 'analyst1' });
+  withPrice(t, 63400);
+
+  const { interaction } = panelPress('cash_out', 'analyst1');
+  await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
+
+  assert.ok(store.getPick(mine.id).outcome, 'mine closed');
+});
+
+test('with nothing open at all it still says so', async (t) => {
+  const store = routingStore(t);
+  const { interaction, replies } = panelPress('cash_out');
+
+  await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
+
+  assert.match(replies[0], /no open call/i);
+});
+
+test('the original call message is rewritten when it settles', async (t) => {
+  const store = routingStore(t);
+  const pick = openCallIn(store, { direction: DIRECTIONS.UP, entry: 63300 });
+  settlePick(pick, { outcome: OUTCOMES.WIN, settledBy: 'feed', exit: 63400, closedBy: 'exit' });
+  store.putPick(pick);
+
+  const edits = [];
+  const client = {
+    channels: {
+      fetch: async () => ({
+        isTextBased: () => true,
+        send: async () => {},
+        messages: { fetch: async () => ({ edit: async (payload) => edits.push(payload) }) },
+      }),
+    },
+  };
+
+  const done = await refreshCallMessage(client, routingConfig, pick);
+
+  assert.equal(done, true);
+  const embed = edits[0].embeds[0].toJSON();
+  // Anyone scrolling back must see the result, not a countdown that expired.
+  assert.ok(!embed.fields.some((f) => f.name === 'Window'));
+  assert.ok(embed.fields.some((f) => f.name === 'Closed'));
+});
+
+test('a deleted original message does not undo a saved settlement', async (t) => {
+  const store = routingStore(t);
+  const pick = openCallIn(store);
+  settlePick(pick, { outcome: OUTCOMES.WIN, settledBy: 'feed' });
+
+  const client = {
+    channels: {
+      fetch: async () => ({
+        isTextBased: () => true,
+        messages: { fetch: async () => { throw new Error('Unknown Message'); } },
+      }),
+    },
+  };
+
+  assert.equal(await refreshCallMessage(client, routingConfig, pick), false);
 });
