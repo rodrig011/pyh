@@ -348,23 +348,61 @@ export function parseVote(customId) {
  * chat that is a wall nobody reads on a phone, and the one thing that matters —
  * which way, how much, now — gets lost inside it.
  */
-export function simpleAnnouncement(pick) {
+export function simpleAnnouncement(pick, now = Date.now()) {
   const side = pick.direction === DIRECTIONS.UP ? '🟢 **UP**' : '🔴 **DOWN**';
   const size = ` · **${pick.sizePercent}% of port**`;
-  return {
-    content: `${side} **${pick.asset}** ${pick.minutes}m${size}${pick.entry != null ? ` @ ${pick.entryLabel ?? pick.entry}` : ''}`,
-  };
+  const at = pick.entry != null ? ` @ ${pick.entryLabel ?? pick.entry}` : '';
+
+  // How long the market itself has left, not how long the call runs. On a
+  // 15-minute contract those are the same number only when the call is opened
+  // exactly on the candle, which never happens — somebody reading this needs
+  // to know they have four minutes, not fifteen.
+  const left = Math.max(0, Math.round((pick.closesAt - now) / 60000));
+  const clock =
+    left <= 0
+      ? '\n⏳ **market closing now**'
+      : `\n⏳ **${left} min left** of this market`;
+
+  return { content: `${side} **${pick.asset}** ${pick.minutes}m${size}${at}${clock}` };
 }
 
 /** The short version of an exit. */
-export function simpleExit({ pick, outcome }) {
+/**
+ * The closing line in the VIP chat.
+ *
+ * "Cash out" on its own tells a member nothing they can check. What they want
+ * is the trade: who called it, what it cost to get in, what it was worth
+ * getting out, and what that made — the same sentence an analyst says out loud.
+ * Each part appears only when it is actually known, so a call with no live
+ * price still posts a clean line instead of a row of dashes.
+ */
+export function simpleExit({ pick, outcome, entryLabel = null, exitLabel = null }) {
   const what =
     outcome === 'win'
       ? '💸 **CASH OUT — everything out, in profit**'
       : outcome === 'loss'
         ? '❌ **CUT LOSS — everything out**'
         : '➖ **CLOSED — flat**';
-  return { content: `${what} · **${pick.asset}** ${pick.minutes}m` };
+
+  const who = pick.analystTag ? `**${pick.analystTag}**` : 'The analyst';
+  const parts = [`${what} · **${pick.asset}** ${pick.minutes}m`];
+
+  if (entryLabel && exitLabel) {
+    parts.push(`${who} went in at **${entryLabel}** and out at **${exitLabel}**`);
+  } else if (entryLabel) {
+    parts.push(`${who} went in at **${entryLabel}**`);
+  }
+
+  if (Number.isFinite(pick.changePercent)) {
+    const move = `${pick.changePercent >= 0 ? '+' : ''}${pick.changePercent.toFixed(1)}%`;
+    parts.push(
+      pick.changePercent >= 0
+        ? `**${move} on the position**${pick.sizePercent ? ` · ${pick.sizePercent}% of port was in` : ''}`
+        : `**${move}**${pick.sizePercent ? ` · ${pick.sizePercent}% of port was in` : ''}`,
+    );
+  }
+
+  return { content: parts.join('\n') };
 }
 
 /**

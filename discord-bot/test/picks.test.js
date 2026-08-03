@@ -311,6 +311,7 @@ import {
   analystPanel,
   entrySizeRow,
   simpleAnnouncement,
+  simpleExit,
   parseSize,
   readPercent,
   guideMessage,
@@ -1128,7 +1129,7 @@ test('a call priced in cents is graded on the contract, not on spot', () => {
 test('prices are shown in the unit the call was opened in', () => {
   const cents = { priceUnit: 'cents' };
   const usd = { priceUnit: 'usd' };
-  assert.equal(priceLabel(cents, 47), '47¢');
+  assert.equal(priceLabel(cents, 47), '47%');
   assert.equal(priceLabel(usd, 63300), '$63,300.00');
   assert.equal(priceLabel(cents, null), '—');
 });
@@ -1444,4 +1445,80 @@ test('backfill refuses to record nothing', () => {
     () => buildBackfill({ analystId: 'a', guildId: 'g', wins: 0, losses: 0, by: 'mod' }),
     /at least one/,
   );
+});
+
+test('the closing line in the VIP chat reads like the analyst saying it', () => {
+  const message = simpleExit({
+    pick: {
+      asset: 'BTC',
+      minutes: 15,
+      analystTag: 'kingt_67',
+      changePercent: 28.2,
+      sizePercent: 50,
+    },
+    outcome: 'win',
+    entryLabel: '39%',
+    exitLabel: '50%',
+  });
+
+  assert.match(message.content, /kingt_67/);
+  assert.match(message.content, /in at \*\*39%\*\*/);
+  assert.match(message.content, /out at \*\*50%\*\*/);
+  assert.match(message.content, /\+28\.2%/);
+  assert.match(message.content, /50% of port/);
+});
+
+test('a close with no live price still posts a clean line', () => {
+  const message = simpleExit({
+    pick: { asset: 'BTC', minutes: 15, analystTag: 'kingt_67' },
+    outcome: 'loss',
+  });
+
+  assert.match(message.content, /CUT LOSS/);
+  assert.doesNotMatch(message.content, /went in/);
+  // The em dash in "everything out" is part of the label; what must never
+  // appear is a price that came out empty.
+  assert.doesNotMatch(message.content, /undefined|NaN|at \*\*—/);
+});
+
+test('a loss is never dressed up as profit', () => {
+  const message = simpleExit({
+    pick: { asset: 'BTC', minutes: 15, changePercent: -12.5, sizePercent: 25 },
+    outcome: 'loss',
+    entryLabel: '61%',
+    exitLabel: '53%',
+  });
+
+  assert.match(message.content, /-12\.5%/);
+  assert.doesNotMatch(message.content, /profit/i);
+});
+
+test('the opening announcement counts the market down, not the call length', () => {
+  const now = Date.now();
+  const message = simpleAnnouncement(
+    {
+      direction: 'up',
+      asset: 'BTC',
+      minutes: 15,
+      sizePercent: 50,
+      entry: 39,
+      entryLabel: '39%',
+      // Opened late into the candle: 4 minutes left of a 15-minute market.
+      closesAt: now + 4 * 60 * 1000,
+    },
+    now,
+  );
+
+  assert.match(message.content, /4 min left/);
+  assert.match(message.content, /39%/);
+});
+
+test('a market already at its close says so instead of showing 0', () => {
+  const now = Date.now();
+  const message = simpleAnnouncement(
+    { direction: 'down', asset: 'BTC', minutes: 15, sizePercent: 25, closesAt: now - 1000 },
+    now,
+  );
+
+  assert.match(message.content, /closing now/);
 });

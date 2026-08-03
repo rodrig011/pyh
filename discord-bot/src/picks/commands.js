@@ -522,7 +522,7 @@ export async function openCall(interaction, { store, config }, overrides = {}) {
 
   await announce(interaction.client, config, simpleAnnouncement({
     ...pick,
-    entryLabel: pick.entry == null ? null : formatPrice(pick.entry),
+    entryLabel: pick.entry == null ? null : priceLabel(pick, pick.entry),
   }));
 
   return { pick, channel };
@@ -1133,7 +1133,16 @@ async function postManagement(interaction, { store, config }, { action, note = n
   }
 
   await refreshCallMessage(interaction.client, config, open);
-  await announce(interaction.client, config, simpleExit({ pick: open, outcome: verdict.outcome }));
+  await announce(
+    interaction.client,
+    config,
+    simpleExit({
+      pick: open,
+      outcome: verdict.outcome,
+      entryLabel: open.entry == null ? null : priceLabel(open, open.entry),
+      exitLabel: open.exit == null ? null : priceLabel(open, open.exit),
+    }),
+  );
   await openVote(interaction.client, store, config, open);
   await repostPanel(interaction.client, config, channel.id);
 
@@ -1374,7 +1383,16 @@ export async function promptDueSettlements(client, store, config, now = Date.now
         .catch(() => null);
 
       await refreshCallMessage(client, config, pick);
-      await announce(client, config, simpleExit({ pick, outcome: verdict.outcome }));
+      await announce(
+        client,
+        config,
+        simpleExit({
+          pick,
+          outcome: verdict.outcome,
+          entryLabel: pick.entry == null ? null : priceLabel(pick, pick.entry),
+          exitLabel: pick.exit == null ? null : priceLabel(pick, pick.exit),
+        }),
+      );
       await openVote(client, store, config, pick);
       await repostPanel(client, config, channel.id);
       graded += 1;

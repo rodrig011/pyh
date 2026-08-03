@@ -124,6 +124,8 @@ test('no open market is reported as such, not as a zero price', async () => {
 });
 
 test('cents are formatted the way the site shows them', () => {
-  assert.equal(formatCents(47), '47¢');
+  // A Kalshi price in cents is also the implied probability, and the room says
+  // it out loud as a percentage: "down is 53, up is 47".
+  assert.equal(formatCents(47), '47%');
   assert.equal(formatCents(null), '—');
 });

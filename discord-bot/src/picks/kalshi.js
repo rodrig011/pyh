@@ -84,8 +84,16 @@ export function gradeByContract(entryCents, exitCents, deadBandPercent = 1) {
   return { outcome: change > 0 ? 'win' : 'loss', changePercent: change };
 }
 
+/**
+ * A contract price, written the way the room says it out loud.
+ *
+ * Kalshi quotes 0–100¢ and that number is also the implied probability, so the
+ * site and the traders both talk in percentages — "down is 53, up is 47". A
+ * call that reads "in at 39¢" and one that reads "in at 39%" are the same
+ * price, and only one of them matches what the analyst actually said.
+ */
 export function formatCents(cents) {
-  return isPriceCents(cents) ? `${Math.round(cents)}¢` : '—';
+  return isPriceCents(cents) ? `${Math.round(cents)}%` : '—';
 }
 
 /**
