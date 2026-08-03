@@ -391,11 +391,17 @@ export function settleRow(pickId) {
  * ended answers a question nobody asked. Spot stays as the fallback because a
  * feed that is down must cost automatic grading, not the call itself.
  */
-export async function quoteFor(config, asset) {
+export async function quoteFor(config, asset, { direction = null } = {}) {
   const settings = pickSettings(config);
 
   if (settings.kalshi?.enabled) {
-    const contract = await currentContract(settings.kalshi);
+    // The BTC 15-minute market is one contract with two sides: YES pays if the
+    // candle closes up, NO if it closes down. An analyst calling DOWN buys NO,
+    // so pricing their call off the YES side would report the exact opposite
+    // of what they paid — a 39¢ entry read as 61¢, and every result inverted.
+    const side =
+      direction === DIRECTIONS.DOWN ? 'no' : direction === DIRECTIONS.UP ? 'yes' : settings.kalshi.side;
+    const contract = await currentContract({ ...settings.kalshi, side });
     if (contract.price !== null) {
       return {
         price: contract.price,
@@ -484,7 +490,7 @@ export async function openCall(interaction, { store, config }, overrides = {}) {
   let priceSource = null;
   let priceUnit = 'usd';
   if (entry === null) {
-    const quote = await quoteFor(config, asset);
+    const quote = await quoteFor(config, asset, { direction: overrides.direction ?? null });
     entry = quote.price;
     priceSource = quote.source;
     priceUnit = quote.unit ?? 'usd';
@@ -1088,7 +1094,11 @@ async function postManagement(interaction, { store, config }, { action, note = n
     );
   }
 
-  const quote = await quoteFor(config, open?.asset ?? settings.defaultAsset);
+  // Priced on the same side the call was opened on, or the exit is measured
+  // against a contract the analyst never held.
+  const quote = await quoteFor(config, open?.asset ?? settings.defaultAsset, {
+    direction: open?.direction ?? null,
+  });
 
   const closes = CLOSING_ACTIONS.has(action);
   let verdict = null;
@@ -1361,7 +1371,10 @@ export async function promptDueSettlements(client, store, config, now = Date.now
       .catch(() => null);
     if (!channel?.isTextBased()) continue;
 
-    const quote = pick.entry === null ? { price: null, label: '—' } : await quoteFor(config, pick.asset);
+    const quote =
+      pick.entry === null
+        ? { price: null, label: '—' }
+        : await quoteFor(config, pick.asset, { direction: pick.direction });
     const verdict = quote.price === null ? null : gradeQuote(pick, quote.price);
 
     if (verdict) {

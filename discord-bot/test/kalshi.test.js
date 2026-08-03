@@ -129,3 +129,18 @@ test('cents are formatted the way the site shows them', () => {
   assert.equal(formatCents(47), '47%');
   assert.equal(formatCents(null), '—');
 });
+
+test('a DOWN call is priced on the side the analyst actually bought', () => {
+  // One market, two sides. YES pays if the candle closes up.
+  const market = { status: 'open', last_price: 61 };
+
+  assert.equal(readMarketPrice(market, 'yes').cents, 61);
+  assert.equal(readMarketPrice(market, 'no').cents, 39);
+});
+
+test('the same move is a win on one side and a loss on the other', () => {
+  // Bought NO at 39, it went to 50: the DOWN call made money.
+  assert.equal(gradeByContract(39, 50).outcome, 'win');
+  // Read off the YES side instead, the identical trade reports a loss.
+  assert.equal(gradeByContract(61, 50).outcome, 'loss');
+});
