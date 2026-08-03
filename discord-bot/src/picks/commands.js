@@ -991,6 +991,8 @@ async function postManagement(interaction, { store, config }, { action, note = n
       .listPicks((pick) => pick.guildId === guildId && pick.outcome)
       .sort((a, b) => (b.settledAt ?? 0) - (a.settledAt ?? 0))[0];
 
+    await repostPanel(interaction.client, config, channel.id);
+
     return interaction.editReply(
       last
         ? `There is no open call. The last one — ${DIRECTION_LABEL[last.direction]} **${last.asset}** ` +
@@ -1154,12 +1156,23 @@ export async function publishVoteResults(client, store, config, now = Date.now()
   return published;
 }
 
-export async function repostPanel(client, config, channelId) {
+const lastPanelAt = new Map();
+
+export async function repostPanel(client, config, channelId, { debounceMs = 30000 } = {}) {
   const settings = pickSettings(config);
   if (!settings.repostPanel) return false;
 
   const channel = await client.channels.fetch(channelId ?? settings.channelId).catch(() => null);
   if (!channel?.isTextBased()) return false;
+
+  // The console comes back after every press of a closing button, including the
+  // ones that found nothing to close — that is exactly the moment an analyst
+  // wants to open a new call. Debounced so three impatient presses do not
+  // produce three consoles.
+  const now = Date.now();
+  const last = lastPanelAt.get(channel.id) ?? 0;
+  if (now - last < debounceMs) return false;
+  lastPanelAt.set(channel.id, now);
 
   await channel.send(analystPanel(config, settings)).catch(() => null);
   return true;

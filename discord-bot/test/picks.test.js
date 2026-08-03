@@ -534,10 +534,14 @@ test('the console offers every action, cutting losses included', () => {
 // it, kept counting to the 15-minute mark and scored the call on where price
 // happened to be then. "It's going every 15 minutes. Not when we go in or out."
 
-function panelPress(action, userId = 'analyst1') {
+let fakeChannelSeq = 0;
+
+function panelPress(action, userId = 'analyst1', { channelId } = {}) {
   const replies = [];
   const posted = [];
+  const id = channelId ?? `chan-${(fakeChannelSeq += 1)}`;
   return {
+    channelId: id,
     replies,
     posted,
     interaction: {
@@ -554,10 +558,17 @@ function panelPress(action, userId = 'analyst1') {
       isChatInputCommand: () => false,
       client: {
         channels: {
-          fetch: async () => ({ isTextBased: () => true, send: async (p) => posted.push(p) }),
+          // A real channel has an id. Without one every test shared a single
+          // debounce key, so only the first repost in the file ever happened.
+          fetch: async () => ({
+            id,
+            isTextBased: () => true,
+            send: async (p) => posted.push(p),
+            messages: { fetch: async () => ({ edit: async () => {} }) },
+          }),
         },
       },
-      channel: { isTextBased: () => true, send: async (p) => posted.push(p) },
+      channel: { id, isTextBased: () => true, send: async (p) => posted.push(p) },
       deferReply: async function () {
         this.deferred = true;
       },
@@ -660,7 +671,10 @@ test('cashing out with nothing open says so instead of inventing a message', asy
 
   await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
 
-  assert.equal(posted.length, 0, 'the room was not told to close a position nobody opened');
+  const toldToClose = posted.filter((message) =>
+    /Cash out|Cut the loss/i.test(message.embeds?.[0]?.toJSON().title ?? ''),
+  );
+  assert.equal(toldToClose.length, 0, 'the room was not told to close a position nobody opened');
   assert.match(replies[0], /No call has been opened yet/i);
 });
 
@@ -1331,4 +1345,54 @@ test('a deleted original message does not undo a saved settlement', async (t) =>
   };
 
   assert.equal(await refreshCallMessage(client, routingConfig, pick), false);
+});
+
+// The console coming back is the point of pressing a closing button: whatever
+// the answer, the next thing an analyst wants is to open a new call.
+
+function panelsIn(posted) {
+  return posted.filter((message) => message.embeds?.[0]?.toJSON().title?.includes('Analyst console'));
+}
+
+test('the console comes back even when there was nothing to close', async (t) => {
+  const store = routingStore(t);
+  const { interaction, posted } = panelPress('cash_out');
+
+  await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
+
+  assert.equal(panelsIn(posted).length, 1, 'ready to open the next call');
+});
+
+test('the console comes back after cutting a loss', async (t) => {
+  const store = routingStore(t);
+  openCallIn(store, { direction: DIRECTIONS.UP, entry: 63300 });
+  withPrice(t, 63200);
+
+  const { interaction, posted } = panelPress('cut_loss');
+  await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
+
+  assert.equal(panelsIn(posted).length, 1);
+});
+
+test('three impatient presses do not produce three consoles', async (t) => {
+  const store = routingStore(t);
+  const posted = [];
+
+  const shared = 'one-channel';
+  for (let i = 0; i < 3; i += 1) {
+    const press = panelPress('cash_out', 'analyst1', { channelId: shared });
+    press.interaction.client.channels.fetch = async () => ({
+      id: shared,
+      isTextBased: () => true,
+      send: async (p) => posted.push(p),
+      messages: { fetch: async () => ({ edit: async () => {} }) },
+    });
+    await handleInteraction(press.interaction, {
+      store,
+      config: routingConfig,
+      client: press.interaction.client,
+    });
+  }
+
+  assert.equal(panelsIn(posted).length, 1, 'debounced to one');
 });
