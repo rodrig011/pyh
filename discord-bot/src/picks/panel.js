@@ -201,11 +201,16 @@ export function guideMessage(config, settings) {
           `**Get in at that price or better — never chase it.**`,
       },
       {
-        name: '📊 The % on an entry — how much of your book',
+        name: '⚠️ Two different percentages — do not mix them up',
         value:
-          'A call arrives with a size: **25 / 50 / 75% of port**, or **full port**. ' +
-          'That is how much of your Kalshi balance the analyst is putting in — not a price, and not a target. ' +
-          'Size down if that is more than you are comfortable losing.',
+          'A call shows **two** numbers with a % on them, and they mean opposite things.\n\n' +
+          '**The entry — what the contract costs.** `@ 39%` means the contract is 39¢ and pays $1 ' +
+          'if the call is right. It is also the odds: 39% is the market saying this is unlikely. ' +
+          'Cheap entries pay more — in at 39, out at 50 is **+28%**. In at 95, being right pays ' +
+          'about **5%**. When the entry is high, the room is late.\n\n' +
+          '**The size — how much of your book.** `50% of port` is how much of your Kalshi balance ' +
+          'the analyst is putting in. That one is on you: size down if it is more than you are ' +
+          'comfortable losing.',
       },
       {
         name: '💸 CASH OUT — everything, in profit',
@@ -234,9 +239,10 @@ export function guideMessage(config, settings) {
       {
         name: '⏱️ If nobody presses anything',
         value:
-          `The call is scored automatically when the candle closes, using the real ` +
-          `${settings.defaultAsset} price. Wins and losses both go on the board — ` +
-          'check any analyst with `/picks record` or the whole room with `/picks board`.',
+          'The call is scored automatically when the candle closes, on **the same contract ' +
+          'it was opened on** — not on where the coin ended up. What is scored is what the ' +
+          'trade actually returned. Wins and losses both go on the board — check any analyst ' +
+          'with `/picks record` or the whole room with `/picks board`.',
       },
     )
     .setFooter({

@@ -1522,3 +1522,12 @@ test('a market already at its close says so instead of showing 0', () => {
 
   assert.match(message.content, /closing now/);
 });
+
+test('the guide separates the entry price from the position size', () => {
+  const text = JSON.stringify(guideMessage({}, { defaultAsset: 'BTC', disclaimer: 'NFA' }));
+
+  assert.match(text, /what the contract costs/);
+  assert.match(text, /how much of your book/i);
+  // The trap this field exists to prevent: reading a 39% entry as "put 39% in".
+  assert.match(text, /\+28%/);
+});
