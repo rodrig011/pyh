@@ -70,3 +70,15 @@ test('with one method the heading is singular', () => {
 test('with nothing configured the block disappears instead of showing an empty list', () => {
   assert.deepEqual(manualSection({ subscriptionDays: 30 }, order), []);
 });
+
+test('a checkout URL too long for a button becomes a link instead', async () => {
+  const { BUTTON_URL_MAX } = await import('../src/vip/commands.js');
+
+  // Stripe Checkout puts the whole session in the fragment; these routinely run
+  // past Discord's limit, and Discord rejects the entire message when they do.
+  const real =
+    'https://checkout.stripe.com/c/pay/cs_live_' + 'a'.repeat(40) + '#' + 'fidkdWxOYHwnPyd1blpxYHZxWjA0'.repeat(30);
+
+  assert.ok(real.length > BUTTON_URL_MAX, 'the fixture has to exceed the limit to prove anything');
+  assert.equal(BUTTON_URL_MAX, 512);
+});

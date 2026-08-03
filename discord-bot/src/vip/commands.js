@@ -399,17 +399,32 @@ export function manualSection(config, order) {
  * Card failures must never block the Zelle instructions, so this returns null
  * instead of throwing.
  */
+/** Discord's hard cap on a link button's URL. */
+export const BUTTON_URL_MAX = 512;
+
 async function cardCheckoutRow(stripe, config, order) {
   if (!stripe) return null;
   try {
     const session = await createSubscriptionCheckout(stripe, { config, order });
-    return new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setStyle(ButtonStyle.Link)
-        .setLabel(`Pay by card — ${formatMoney(order.amountCents)} every ${config.subscriptionDays} days`)
-        .setEmoji('💳')
-        .setURL(session.url),
-    );
+
+    // A Stripe Checkout URL carries its whole session in the fragment and runs
+    // well past Discord's 512-character limit for a button. Discord rejects the
+    // entire message for it, so the buyer got "Invalid Form Body" instead of
+    // any way to pay at all — card *or* Zelle. A plain link has no such limit.
+    if (session.url.length > BUTTON_URL_MAX) {
+      return { row: null, url: session.url };
+    }
+
+    return {
+      row: new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setStyle(ButtonStyle.Link)
+          .setLabel(`Pay by card — ${formatMoney(order.amountCents)} every ${config.subscriptionDays} days`)
+          .setEmoji('💳')
+          .setURL(session.url),
+      ),
+      url: session.url,
+    };
   } catch (error) {
     commandLog.error(`Could not open a Stripe checkout for ${order.code}: ${error.message}`);
     return null;
@@ -477,6 +492,8 @@ async function buyResponse(interaction, { store, config, stripe }, tier, payerNa
       config,
     });
 
+  const checkout = await cardCheckoutRow(stripe, config, order);
+
   const embed = new EmbedBuilder()
     .setColor(COLORS.gold)
     .setTitle(`${tierTitle(tier, config.tiers)} — ${formatMoney(order.amountCents)}`)
@@ -484,9 +501,12 @@ async function buyResponse(interaction, { store, config, stripe }, tier, payerNa
       [
         tierPerks(tier, config.tiers),
         '',
-        ...cardSection(Boolean(stripe), config, order.amountCents),
+        ...cardSection(Boolean(checkout), config, order.amountCents),
+        // Only when the button could not carry it. Shown right where the card
+        // section promised one, so the instructions never point at nothing.
+        ...(checkout && !checkout.row ? [`**[→ Pay by card](${checkout.url})**`, ''] : []),
         ...manualSection(config, order),
-        ...comingSoonSection(config, Boolean(stripe)),
+        ...comingSoonSection(config, Boolean(checkout)),
         '',
         `Includes: ${includedTiers(tier).map((level) => TIER_NAMES[level]).join(', ')}`,
         `This code expires ${time(Math.floor(order.expiresAt / 1000), 'R')}.`,
@@ -496,11 +516,9 @@ async function buyResponse(interaction, { store, config, stripe }, tier, payerNa
       text: 'Without the code in the memo the payment cannot be matched automatically.',
     });
 
-  const cardRow = await cardCheckoutRow(stripe, config, order);
-
   return {
     embeds: [embed],
-    components: cardRow ? [cardRow] : [],
+    components: checkout?.row ? [checkout.row] : [],
     content: existing ? 'You already had an open order for this tier, so here is its code again:' : undefined,
   };
 }
