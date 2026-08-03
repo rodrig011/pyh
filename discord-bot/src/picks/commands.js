@@ -1707,17 +1707,28 @@ export async function handleSettleButton(interaction, { store, config }) {
  *
  * Never throws: a feed that is down costs automation, not the room.
  */
-export async function syncKalshiAccount(client, store, config, { fetchImpl } = {}) {
+let balanceCache = { at: 0, cents: null };
+
+export async function syncKalshiAccount(client, store, config, { fetchImpl, now = Date.now() } = {}) {
   const settings = pickSettings(config);
   const account = settings.kalshi?.account ?? {};
   if (!account.autoPublish || !hasCredentials(account)) return { published: 0, closed: 0 };
 
   const analystId = account.analystId ?? settings.autoAnalystId ?? null;
+  const pass = fetchImpl ? { fetchImpl } : {};
 
-  const [fillsResult, balanceResult] = await Promise.all([
-    fetchFills(account, { limit: 100, ...(fetchImpl ? { fetchImpl } : {}) }),
-    fetchBalance(account, fetchImpl ? { fetchImpl } : {}),
-  ]);
+  // On a 15-minute market the signal is worth less every second it is late, so
+  // this runs often. Two things keep that cheap: only the most recent fills are
+  // asked for, and the balance — which moves slowly and is only used to work
+  // out what fraction of the book went in — is re-read once a minute instead of
+  // on every pass.
+  const fillsResult = await fetchFills(account, { limit: 25, ...pass });
+
+  if (balanceCache.cents === null || now - balanceCache.at > 60_000) {
+    const fresh = await fetchBalance(account, pass);
+    if (!fresh.error) balanceCache = { at: now, cents: fresh.balanceCents };
+  }
+  const balanceResult = { balanceCents: balanceCache.cents };
   if (fillsResult.error) {
     commandLog.warn(`Kalshi account: ${fillsResult.error}`);
     return { published: 0, closed: 0, error: fillsResult.error };

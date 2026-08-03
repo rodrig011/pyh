@@ -232,3 +232,49 @@ test('publishing without credentials does nothing rather than half-working', asy
 
   assert.deepEqual(result, { published: 0, closed: 0 });
 });
+
+test('the balance is read once a minute, not on every pass', async () => {
+  const { syncKalshiAccount } = await import('../src/picks/commands.js');
+
+  const asked = [];
+  const fetchImpl = async (url) => {
+    asked.push(new URL(url).pathname);
+    return { ok: true, json: async () => ({ fills: [], balance: 1000 }) };
+  };
+
+  const config = {
+    guildId: 'g',
+    picks: { kalshi: { account: { ...credentials, autoPublish: true, seriesTicker: 'KXBTC15M' } } },
+  };
+  const store = { listPicks: () => [] };
+
+  const now = Date.now();
+  await syncKalshiAccount({}, store, config, { fetchImpl, now });
+  await syncKalshiAccount({}, store, config, { fetchImpl, now: now + 2000 });
+  await syncKalshiAccount({}, store, config, { fetchImpl, now: now + 4000 });
+
+  const fills = asked.filter((path) => path.endsWith('/fills')).length;
+  const balances = asked.filter((path) => path.endsWith('/balance')).length;
+
+  assert.equal(fills, 3, 'fills are read on every pass — that is the whole point');
+  assert.equal(balances, 1, 'the balance moves slowly and is cached');
+});
+
+test('only the newest fills are asked for, so the poll stays cheap', async () => {
+  const { syncKalshiAccount } = await import('../src/picks/commands.js');
+
+  let seen = null;
+  const fetchImpl = async (url) => {
+    if (url.includes('/fills')) seen = url;
+    return { ok: true, json: async () => ({ fills: [], balance: 1000 }) };
+  };
+
+  await syncKalshiAccount(
+    {},
+    { listPicks: () => [] },
+    { guildId: 'g', picks: { kalshi: { account: { ...credentials, autoPublish: true } } } },
+    { fetchImpl, now: Date.now() + 120_000 },
+  );
+
+  assert.match(seen, /limit=25/);
+});

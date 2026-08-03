@@ -213,6 +213,9 @@ export function loadVipConfig() {
           apiBase: str('KALSHI_API_BASE'),
           seriesTicker: str('KALSHI_SERIES_TICKER'),
           autoPublish: bool('KALSHI_AUTO_PUBLISH', false),
+          // How often the account is read. A 15-minute scalp loses value every
+          // second the room hears about it late, and one small GET is cheap.
+          pollSeconds: int('KALSHI_POLL_SECONDS', 3),
           // Whose calls these become. Without it the record has no owner.
           analystId: str('KALSHI_ANALYST_DISCORD_ID'),
           analystTag: str('KALSHI_ANALYST_TAG'),

@@ -179,14 +179,24 @@ export function createVipBot(config = loadVipConfig()) {
       );
     }, 60 * 1000).unref();
 
-    // The analyst's own fills, when the account is connected and publishing is
-    // switched on. Faster than the minute loop because a 15-minute scalp is
-    // over before a slower poll would notice it opened.
+    // The analyst's own fills. This is the latency the room actually feels: a
+    // call is worth less every second it arrives late, and on a 15-minute
+    // market a slow poll can miss the entry and the exit both.
+    //
+    // The guard matters more than the interval. A pass that runs long — a slow
+    // Kalshi, a rate limit — must not have the next one start on top of it and
+    // publish the same fill twice.
+    const pollMs = Math.max(1000, (config.picks?.kalshi?.account?.pollSeconds ?? 3) * 1000);
+    let syncing = false;
     setInterval(() => {
-      syncKalshiAccount(client, store, config).catch((error) =>
-        log.error(`Kalshi account sync failed: ${error.message}`),
-      );
-    }, 20 * 1000).unref();
+      if (syncing) return;
+      syncing = true;
+      syncKalshiAccount(client, store, config)
+        .catch((error) => log.error(`Kalshi account sync failed: ${error.message}`))
+        .finally(() => {
+          syncing = false;
+        });
+    }, pollMs).unref();
   });
 
   // Nobody reads pinned messages on the way in. A DM with the buttons is the
