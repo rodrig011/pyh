@@ -15,6 +15,7 @@ import { currentContract } from '../picks/kalshi.js';
 import { fetchSpotPrice } from '../picks/price.js';
 import { collectOnce, historyQuality, pricesSince } from '../signals/collector.js';
 import { VERDICTS, calibration, evaluate } from '../signals/engine.js';
+import { parseMarkets, planScan } from '../signals/scanner.js';
 import { oddsBar } from '../picks/panel.js';
 import { project, recommendSize } from '../signals/sizing.js';
 
@@ -124,35 +125,52 @@ export function createSignalBot(config = loadSignalConfig()) {
   const store = createStore(config.storePath);
   const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
-  /** Reads the market and the price history, and asks the engine. */
-  async function read() {
-    const samples = store.listSamples(config.asset);
-    const quality = historyQuality(samples, { sampleSeconds: config.sampleSeconds });
-    if (!quality.ok) return { ready: false, quality };
+  // Everything the scanner watches. One asset unless told otherwise; the BNB
+  // series turned up in the analyst's own fills, so the list is config.
+  const markets = parseMarkets(config.markets, config.asset, config.seriesTicker);
 
-    const contract = await currentContract({
-      apiBase: config.apiBase,
-      seriesTicker: config.seriesTicker,
-    });
-    const closesAt = Date.parse(contract.market?.close_time ?? '');
-    const secondsLeft = Number.isFinite(closesAt) ? (closesAt - Date.now()) / 1000 : null;
+  /** Reads every watched market and hands the lot to the scanner. */
+  async function readAll() {
+    const inputs = [];
+    const waiting = [];
 
-    const spot = await fetchSpotPrice(config.asset);
-    const strike = Number(contract.market?.floor_strike ?? contract.market?.cap_strike);
+    for (const { asset, series } of markets) {
+      const samples = store.listSamples(asset);
+      const quality = historyQuality(samples, { sampleSeconds: config.sampleSeconds });
+      if (!quality.ok) {
+        waiting.push({ asset, reason: quality.reason });
+        continue;
+      }
 
-    const result = evaluate(
-      {
+      const contract = await currentContract({ apiBase: config.apiBase, seriesTicker: series });
+      if (!contract.market) {
+        waiting.push({ asset, reason: contract.error ?? 'no market' });
+        continue;
+      }
+
+      const closesAt = Date.parse(contract.market.close_time ?? '');
+      const spot = await fetchSpotPrice(asset);
+
+      inputs.push({
+        asset,
+        ticker: contract.market.ticker ?? null,
         prices: pricesSince(samples, Date.now() - 60 * 60 * 1000),
         spot: spot.price,
-        strike,
+        strike: Number(contract.market.floor_strike ?? contract.market.cap_strike),
         marketPriceCents: contract.price,
         market: contract.market,
-        secondsLeft,
-      },
-      config.engine,
-    );
+        secondsLeft: Number.isFinite(closesAt) ? (closesAt - Date.now()) / 1000 : null,
+      });
+    }
 
-    return { ready: true, result, contract, secondsLeft, quality };
+    const plan = planScan(inputs, {
+      kellyFraction: config.kellyFraction,
+      maximumFraction: config.maximumFraction,
+      maximumTotalFraction: config.maximumTotalFraction,
+      engine: config.engine,
+    });
+
+    return { plan, waiting, inputs };
   }
 
   client.once(Events.ClientReady, async (ready) => {
@@ -168,22 +186,25 @@ export function createSignalBot(config = loadSignalConfig()) {
       }
     }
 
-    const samples = store.listSamples(config.asset);
-    log.info(
-      `${samples.length} price sample(s) on hand. ` +
-        (samples.length < 20
-          ? 'Not enough to measure volatility yet — the engine will stay quiet.'
-          : 'Enough to read a market.'),
-    );
+    for (const { asset, series } of markets) {
+      const samples = store.listSamples(asset);
+      log.info(
+        `${asset} (${series}): ${samples.length} sample(s) on hand` +
+          (samples.length < 20 ? ' — not enough to measure volatility yet' : ''),
+      );
+    }
 
     // Sampling here as well, so this bot is useful even if it is the only one
-    // running. The store's own de-duplication makes a double writer harmless.
+    // running. Every watched asset, because volatility can only be measured
+    // for a series somebody wrote down.
     setInterval(() => {
-      collectOnce(store, { fetchPrice: fetchSpotPrice, asset: config.asset })
-        .then((r) => {
-          if (r.added && r.samples % 10 === 0) store.save();
-        })
-        .catch(() => null);
+      for (const { asset } of markets) {
+        collectOnce(store, { fetchPrice: fetchSpotPrice, asset })
+          .then((r) => {
+            if (r.added && r.samples % 10 === 0) store.save();
+          })
+          .catch(() => null);
+      }
     }, config.sampleSeconds * 1000).unref();
   });
 
@@ -193,35 +214,62 @@ export function createSignalBot(config = loadSignalConfig()) {
     try {
       if (interaction.commandName === 'signal') {
         await interaction.deferReply();
-        const state = await read();
+        const { plan, waiting } = await readAll();
 
-        if (!state.ready) {
+        if (plan.calls.length === 0 && plan.skips.length === 0) {
           return interaction.editReply(
-            `📉 Still learning the market — ${state.quality.reason}.\n` +
-              '_Volatility cannot be measured backwards. The engine stays quiet until it can._',
+            '📉 Still learning the market' +
+              (waiting.length > 0
+                ? ` — ${waiting.map((w) => `${w.asset}: ${w.reason}`).join(' · ')}`
+                : '') +
+              '\n_Volatility cannot be measured backwards. The engine stays quiet until it can._',
           );
         }
 
-        const sizing =
-          state.result.verdict === VERDICTS.SKIP
-            ? null
-            : recommendSize({
-                probability: state.result.probability,
-                worstProbability: state.result.probabilityRange?.[0],
-                priceDollars: state.result.entryCents / 100,
-                kellyFraction: config.kellyFraction,
-                maximumFraction: config.maximumFraction,
-              });
+        // Calls first, at most three cards; the rest of the scan in one line.
+        const embeds = plan.calls
+          .slice(0, 3)
+          .map((call) =>
+            signalEmbed(call.result, {
+              asset: call.asset,
+              ticker: call.ticker,
+              secondsLeft: call.result.secondsLeft,
+              sizing: call.sizing,
+            }),
+          );
+
+        const skipLine =
+          plan.skips.length > 0
+            ? plan.skips.map((skip) => `⛔ **${skip.asset}** — ${skip.result.explain}`).join('\n')
+            : null;
+        const waitLine =
+          waiting.length > 0
+            ? waiting.map((w) => `⏳ **${w.asset}** — ${w.reason}`).join('\n')
+            : null;
+
+        if (embeds.length === 0) {
+          embeds.push(
+            new EmbedBuilder()
+              .setColor(COLORS.warning)
+              .setTitle(`⛔ STAY OUT · all ${plan.scanned} market(s)`)
+              .setDescription([skipLine, waitLine].filter(Boolean).join('\n'))
+              .setFooter({
+                text: 'Refusing is the product. Most markets are not worth taking · Not financial advice',
+              })
+              .setTimestamp(),
+          );
+          return interaction.editReply({ embeds });
+        }
 
         return interaction.editReply({
-          embeds: [
-            signalEmbed(state.result, {
-              asset: config.asset,
-              ticker: state.contract.market?.ticker,
-              secondsLeft: state.secondsLeft,
-              sizing,
-            }),
-          ],
+          content:
+            (plan.scale < 1
+              ? `⚖️ ${plan.calls.length} simultaneous signals — sized down together, crypto moves as one. `
+              : '') +
+            `Total at risk: **${(plan.totalFraction * 100).toFixed(1)}%** of bankroll.` +
+            (skipLine ? `\n${skipLine}` : '') +
+            (waitLine ? `\n${waitLine}` : ''),
+          embeds,
         });
       }
 
@@ -278,5 +326,5 @@ export function createSignalBot(config = loadSignalConfig()) {
     return undefined;
   });
 
-  return { client, store, read, config };
+  return { client, store, readAll, markets, config };
 }

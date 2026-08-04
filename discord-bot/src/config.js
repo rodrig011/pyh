@@ -279,6 +279,13 @@ export function loadSignalConfig() {
     channelId: str('SIGNAL_CHANNEL_ID'),
     asset: str('SIGNAL_ASSET', 'BTC'),
     seriesTicker: str('SIGNAL_SERIES_TICKER', str('KALSHI_SERIES_TICKER')),
+    // Every 15-minute series to scan, "BTC:KXBTC15M,ETH:KXETH15M,BNB:KXBNB15M".
+    // More markets is the honest growth lever: the edge per bet is capped by
+    // the maths, the number of good bets a day is not.
+    markets: str('SIGNAL_MARKETS'),
+    // The most of the bankroll at risk across simultaneous signals. Crypto
+    // moves together, so parallel crypto bets are closer to one big bet.
+    maximumTotalFraction: Number.parseFloat(str('SIGNAL_MAX_TOTAL_FRACTION', '0.15')),
     apiBase: str('KALSHI_API_BASE'),
     storePath: str('SIGNALS_STORE_PATH', str('STORE_PATH', 'data/store.json')),
     sampleSeconds: int('SIGNALS_SAMPLE_SECONDS', 30),
