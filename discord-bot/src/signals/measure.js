@@ -75,6 +75,49 @@ export function calibrationBuckets(pairs, { buckets = 10 } = {}) {
  * The standard error is the whole point. A mean mispricing of 2¢ from forty
  * observations is nothing; the same 2¢ from four thousand is a business.
  */
+/**
+ * Mean and error bar of a per-market quantity, clustered by market.
+ *
+ * The correction that stops this whole file from lying. A 15-minute market is
+ * sampled every 30 seconds, so it contributes about thirty observations — and
+ * all thirty share ONE outcome. Treating them as thirty independent facts
+ * understates the error bar by the square root of thirty, about five and a
+ * half times, which is the difference between "we measured a 2¢ edge" and "we
+ * have no idea".
+ *
+ * The independent unit is the market, not the observation. So each market is
+ * collapsed to its own average first, and the spread ACROSS markets is what
+ * the error bar is built from.
+ */
+export function clusteredMean(rows, valueOf, keyOf) {
+  const groups = new Map();
+  for (const row of rows) {
+    const key = keyOf(row);
+    const value = valueOf(row);
+    if (!Number.isFinite(value)) continue;
+    const bucket = groups.get(key) ?? { total: 0, n: 0 };
+    bucket.total += value;
+    bucket.n += 1;
+    groups.set(key, bucket);
+  }
+
+  const means = [...groups.values()].map((bucket) => bucket.total / bucket.n);
+  if (means.length < 2) return null;
+
+  const mean = means.reduce((t, x) => t + x, 0) / means.length;
+  const variance = means.reduce((t, x) => t + (x - mean) ** 2, 0) / (means.length - 1);
+  const standardError = Math.sqrt(variance / means.length);
+
+  return {
+    mean,
+    standardError,
+    clusters: means.length,
+    observations: rows.length,
+    ci95: [mean - 2 * standardError, mean + 2 * standardError],
+    significant: Math.abs(mean) > 2 * standardError,
+  };
+}
+
 export function mispricing(observations) {
   const rows = (observations ?? []).filter(
     (row) => (row?.outcome === 0 || row?.outcome === 1) && Number.isFinite(row?.bid) && Number.isFinite(row?.ask),
@@ -83,21 +126,52 @@ export function mispricing(observations) {
 
   // The market said (mid) and the truth was 100 or 0. The difference is what
   // the market got wrong on that observation.
-  const errors = rows.map((row) => (row.bid + row.ask) / 2 - row.outcome * 100);
-  const mean = errors.reduce((t, x) => t + x, 0) / errors.length;
-  const variance = errors.reduce((t, x) => t + (x - mean) ** 2, 0) / (errors.length - 1);
-  const standardError = Math.sqrt(variance / errors.length);
+  const error = (row) => (row.bid + row.ask) / 2 - row.outcome * 100;
+  const clustered = clusteredMean(rows, error, (row) => row.ticker ?? 'all');
+  if (!clustered) return null;
+
+  const errors = rows.map(error);
 
   return {
     n: errors.length,
-    meanCents: mean,
+    markets: clustered.clusters,
+    meanCents: clustered.mean,
     meanAbsoluteCents: errors.reduce((t, x) => t + Math.abs(x), 0) / errors.length,
-    standardErrorCents: standardError,
+    standardErrorCents: clustered.standardError,
     // Two standard errors either side. If this straddles zero, the market is
     // not measurably biased and the honest headline is "no evidence".
-    ci95: [mean - 2 * standardError, mean + 2 * standardError],
-    significant: Math.abs(mean) > 2 * standardError,
+    ci95: clustered.ci95,
+    significant: clustered.significant,
   };
+}
+
+/**
+ * Model against market, paired on the same outcome.
+ *
+ * A paired comparison rather than two separate scores, because most of the
+ * noise in a Brier score is the outcome itself — and both forecasters are
+ * scored on the SAME outcome, so that noise cancels. This converges far faster
+ * than measuring either score on its own, which is why it, rather than the
+ * mispricing above, is the number to watch first.
+ *
+ * Positive means the model is the better forecaster.
+ */
+export function brierComparison(observations) {
+  const rows = (observations ?? []).filter(
+    (row) =>
+      (row?.outcome === 0 || row?.outcome === 1) &&
+      Number.isFinite(row?.model) &&
+      Number.isFinite(row?.bid) &&
+      Number.isFinite(row?.ask),
+  );
+  if (rows.length < 2) return null;
+
+  const difference = (row) => {
+    const market = (row.bid + row.ask) / 200;
+    return (market - row.outcome) ** 2 - (row.model - row.outcome) ** 2;
+  };
+
+  return clusteredMean(rows, difference, (row) => row.ticker ?? 'all');
 }
 
 /**
@@ -143,15 +217,22 @@ export function measureEdge(observations, { spreadAware = true } = {}) {
     }
   }
 
+  // Paired, clustered, and therefore the number to believe. The raw gap below
+  // is kept for display, but it has no error bar and must never be reported
+  // on its own.
+  const comparison = brierComparison(settled);
+
   return {
     ready: true,
     settled: settled.length,
+    markets: new Set(settled.map((row) => row.ticker)).size,
     scored: modelPairs.length,
     marketBrier,
     modelBrier,
-    // The only comparison that decides whether any of this is a business.
-    modelBeatsMarket:
-      marketBrier !== null && modelBrier !== null ? modelBrier < marketBrier : null,
+    // The only comparison that decides whether any of this is a business, and
+    // only once its interval stops crossing zero.
+    comparison,
+    modelBeatsMarket: comparison ? comparison.significant && comparison.mean > 0 : null,
     brierGap: marketBrier !== null && modelBrier !== null ? marketBrier - modelBrier : null,
     mispricing: mispricing(settled),
     calibration: calibrationBuckets(modelPairs),

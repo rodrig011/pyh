@@ -982,15 +982,24 @@ export async function handlePicks(interaction, { store, config }) {
       [
         `📊 **Is the Kalshi market actually wrong? — ${asset}**`,
         '',
-        `**${measured.settled}** settled observation(s), **${measured.scored}** with a model read.`,
+        `**${measured.markets}** settled market(s) — ${measured.settled} observation(s), ` +
+          `${measured.scored} with a model read.`,
+        '',
+        `_A market is the unit that counts. Thirty samples of one 15-minute market ` +
+          `share one outcome, so they are one fact, not thirty._`,
         '',
         `**Market's forecast score:** \`${score(measured.marketBrier)}\``,
         `**Model's forecast score:** \`${score(measured.modelBrier)}\``,
-        measured.modelBeatsMarket === null
+        measured.comparison === null
           ? '_The model has not scored enough of these to compare yet._'
           : measured.modelBeatsMarket
-            ? `✅ **The model is the better forecaster** by \`${score(measured.brierGap)}\`.`
-            : '❌ **The market is the better forecaster.** There is no edge here to trade.',
+            ? `✅ **The model is the better forecaster**, by more than the noise ` +
+              `(${measured.comparison.mean.toFixed(4)} ± ${(2 * measured.comparison.standardError).toFixed(4)}).`
+            : measured.comparison.mean > 0
+              ? `⏳ **The model is ahead but not provably so** ` +
+                `(${measured.comparison.mean.toFixed(4)} ± ${(2 * measured.comparison.standardError).toFixed(4)}).\n` +
+                `_That range still crosses zero. Keep recording._`
+              : '❌ **The market is the better forecaster.** There is no edge here to trade.',
         '',
         bias
           ? [
@@ -1006,6 +1015,10 @@ export async function handlePicks(interaction, { store, config }) {
           ? `**Gross per contract taken:** ${cents(measured.centsPerTrade)} across ${measured.taken} trade(s).\n` +
             '_The fee is roughly 2¢ at mid prices. Under that, this is a loss in a nice hat._'
           : null,
+        '',
+        `_Roughly 96 markets settle per day. Detecting a small edge takes weeks, ` +
+          `not days — at ${measured.markets} market(s) so far, treat anything ` +
+          `that is not obvious as not yet measured._`,
         '',
         'Below 0.25 is better than a coin flip. Anything above it means stop.',
       ]

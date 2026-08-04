@@ -71,8 +71,14 @@ test('a mispricing without an error bar is not a measurement', () => {
   // observations differs, which is the only thing the error bar should react to.
   // Period ten, so twenty rows and nine hundred rows hold the same mix rather
   // than the small sample landing entirely on one outcome.
+  // Ten observations per market, and every observation of a market shares
+  // that market's single outcome — which is the whole reason the error bar
+  // has to be clustered.
   const rows = (n) =>
-    Array.from({ length: n }, (_, i) => ({ bid: 51, ask: 53, outcome: i % 10 < 5 ? 1 : 0 }));
+    Array.from({ length: n }, (_, i) => {
+      const market = Math.floor(i / 10);
+      return { ticker: `M${market}`, bid: 51, ask: 53, outcome: market % 2 };
+    });
 
   const few = mispricing(rows(20));
   const many = mispricing(rows(900));
@@ -90,11 +96,10 @@ test('a market that is never wrong is reported as no business, not as a small on
   // The market quotes exactly the truth: half the contracts at 60c settle yes.
   // The honest reading is "no evidence of bias", and a straddling interval is
   // how that must be said.
-  const rows = Array.from({ length: 1000 }, (_, i) => ({
-    bid: 59,
-    ask: 61,
-    outcome: i % 10 < 6 ? 1 : 0,
-  }));
+  const rows = Array.from({ length: 1000 }, (_, i) => {
+    const market = Math.floor(i / 10);
+    return { ticker: `M${market}`, bid: 59, ask: 61, outcome: market % 10 < 6 ? 1 : 0 };
+  });
 
   const result = mispricing(rows);
   assert.ok(!result.significant, `claimed significance at ${result.meanCents.toFixed(2)}c`);
@@ -104,12 +109,11 @@ test('a market that is never wrong is reported as no business, not as a small on
 test('the model is scored against the market on identical rows, or the comparison is rigged', () => {
   // The market says 50 on everything. The model knows the answer. The model
   // must win, and the gap must be positive.
-  const rows = Array.from({ length: 200 }, (_, i) => ({
-    bid: 49,
-    ask: 51,
-    outcome: i % 2,
-    model: i % 2 === 1 ? 0.95 : 0.05,
-  }));
+  const rows = Array.from({ length: 200 }, (_, i) => {
+    const market = Math.floor(i / 10);
+    const outcome = market % 2;
+    return { ticker: `M${market}`, bid: 49, ask: 51, outcome, model: outcome ? 0.95 : 0.05 };
+  });
 
   const result = measureEdge(rows);
   assert.equal(result.ready, true);
@@ -119,13 +123,12 @@ test('the model is scored against the market on identical rows, or the compariso
 });
 
 test('a model with no idea is reported as losing to the market', () => {
-  const rows = Array.from({ length: 200 }, (_, i) => ({
-    bid: 49,
-    ask: 51,
-    outcome: i % 2,
+  const rows = Array.from({ length: 200 }, (_, i) => {
+    const market = Math.floor(i / 10);
+    const outcome = market % 2;
     // Confidently backwards.
-    model: i % 2 === 1 ? 0.1 : 0.9,
-  }));
+    return { ticker: `M${market}`, bid: 49, ask: 51, outcome, model: outcome ? 0.1 : 0.9 };
+  });
 
   const result = measureEdge(rows);
   assert.equal(result.modelBeatsMarket, false);
@@ -142,12 +145,10 @@ test('the spread is charged when the edge is measured', () => {
   // Taking the ask rather than the mid is worth about a cent a trade, and a
   // measurement that quietly uses the mid overstates the business by exactly
   // that amount on every row.
-  const rows = Array.from({ length: 300 }, (_, i) => ({
-    bid: 48,
-    ask: 52,
-    outcome: i % 100 < 60 ? 1 : 0,
-    model: 0.6,
-  }));
+  const rows = Array.from({ length: 300 }, (_, i) => {
+    const market = Math.floor(i / 10);
+    return { ticker: `M${market}`, bid: 48, ask: 52, outcome: market % 10 < 6 ? 1 : 0, model: 0.6 };
+  });
 
   const honest = measureEdge(rows, { spreadAware: true });
   const flattering = measureEdge(rows, { spreadAware: false });
@@ -317,4 +318,56 @@ test('a model that has no opinion records null, never a coin flip', async () => 
   });
   assert.equal(saved.length, 1);
   assert.equal(saved[0].model, null);
+});
+
+test('thirty samples of one market are one fact, not thirty', () => {
+  // The correction that stops this file from lying. A 15-minute market is
+  // sampled every 30 seconds, and all thirty rows share ONE outcome. Counting
+  // them as thirty independent observations understates the error bar by
+  // about five and a half times — which is the difference between "we
+  // measured a 2¢ edge" and "we have no idea".
+  const markets = 20;
+  const perMarket = 30;
+
+  const spread = [];
+  for (let m = 0; m < markets; m += 1) {
+    for (let i = 0; i < perMarket; i += 1) {
+      spread.push({ ticker: `M${m}`, bid: 51, ask: 53, outcome: m % 2 });
+    }
+  }
+
+  // The same number of rows, but each one its own market.
+  const independent = spread.map((row, i) => ({ ...row, ticker: `SOLO${i}` }));
+
+  const clustered = mispricing(spread);
+  const pretendIndependent = mispricing(independent);
+
+  assert.equal(clustered.markets, markets);
+  assert.equal(pretendIndependent.markets, spread.length);
+
+  // Same data, same mean — only the honesty of the error bar differs.
+  assert.ok(Math.abs(clustered.meanCents - pretendIndependent.meanCents) < 1e-9);
+  assert.ok(
+    clustered.standardErrorCents > pretendIndependent.standardErrorCents * 4,
+    `clustered ${clustered.standardErrorCents.toFixed(2)}c vs naive ${pretendIndependent.standardErrorCents.toFixed(2)}c`,
+  );
+});
+
+test('the model must beat the market by more than the noise before it is believed', () => {
+  // A model that is better on average but wildly inconsistent has not proven
+  // anything. "Beats the market" means the interval stops crossing zero, not
+  // that the average came out ahead.
+  const noisy = [];
+  for (let m = 0; m < 30; m += 1) {
+    const outcome = m % 2;
+    // Right on half the markets, badly wrong on the other half.
+    const model = m % 4 < 2 ? outcome : 1 - outcome;
+    for (let i = 0; i < 30; i += 1) {
+      noisy.push({ ticker: `M${m}`, bid: 49, ask: 51, outcome, model: model ? 0.95 : 0.05 });
+    }
+  }
+
+  const result = measureEdge(noisy);
+  assert.equal(result.modelBeatsMarket, false, 'a coin flip dressed as an edge');
+  assert.ok(result.comparison.ci95[0] < 0, 'the interval must still cross zero');
 });
