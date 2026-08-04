@@ -310,6 +310,8 @@ test('command registration survives a config with no picks block', () => {
 import {
   analystPanel,
   entrySizeRow,
+  callHeadline,
+  oddsBar,
   simpleAnnouncement,
   simpleExit,
   parseSize,
@@ -323,6 +325,7 @@ import {
   callerRoleIds,
   gradeQuote,
   pickEmbed,
+  withHeadline,
   refreshCallMessage,
   pickSettings,
   priceLabel,
@@ -719,12 +722,16 @@ test('a settled call stops counting down and says how it ended', () => {
 
   const embed = pickEmbed(pick, routingConfig).toJSON();
   const names = embed.fields.map((f) => f.name);
+  const field = (name) => embed.fields.find((f) => f.name === name).value;
 
-  assert.ok(!names.includes('Window'), 'no stale countdown on a finished call');
-  assert.ok(names.includes('Closed'));
-  assert.match(embed.fields.find((f) => f.name === 'Closed').value, /analyst closed it/);
-  assert.equal(embed.fields.find((f) => f.name === 'Entry').value, '$63,351.42', 'formatted, not a raw float');
-  assert.match(embed.fields.find((f) => f.name === 'Result').value, /\$63,380\.19/);
+  assert.ok(!names.includes('CLOSES'), 'no stale countdown on a finished call');
+  assert.ok(names.includes('CLOSED'));
+  assert.match(field('CLOSED'), /Analyst exited/);
+  // Formatted, never a raw float: 63351.415 must not sit beside $63,380.19.
+  assert.match(field('IN'), /\$63,351\.42/);
+  assert.match(field('OUT'), /\$63,380\.19/);
+  // No live change was computed for this one, so the verdict stands alone.
+  assert.match(field('RESULT'), /Win/);
 });
 
 test('/picks reset previews before it destroys anything', async (t) => {
@@ -1176,7 +1183,7 @@ test('/call sends the size the analyst gave', async (t) => {
   await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
 
   assert.equal(store.listPicks()[0].sizePercent, 35);
-  assert.match(posted[0].embeds[0].toJSON().fields.find((f) => f.name === 'Size').value, /35%/);
+  assert.match(posted[0].embeds[0].toJSON().fields.find((f) => f.name === 'SIZE').value, /35%/);
 });
 
 test('a call with no size is refused rather than posted half-formed', async (t) => {
@@ -1328,8 +1335,8 @@ test('the original call message is rewritten when it settles', async (t) => {
   assert.equal(done, true);
   const embed = edits[0].embeds[0].toJSON();
   // Anyone scrolling back must see the result, not a countdown that expired.
-  assert.ok(!embed.fields.some((f) => f.name === 'Window'));
-  assert.ok(embed.fields.some((f) => f.name === 'Closed'));
+  assert.ok(!embed.fields.some((f) => f.name === 'CLOSES'));
+  assert.ok(embed.fields.some((f) => f.name === 'CLOSED'));
 });
 
 test('a deleted original message does not undo a saved settlement', async (t) => {
@@ -1461,11 +1468,13 @@ test('the closing line in the VIP chat reads like the analyst saying it', () => 
     exitLabel: '50%',
   });
 
-  assert.match(message.content, /kingt_67/);
+  // The headline is the push notification: who, what, and the number.
+  assert.match(message.content, /KINGT_67 IS OUT/);
+  assert.match(message.content, /\+28\.2%/);
+  // Then the trade itself, in the words an analyst would use.
   assert.match(message.content, /in at \*\*39%\*\*/);
   assert.match(message.content, /out at \*\*50%\*\*/);
-  assert.match(message.content, /\+28\.2%/);
-  assert.match(message.content, /50% of port/);
+  assert.match(message.content, /50%\*\* of port/);
 });
 
 test('a close with no live price still posts a clean line', () => {
@@ -1474,7 +1483,7 @@ test('a close with no live price still posts a clean line', () => {
     outcome: 'loss',
   });
 
-  assert.match(message.content, /CUT LOSS/);
+  assert.match(message.content, /CUT THE LOSS/);
   assert.doesNotMatch(message.content, /went in/);
   // The em dash in "everything out" is part of the label; what must never
   // appear is a price that came out empty.
@@ -1530,4 +1539,57 @@ test('the guide separates the entry price from the position size', () => {
   assert.match(text, /how much of your book/i);
   // The trap this field exists to prevent: reading a 39% entry as "put 39% in".
   assert.match(text, /\+28%/);
+});
+
+test('the notification line carries the whole signal, not three role pings', () => {
+  const pick = {
+    analystTag: 'kingt_67',
+    direction: DIRECTIONS.DOWN,
+    asset: 'BTC',
+    entryLabel: '61%',
+    sizePercent: 50,
+    closesAt: Date.now() + 3 * 60 * 1000,
+  };
+
+  const line = callHeadline(pick, { verified: true });
+
+  // This is what a phone shows on the lock screen. Everything that decides
+  // whether somebody opens the app has to survive there.
+  assert.match(line, /KINGT_67 IS IN/);
+  assert.match(line, /DOWN/);
+  assert.match(line, /61%/);
+  assert.match(line, /50% of port/);
+  assert.match(line, /3m/);
+});
+
+test('the ping still reaches exactly the roles it did before', () => {
+  const settings = { pingRoleIds: ['r1', 'r2'] };
+  const payload = withHeadline(settings, {
+    analystTag: 'kingt_67',
+    direction: DIRECTIONS.UP,
+    asset: 'BTC',
+    entry: 39,
+    priceUnit: 'cents',
+    sizePercent: 50,
+    closesAt: Date.now() + 60_000,
+  });
+
+  assert.match(payload.content, /KINGT_67 IS IN/);
+  assert.match(payload.content, /<@&r1> <@&r2>/);
+  // Whatever the headline says, the bot must never be able to reach everyone.
+  assert.deepEqual(payload.allowedMentions, { roles: ['r1', 'r2'] });
+});
+
+test('a verified fill is marked as one, and a hand-made call is not', () => {
+  const base = { analystTag: 'k', direction: DIRECTIONS.UP, asset: 'BTC', closesAt: Date.now() };
+
+  assert.match(callHeadline(base, { verified: true }), /^⚡/);
+  assert.match(callHeadline(base, { verified: false }), /^📢/);
+});
+
+test('the odds bar is a picture of the price, and never lies about it', () => {
+  assert.equal(oddsBar(0, 10), '░░░░░░░░░░');
+  assert.equal(oddsBar(100, 10), '██████████');
+  assert.equal(oddsBar(50, 10), '█████░░░░░');
+  assert.equal(oddsBar(null), '');
 });

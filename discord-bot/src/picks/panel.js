@@ -384,15 +384,8 @@ export function simpleAnnouncement(pick, now = Date.now()) {
  * price still posts a clean line instead of a row of dashes.
  */
 export function simpleExit({ pick, outcome, entryLabel = null, exitLabel = null, room = null }) {
-  const what =
-    outcome === 'win'
-      ? '💸 **CASH OUT — everything out, in profit**'
-      : outcome === 'loss'
-        ? '❌ **CUT LOSS — everything out**'
-        : '➖ **CLOSED — flat**';
-
   const who = pick.analystTag ? `**${pick.analystTag}**` : 'The analyst';
-  const parts = [`${what} · **${pick.asset}** ${pick.minutes}m`];
+  const parts = [exitHeadline({ ...pick, outcome })];
 
   if (entryLabel && exitLabel) {
     parts.push(`${who} went in at **${entryLabel}** and out at **${exitLabel}**`);
@@ -400,14 +393,7 @@ export function simpleExit({ pick, outcome, entryLabel = null, exitLabel = null,
     parts.push(`${who} went in at **${entryLabel}**`);
   }
 
-  if (Number.isFinite(pick.changePercent)) {
-    const move = `${pick.changePercent >= 0 ? '+' : ''}${pick.changePercent.toFixed(1)}%`;
-    parts.push(
-      pick.changePercent >= 0
-        ? `**${move} on the position**${pick.sizePercent ? ` · ${pick.sizePercent}% of port was in` : ''}`
-        : `**${move}**${pick.sizePercent ? ` · ${pick.sizePercent}% of port was in` : ''}`,
-    );
-  }
+  if (pick.sizePercent) parts.push(`💼 **${pick.sizePercent}%** of port was in`);
 
   // What the room got, beside what the analyst got. When the analyst wins and
   // the room does not, the number says so — which is uncomfortable exactly
@@ -476,4 +462,49 @@ export function followRow(pickId) {
 export function parseFollow(customId) {
   if (!customId?.startsWith(FOLLOW_PREFIX)) return null;
   return customId.slice(FOLLOW_PREFIX.length) || null;
+}
+
+/**
+ * The odds bar.
+ *
+ * A contract price is a probability, and a number alone does not land. Twenty
+ * blocks make "61" feel like the market leaning, which is what the analyst is
+ * betting against or with — and it reads the same on a phone, where most of
+ * this is seen.
+ */
+export function oddsBar(cents, width = 20) {
+  if (!Number.isFinite(cents)) return '';
+  const filled = Math.max(0, Math.min(width, Math.round((cents / 100) * width)));
+  return `${'█'.repeat(filled)}${'░'.repeat(width - filled)}`;
+}
+
+/**
+ * The line that becomes the push notification.
+ *
+ * On a phone, Discord shows the message content — and the content was three
+ * role mentions, so the alert read "@VIP Tier 1 @Vip Tier 2 @VIP Tier 3" and
+ * told nobody anything. This is the whole signal in one line, before anyone
+ * has opened the app.
+ */
+export function callHeadline(pick, { verified = false } = {}) {
+  const who = pick.analystTag ? pick.analystTag.replace(/#\d+$/, '').toUpperCase() : 'THE ANALYST';
+  const side = pick.direction === DIRECTIONS.UP ? '🟢 UP' : '🔴 DOWN';
+  const at = pick.entryLabel ? ` @ **${pick.entryLabel}**` : '';
+  const size = pick.sizePercent ? ` · ${pick.sizePercent}% of port` : '';
+  const left = Number.isFinite(pick.closesAt)
+    ? Math.max(0, Math.round((pick.closesAt - Date.now()) / 60000))
+    : null;
+  const clock = left === null ? '' : left <= 0 ? ' · ⏳ closing' : ` · ⏳ ${left}m`;
+
+  return `${verified ? '⚡' : '📢'} **${who} IS IN** — ${side} ${pick.asset}${at}${size}${clock}`;
+}
+
+/** The same, for the moment a position comes off. */
+export function exitHeadline(pick) {
+  const who = pick.analystTag ? pick.analystTag.replace(/#\d+$/, '').toUpperCase() : 'THE ANALYST';
+  const move = Number.isFinite(pick.changePercent)
+    ? ` — **${pick.changePercent >= 0 ? '+' : ''}${pick.changePercent.toFixed(1)}%**`
+    : '';
+  const verb = pick.outcome === 'loss' ? 'CUT THE LOSS' : 'IS OUT';
+  return `${pick.outcome === 'loss' ? '❌' : '💸'} **${who} ${verb}** · ${pick.asset}${move}`;
 }

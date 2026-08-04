@@ -31,6 +31,9 @@ import {
   parseSizeModal,
   parseVote,
   readPercent,
+  callHeadline,
+  exitHeadline,
+  oddsBar,
   simpleAnnouncement,
   simpleExit,
   voteResultMessage,
@@ -346,85 +349,143 @@ export function isAnalyst(interaction, config) {
   return Boolean(roles && allowed.some((roleId) => roles.has(roleId)));
 }
 
-export function pickEmbed(pick, config) {
-  const settled = Boolean(pick.outcome);
-  const fields = [{ name: 'Direction', value: DIRECTION_LABEL[pick.direction], inline: true }];
-
-  // A closed call counting down to a deadline two hours gone reads as broken.
-  // Once it is settled the window is history, so it says how it ended instead.
-  fields.push(
-    settled
-      ? {
-          name: 'Closed',
-          value:
-            pick.closedBy === 'exit'
-              ? `${pick.minutes}m call — **the analyst closed it** ${time(Math.floor((pick.settledAt ?? pick.closesAt) / 1000), 'R')}`
-              : `${pick.minutes}m window ran out ${time(Math.floor((pick.settledAt ?? pick.closesAt) / 1000), 'R')}`,
-          inline: true,
-        }
-      : {
-          name: 'Window',
-          value: `${pick.minutes} min — closes ${time(Math.floor(pick.closesAt / 1000), 'R')}`,
-          inline: true,
-        },
+/**
+ * The call, as a trading desk would print it.
+ *
+ * This message is the product. It is read on a phone, in the seconds after a
+ * notification, by somebody deciding whether to put money on it — so the three
+ * things that decide that come first and large: which way, what it costs to
+ * get in, and how long is left. Everything else is support.
+ *
+ * The line that matters most is not in the embed at all. See callHeadline.
+ */
+/**
+ * The ping, with the signal in front of it.
+ *
+ * A phone notification shows the message content, and the content was three
+ * role mentions — so the alert that is supposed to make somebody open the app
+ * read "@VIP Tier 1 @Vip Tier 2 @VIP Tier 3". The whole call now fits on the
+ * lock screen, and the mentions still reach exactly the roles they did before.
+ */
+export function withHeadline(settings, pick, { verified = false } = {}) {
+  const ping = pingFor(settings);
+  const headline = callHeadline(
+    { ...pick, entryLabel: pick.entry == null ? null : priceLabel(pick, pick.entry) },
+    { verified: verified || Boolean(pick.fromAccount) },
   );
 
-  // Every price goes through one formatter. Raw floats put `63297.575` next to
-  // `$63,281.84` in the same embed, which reads as two different numbers.
+  return {
+    ...ping,
+    content: ping.content ? `${headline}\n${ping.content}` : headline,
+  };
+}
+
+export function pickEmbed(pick, config) {
+  const settled = Boolean(pick.outcome);
+  const settings = pickSettings(config);
+  const up = pick.direction === DIRECTIONS.UP;
+  const verified = Boolean(pick.fromAccount);
+
+  const embed = new EmbedBuilder()
+    .setColor(
+      settled
+        ? ({ win: COLORS.success, loss: COLORS.danger }[pick.outcome] ?? COLORS.warning)
+        : up
+          ? COLORS.success
+          : COLORS.danger,
+    )
+    .setAuthor({
+      // Verified means the exchange reported this trade, not that somebody
+      // typed it. Nothing else in this space can say that, so it goes where a
+      // name normally goes rather than in small print at the bottom.
+      name: verified
+        ? `${pick.analystTag ?? 'Analyst'} · VERIFIED FILL`
+        : (pick.analystTag ?? 'Analyst'),
+    })
+    .setTitle(
+      settled
+        ? `${OUTCOME_LABEL[pick.outcome]} · ${up ? 'LONG' : 'SHORT'} ${pick.asset} ${pick.minutes}M`
+        : `${up ? '🟢 LONG' : '🔴 SHORT'} ${pick.asset} · ${pick.minutes}M`,
+    )
+    .setTimestamp(new Date(pick.createdAt ?? Date.now()));
+
+  // The market's own question, and where it is priced. A contract at 61 is the
+  // market saying "61% likely" — the bar makes that a picture rather than a
+  // number, which is what a glance on a phone actually takes in.
+  const lines = [];
+  if (Number.isFinite(pick.strike)) {
+    lines.push(`**Will ${pick.asset} close ${up ? 'above' : 'below'} ${formatPrice(pick.strike)}?**`);
+  }
+  if (pick.priceUnit === 'cents' && Number.isFinite(pick.entry)) {
+    lines.push(`\`${oddsBar(pick.entry)}\` **${Math.round(pick.entry)}%**`);
+  }
+  if (pick.note) lines.push(`\n> ${pick.note}`);
+  if (lines.length > 0) embed.setDescription(lines.join('\n'));
+
+  const fields = [];
+
   if (pick.entry != null) {
     fields.push({
-      name: pick.priceUnit === 'cents' ? 'Contract in' : 'Entry',
-      value: priceLabel(pick, pick.entry),
+      name: settled ? 'IN' : 'ENTRY',
+      value: `**${priceLabel(pick, pick.entry)}**`,
       inline: true,
     });
   }
+
+  if (settled && pick.exit != null) {
+    fields.push({ name: 'OUT', value: `**${priceLabel(pick, pick.exit)}**`, inline: true });
+  }
+
   fields.push({
-    name: 'Size',
-    value: pick.sizePercent ? `**${pick.sizePercent}% of port**` : '—',
+    name: 'SIZE',
+    value: pick.sizePercent ? `**${pick.sizePercent}%** of port` : '—',
     inline: true,
   });
 
-  // Which market this is. A member checking they are in the right play was
-  // comparing timestamps to work it out; the strike is the number the contract
-  // actually settles against, and the ticker is the market by name.
-  if (Number.isFinite(pick.strike)) {
-    fields.push({
-      name: 'Kalshi market',
-      value:
-        `${DIRECTION_LABEL[pick.direction]} **${formatPrice(pick.strike)}**` +
-        (pick.marketTicker ? `\n\`${pick.marketTicker}\`` : ''),
-    });
-  } else if (pick.marketTicker) {
-    fields.push({ name: 'Kalshi market', value: `\`${pick.marketTicker}\`` });
-  }
-  if (pick.target != null) fields.push({ name: 'Target', value: priceLabel(pick, pick.target), inline: true });
-  if (pick.stop != null) {
-    fields.push({ name: 'Invalidation', value: priceLabel(pick, pick.stop), inline: true });
-  }
-
   if (settled) {
     fields.push({
-      name: 'Result',
+      name: 'RESULT',
+      value: Number.isFinite(pick.changePercent)
+        ? `**${formatChange(pick.changePercent)}**${pick.feeCents ? ' _(net of fees)_' : ''}`
+        : OUTCOME_LABEL[pick.outcome],
+      inline: true,
+    });
+    fields.push({
+      name: 'CLOSED',
       value:
-        `${OUTCOME_LABEL[pick.outcome]}` +
-        (pick.exit != null ? ` at ${priceLabel(pick, pick.exit)}` : '') +
-        (Number.isFinite(pick.changePercent) ? ` · ${formatChange(pick.changePercent)}` : ''),
+        pick.closedBy === 'exit'
+          ? `Analyst exited ${time(Math.floor((pick.settledAt ?? pick.closesAt) / 1000), 'R')}`
+          : `Window ran out ${time(Math.floor((pick.settledAt ?? pick.closesAt) / 1000), 'R')}`,
+      inline: true,
+    });
+  } else {
+    fields.push({
+      name: 'CLOSES',
+      value: `${time(Math.floor(pick.closesAt / 1000), 'R')}\n${time(Math.floor(pick.closesAt / 1000), 't')}`,
+      inline: true,
     });
   }
 
-  const colour = settled
-    ? { win: COLORS.success, loss: COLORS.danger }[pick.outcome] ?? COLORS.warning
-    : pick.direction === DIRECTIONS.UP
-      ? COLORS.success
-      : COLORS.danger;
+  if (pick.target != null) {
+    fields.push({ name: 'TARGET', value: priceLabel(pick, pick.target), inline: true });
+  }
+  if (pick.stop != null) {
+    fields.push({ name: 'INVALIDATION', value: priceLabel(pick, pick.stop), inline: true });
+  }
 
-  return new EmbedBuilder()
-    .setColor(colour)
-    .setTitle(`${DIRECTION_LABEL[pick.direction]} ${pick.asset} · ${pick.minutes}m`)
-    .setDescription(pick.note ?? null)
-    .addFields(fields)
-    .setFooter({ text: `Call by ${pick.analystTag ?? 'an analyst'} · ${pickSettings(config).disclaimer}` })
-    .setTimestamp(pick.createdAt);
+  embed.addFields(fields);
+
+  embed.setFooter({
+    text: [
+      verified ? 'Filled on Kalshi — price and size read from the exchange' : 'Called by hand',
+      pick.marketTicker,
+      settings.disclaimer,
+    ]
+      .filter(Boolean)
+      .join(' · '),
+  });
+
+  return embed;
 }
 
 /** The buttons an analyst grades their own call with once the window closes. */
@@ -645,7 +706,7 @@ export async function openCall(interaction, { store, config }, overrides = {}) {
   if (!channel?.isTextBased()) return { pick: null, channel: null, reason: 'no_channel' };
 
   const posted = await channel.send({
-    ...pingFor(settings),
+    ...withHeadline(settings, pick),
     embeds: [pickEmbed(pick, config)],
     components: [followRow(pick.id)],
   });
@@ -1916,7 +1977,11 @@ export async function syncKalshiAccount(client, store, config, { fetchImpl, now 
     pick.fromAccount = true;
 
     const posted = await channel
-      .send({ ...pingFor(settings), embeds: [pickEmbed(pick, config)], components: [followRow(pick.id)] })
+      .send({
+        ...withHeadline(settings, pick, { verified: true }),
+        embeds: [pickEmbed(pick, config)],
+        components: [followRow(pick.id)],
+      })
       .catch(() => null);
     if (!posted) continue;
 
