@@ -26,6 +26,8 @@ import { checkRoleSetup, grantTierRoles } from '../vip/roles.js';
 import { storefrontMessage } from '../vip/storefront.js';
 import { shouldGreetDm } from '../vip/dmGreeting.js';
 import { promptDueSettlements, publishVoteResults, syncKalshiAccount } from '../picks/commands.js';
+import { collectOnce } from '../signals/collector.js';
+import { fetchSpotPrice } from '../picks/price.js';
 
 const log = createLogger('vip');
 
@@ -209,6 +211,34 @@ export function createVipBot(config = loadVipConfig()) {
         `Kalshi auto-publish is ON: reading ${kalshiAccount.seriesTicker ?? 'every series'} every ` +
           `${kalshiAccount.pollSeconds ?? 3}s for ${kalshiAccount.analystTag ?? 'the configured analyst'}, ` +
           `posting to channel ${config.picks.channelId}`,
+      );
+    }
+
+    // Price history for the signal engine. Written down long before anyone
+    // wants it, because volatility cannot be measured backwards — three weeks
+    // of this is the difference between a model that can be checked and one
+    // that can only be believed. Flushed on a slower timer than it samples, so
+    // two thousand writes a day do not land on the volume holding the payments.
+    const signals = config.signals ?? {};
+    if (signals.collect !== false) {
+      const asset = config.picks?.defaultAsset ?? 'BTC';
+      let unsaved = 0;
+      setInterval(() => {
+        collectOnce(store, { fetchPrice: fetchSpotPrice, asset })
+          .then((result) => {
+            if (!result.added) return;
+            unsaved += 1;
+            if (unsaved >= (signals.flushEvery ?? 10)) {
+              unsaved = 0;
+              store.save();
+            }
+          })
+          .catch((error) => log.debug(`Price sample failed: ${error.message}`));
+      }, (signals.sampleSeconds ?? 30) * 1000).unref();
+
+      log.info(
+        `Collecting ${asset} price every ${signals.sampleSeconds ?? 30}s for the signal engine ` +
+          `(${store.listSamples(asset).length} sample(s) already stored)`,
       );
     }
 

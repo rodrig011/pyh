@@ -1,4 +1,5 @@
 import { expectedValue, normalCdf, probabilityAbove } from './math.js';
+import { discreteBarrier } from './volatility.js';
 
 /**
  * Flips, and when to take the money.
@@ -19,16 +20,26 @@ import { expectedValue, normalCdf, probabilityAbove } from './math.js';
  * finishes safe 84% of the time but is touched 32% of the time on the way,
  * and those two numbers lead to opposite decisions.
  */
-export function flipProbability(spot, strike, sigma) {
+export function flipProbability(spot, strike, sigma, { sigmaPerSample = null } = {}) {
   if (!(spot > 0) || !(strike > 0)) return null;
   if (!(sigma > 0)) return spot === strike ? 1 : 0;
+
+  // The formula below assumes the price is watched continuously. It is not —
+  // a print arrives every thirty seconds, and a touch between two prints still
+  // happened. Broadie–Glasserman–Kou: pull the barrier toward the price by
+  // exp(β·σ√Δt). Skipping it understates flip odds, which is the direction
+  // that costs money — it tells a room to hold what it should have banked.
+  const barrier =
+    sigmaPerSample > 0
+      ? discreteBarrier(strike, sigmaPerSample, { above: spot > strike })
+      : strike;
 
   // Distance to the barrier in log space, and the drift the same log space
   // carries when price itself is a martingale: −σ²/2 over the horizon. The
   // textbook shortcut is 2·Φ(−a/σ), which drops that term; over fifteen
   // minutes the difference is small, and it is still the difference between a
   // number that is right and one that is nearly right.
-  const a = Math.abs(Math.log(spot / strike));
+  const a = Math.abs(Math.log(spot / barrier));
   const drift = -(sigma * sigma) / 2;
 
   const first = normalCdf((-a + drift) / sigma);

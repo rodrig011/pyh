@@ -429,3 +429,109 @@ test('the exact barrier formula stays sane at the extremes', async () => {
     previous = value;
   }
 });
+
+// --- Volatility: the number everything else rests on --------------------------
+
+test('EWMA follows a change in regime that a flat average drags behind', async () => {
+  const { ewmaVolatility, plainVolatility } = await import('../src/signals/volatility.js');
+
+  // Quiet for a long time, then it wakes up.
+  const returns = [...Array.from({ length: 30 }, () => 0.0001), ...Array.from({ length: 6 }, () => 0.002)];
+
+  const ewma = ewmaVolatility(returns, 0.9);
+  const flat = plainVolatility(returns);
+
+  assert.ok(ewma > flat, 'the recent burst has to dominate — that is the point');
+});
+
+test('one jump does not become the whole volatility estimate', async () => {
+  const { bipowerVolatility, plainVolatility } = await import('../src/signals/volatility.js');
+
+  const calm = Array.from({ length: 40 }, () => 0.0002);
+  const withJump = [...calm];
+  withJump[20] = 0.02; // one enormous print
+
+  const plainBefore = plainVolatility(calm);
+  const plainAfter = plainVolatility(withJump);
+  const robustAfter = bipowerVolatility(withJump);
+
+  // The naive estimate is wrecked by a single print.
+  assert.ok(plainAfter > plainBefore * 5);
+  // The jump-robust one barely notices.
+  assert.ok(robustAfter < plainAfter / 2);
+});
+
+test('the jump share separates "one big trade" from "the market is moving"', async () => {
+  const { jumpShare } = await import('../src/signals/volatility.js');
+
+  const steady = Array.from({ length: 40 }, (_, i) => (i % 2 ? 0.0004 : -0.0004));
+  const jumpy = [...Array.from({ length: 39 }, () => 0.0001), 0.03];
+
+  assert.ok(jumpShare(steady) < 0.3);
+  assert.ok(jumpShare(jumpy) > 0.8);
+});
+
+test('the estimate carries the error it actually has', async () => {
+  const { volatilityEstimate } = await import('../src/signals/volatility.js');
+
+  const few = volatilityEstimate(Array.from({ length: 10 }, () => 0.0005));
+  const many = volatilityEstimate(Array.from({ length: 200 }, () => 0.0005));
+
+  assert.ok(few.high - few.low > many.high - many.low, 'fewer samples, wider band');
+  assert.ok(few.low > 0 && few.low < few.sigma && few.sigma < few.high);
+  // Standard error of a standard deviation is about sigma / sqrt(2n).
+  assert.ok(Math.abs(many.standardError - many.sigma / Math.sqrt(2 * 200)) < 1e-9);
+});
+
+test('the pessimistic vol case is always the smaller edge, and it is published', async () => {
+  const { evaluate, VERDICTS } = await import('../src/signals/engine.js');
+
+  const prices = Array.from({ length: 12 }, (_, i) => 65000 * Math.exp(((i % 3) - 1) * 0.0006));
+  const market = { yes_bid_dollars: '0.49', yes_ask_dollars: '0.50', liquidity_dollars: '900' };
+  const input = { prices, spot: 65030, strike: 65000, marketPriceCents: 50, secondsLeft: 300, market };
+
+  const called = evaluate(input);
+  assert.equal(called.verdict, VERDICTS.UP);
+  // Two numbers, not one: what the edge is, and what it is if the volatility
+  // read is wrong in the direction that hurts.
+  assert.ok(called.worstEdgeCents < called.edgeCents);
+  assert.equal(called.probabilityRange.length, 2);
+  assert.ok(called.probabilityRange[0] < called.probability);
+  assert.ok(called.probabilityRange[1] > called.probability);
+});
+
+test('an edge that only survives the lucky vol read is refused', async () => {
+  const { evaluate, VERDICTS } = await import('../src/signals/engine.js');
+
+  const prices = Array.from({ length: 12 }, (_, i) => 65000 * Math.exp(((i % 3) - 1) * 0.0006));
+  const input = {
+    prices,
+    spot: 65030,
+    strike: 65000,
+    marketPriceCents: 50,
+    secondsLeft: 300,
+    market: { yes_bid_dollars: '0.49', yes_ask_dollars: '0.50', liquidity_dollars: '900' },
+  };
+
+  // Demand more of it: the central estimate still clears the bar, the
+  // pessimistic one does not, and that is exactly when it must refuse.
+  const strict = evaluate(input, { minimumWorstCaseEdgeCents: 7 });
+
+  assert.equal(strict.verdict, VERDICTS.SKIP);
+  assert.equal(strict.reason, 'vol_uncertain');
+  assert.match(strict.notes.join(' '), /pessimistic/);
+});
+
+test('watching every 30 seconds raises the flip odds, and pretending otherwise costs money', async () => {
+  const { flipProbability } = await import('../src/signals/exit.js');
+  const sigma = 0.002;
+  const spot = 65000 * Math.exp(sigma);
+
+  const continuous = flipProbability(spot, 65000, sigma);
+  const discrete = flipProbability(spot, 65000, sigma, { sigmaPerSample: 0.0005 });
+
+  // The correction moves it the safe way: more likely to be touched, so more
+  // likely to be told to bank a winner.
+  assert.ok(discrete > continuous);
+  assert.ok(discrete - continuous > 0.05);
+});

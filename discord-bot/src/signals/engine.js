@@ -1,10 +1,6 @@
-import {
-  expectedValue,
-  logReturns,
-  probabilityAbove,
-  realizedVolatility,
-  scaleVolatility,
-} from './math.js';
+import { expectedValue, logReturns, probabilityAbove, scaleVolatility } from './math.js';
+import { volatilityEstimate } from './volatility.js';
+import { flipProbability } from './exit.js';
 import { bookQuality, distanceInSigma, largePrints, momentum, rsi, trendFit } from './indicators.js';
 
 export const VERDICTS = { UP: 'up', DOWN: 'down', SKIP: 'skip' };
@@ -25,12 +21,19 @@ export const SKIP_REASONS = {
   too_late: 'Not enough time left for the move this needs.',
   priced_out: 'Being right pays almost nothing at this price.',
   trending: 'The move is too clean for a random-walk read — the model is least reliable here.',
+  vol_uncertain:
+    'The edge only exists if the volatility read is exactly right. Too thin to bet on being lucky.',
 };
 
 export const DEFAULTS = {
   // How much the model must beat the market by, in cents of contract, before
   // anything is called. Below this the difference is the vol estimate wobbling.
   minimumEdgeCents: 4,
+  // What the edge must still be if the volatility read is wrong in the
+  // direction that hurts. A named number rather than a fraction of the one
+  // above: how much of the edge may depend on the estimate being right is a
+  // real decision, not an implementation detail.
+  minimumWorstCaseEdgeCents: 2,
   maximumSpreadCents: 3,
   minimumLiquidityDollars: 25,
   minimumSecondsLeft: 45,
@@ -88,16 +91,33 @@ export function evaluate(input, options = {}) {
   }
 
   // How fast it is moving, and therefore how far it can plausibly travel in the
-  // time that is left. Everything downstream rests on this number.
+  // time that is left. Everything downstream rests on this number, so it comes
+  // with the error bar it actually has rather than as a single confident value.
   const returns = logReturns(prices);
-  const perSample = realizedVolatility(returns);
-  if (!(perSample > 0)) return skip('no_vol');
+  const vol = volatilityEstimate(returns);
+  if (!vol || !(vol.sigma > 0)) return skip('no_vol');
 
-  const sigma = scaleVolatility(perSample, config.sampleSeconds, secondsLeft);
+  const sigma = scaleVolatility(vol.sigma, config.sampleSeconds, secondsLeft);
+  const sigmaLow = scaleVolatility(vol.low, config.sampleSeconds, secondsLeft);
+  const sigmaHigh = scaleVolatility(vol.high, config.sampleSeconds, secondsLeft);
   if (!(sigma > 0)) return skip('no_vol');
 
   const probability = probabilityAbove(price, strike, sigma);
   if (!Number.isFinite(probability)) return skip('no_vol');
+
+  // The same call under both ends of the volatility estimate. A market that is
+  // only worth taking when the vol guess lands exactly right is not worth
+  // taking — this is where a model that backtests well starts failing live.
+  const probabilityRange = [
+    probabilityAbove(price, strike, sigmaHigh),
+    probabilityAbove(price, strike, sigmaLow),
+  ]
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
+
+  if (vol.jumpShare > 0.6) {
+    notes.push(`${Math.round(vol.jumpShare * 100)}% of the move was jumps — the estimate is stretched`);
+  }
 
   const trend = trendFit(prices.slice(-20));
   if (trend && trend.r2 > config.maximumTrendFit) {
@@ -123,6 +143,19 @@ export function evaluate(input, options = {}) {
 
   if (Math.abs(upEdgeCents) < config.minimumEdgeCents) return skip('no_edge');
   if (!best.value || best.value.net <= 0) return skip('fee_eats_it');
+
+  // The pessimistic end of the band has to beat the market too. Requiring this
+  // is what stops the engine calling markets it only wins on a lucky vol read.
+  const worstProbability =
+    best.side === VERDICTS.UP ? probabilityRange[0] : 1 - probabilityRange.at(-1);
+  const worstEdgeCents =
+    (worstProbability - (best.side === VERDICTS.UP ? marketProbability : noPriceDollars)) * 100;
+  if (!Number.isFinite(worstEdgeCents) || worstEdgeCents < config.minimumWorstCaseEdgeCents) {
+    notes.push(
+      `Edge survives the central vol estimate but not the pessimistic one (${worstEdgeCents.toFixed(1)}¢)`,
+    );
+    return skip('vol_uncertain');
+  }
 
   // Only now does the book matter — there is no point rejecting a market for
   // its spread before knowing whether it had an edge to lose.
@@ -154,6 +187,13 @@ export function evaluate(input, options = {}) {
     entryCents: best.entryCents,
     expected: best.value,
     sigma,
+    volatility: vol,
+    probabilityRange,
+    worstEdgeCents,
+    // The odds it touches the strike again before the bell. On a fifteen-minute
+    // contract this is the number that decides when to bank, and it is roughly
+    // twice what the finishing probability suggests.
+    flipProbability: flipProbability(price, strike, sigma),
     distanceSigma: distanceInSigma(price, strike, sigma),
     secondsLeft,
     book,

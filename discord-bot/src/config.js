@@ -163,6 +163,13 @@ export function loadVipConfig() {
         ]),
       },
     },
+    // The signal engine's raw material. Sampling is cheap and the history is
+    // the only thing that cannot be bought later, so it runs by default.
+    signals: {
+      collect: bool('SIGNALS_COLLECT', true),
+      sampleSeconds: int('SIGNALS_SAMPLE_SECONDS', 30),
+      flushEvery: int('SIGNALS_FLUSH_EVERY', 10),
+    },
     // Trading calls: who may post them, where they land, and how many graded
     // calls someone needs before the leaderboard will rank them.
     picks: {

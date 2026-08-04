@@ -24,6 +24,7 @@ const EMPTY = {
   votes: [],
   follows: [],
   kalshiSince: null,
+  samples: {},
 };
 
 /**
@@ -269,6 +270,23 @@ export function createStore(filePath) {
      * alternative — trusting process uptime — republished the whole recent
      * history as fresh calls on every deploy.
      */
+    /**
+     * Price history for the signal engine, per asset.
+     *
+     * Written every thirty seconds, so it is flushed on a timer rather than on
+     * every tick — two thousand writes a day of a growing file, on the same
+     * volume that holds the payments, is not a trade worth making.
+     */
+    listSamples(asset) {
+      return data.samples[asset] ?? [];
+    },
+
+    putSamples(asset, samples, { flush = false } = {}) {
+      data.samples[asset] = samples;
+      if (flush) save();
+      return samples;
+    },
+
     kalshiSince() {
       return data.kalshiSince ?? null;
     },
