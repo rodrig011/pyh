@@ -69,6 +69,51 @@ days — about 2.4% a day**. A market that is priced correctly pays nothing.
 Note also the worst seed in the 6¢ row: **−20.4%**, three days of losses while
 holding an enormous, guaranteed edge. Edge is not a schedule.
 
+## The spread is the same size as the edge
+
+Every row above assumes you trade at the mid. Nobody trades at the mid. Adding
+a real book changes the picture more than any other single factor:
+
+| Spread | Fair market | 3¢ mispriced | 6¢ mispriced |
+|---|---|---|---|
+| 0¢ | +2.7% | +13.7% | +112.4% |
+| 1¢ | −1.6% | +13.3% | +79.9% |
+| 2¢ | +0.5% | +8.6% | +67.7% |
+| 3¢ | +2.5% | **+0.4%** | +47.0% |
+| 4¢ | no trades | no trades | no trades |
+
+Read the 3¢ mispricing row against a 3¢ spread: **+0.4%**. Nothing. That
+combination is not an unreasonable guess at reality, and it is the single most
+sobering number in this document. The 4¢ row is the spread filter refusing to
+trade at all, which is correct behaviour rather than a failure.
+
+## Four ideas that were tested and did not work
+
+Worth as much as the ones that did, and cheaper to learn here.
+
+**Resting orders instead of crossing the spread.** The obvious fix for the
+table above: stop paying the spread, quote at the bid and let the market come
+to you. It loses, in every regime tested — win rate falls from 53% to 46% and a
++68% run becomes −22%. The reason is adverse selection, and the simulation gets
+it right by construction: a resting order only fills when the price moves
+through it, which is exactly when the thesis was wrong. The spread you save is
+half of what the market has to move against you to fill you.
+
+**Resting orders when much of the flow is uninformed.** The steelman: real
+markets have people trading for reasons unrelated to information, so not every
+fill is adverse. Adding up to ±3¢ of pure quote noise does not rescue it —
+maker still loses (−10.3% against taker's +1.9%), because the fill count roughly
+halves and less compounding beats a slightly better entry.
+
+**Entering earlier or later in the fifteen minutes.** Sweeping the cutoff from
+45 to 600 seconds left moves the result around within noise, with no stable
+pattern across worlds. There is no good hour here.
+
+**Trading only near-the-money.** Narrowing entries to 35¢–65¢ raises the win
+rate from 58% to **74%** — and lowers the return. It is the cleanest available
+demonstration that win rate is a vanity metric: fewer trades, each paying less,
+dressed up as a better strategy.
+
 ## Three bugs these runs found
 
 They are the reason the file exists, and all three were live in the bot, not
@@ -88,6 +133,14 @@ nothing and paid two fees. In the biased runs it was **every single trade**,
 and it turned a known 6¢ edge into a 70% loss. Entering and exiting only
 harvests a mispricing that *converges*; a standing bias only pays at
 settlement.
+
+**The edge was measured against a price nobody can trade at.** The engine
+compared its probability to the mid. Buying YES costs the ask; buying NO costs
+a hundred minus the YES *bid*, not a hundred minus the YES ask — that is the NO
+bid, which is what you would receive for selling. On a market quoted 46/49 a
+model saying 54 believed it had 6.5¢ of edge. It had 5¢. Half the spread, on
+every trade, always in the flattering direction, against a threshold of six
+cents. Every side is now priced at what it actually costs, in `cost.js`.
 
 **Positions were sold 45 seconds before the bell.** Kalshi charges per leg and
 charges nothing at settlement, so selling a contract the model still likes
@@ -115,8 +168,32 @@ tell you:
 - whether the quoted price is one you can get filled at, in size, in a hurry
 - what the book does when a real move starts
 
-None of that is answerable from here. It is answerable by running the engine in
-a mods-only channel with `SIGNAL_AUTO_POST=false` and reading `/engine` after a
-few hundred markets: it prints a Brier score and calibration buckets, and until
-that score is below 0.25 with the buckets roughly on the diagonal, the engine
-has not earned a real dollar of anyone's money.
+None of that is answerable from here. So the bot now records the answer.
+
+## The recorder, which is the only part that can end the argument
+
+Every 30 seconds the VIP bot — the one already deployed, so this starts today
+rather than whenever the signal bot gets its own Discord application — writes
+down the contract's bid, its ask, the spot, the strike and the time left. When
+a market finishes, the observations for it are graded against what happened.
+
+`/picks edge` then reports two Brier scores computed on identical rows:
+
+- **the market's**, from Kalshi's own mid
+- **the model's**, from our probability
+
+Whichever is lower is the better forecaster. If the market's is lower there is
+no business here, and no amount of further engineering changes that — which is
+why the command says so in exactly those words rather than burying it in a
+number. It also reports the market's average error in cents with a 95% interval,
+and refuses to call a bias real while that interval crosses zero.
+
+This needs a couple of days of recording and costs nothing to gather. It is the
+difference between "we think the market is wrong" and "we measured how wrong,
+and the interval does not cross zero".
+
+Requires `KALSHI_ENABLED=true` and `KALSHI_SERIES_TICKER` set. One caveat
+written into the code as well: the outcome is graded against the bot's own spot
+feed, not Kalshi's settlement index. The disagreement is symmetric so it biases
+nothing, but it adds noise, and it lands hardest exactly where the contracts sit
+— near the money.

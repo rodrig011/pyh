@@ -1,4 +1,5 @@
 import { expectedValue, logReturns, probabilityAbove, scaleVolatility } from './math.js';
+import { executablePrices, netEdgeCents } from './cost.js';
 import { volatilityEstimate } from './volatility.js';
 import { flipProbability } from './exit.js';
 import { bookQuality, distanceInSigma, largePrints, momentum, rsi, trendFit } from './indicators.js';
@@ -148,26 +149,46 @@ export function evaluate(input, options = {}) {
 
   const upEdgeCents = (probability - marketProbability) * 100;
 
-  // Both sides of the same contract. Buying NO is buying the complement, and
-  // it is priced at what is left of a dollar.
-  const noPriceDollars = 1 - marketProbability;
-  const upValue = expectedValue(probability, marketProbability, { feeRate: config.feeRate });
-  const downValue = expectedValue(1 - probability, noPriceDollars, { feeRate: config.feeRate });
+  // The prices that can actually be traded, not the mid between them. Buying
+  // YES costs the ask; buying NO costs a hundred minus the YES BID. Measuring
+  // edge against the mid quietly claimed half the spread as profit on every
+  // trade — up to 1.5¢ of a 6¢ threshold, and always in the flattering
+  // direction.
+  const quotes = executablePrices(market, marketPriceCents);
+  if (!quotes) return skip('no_price', read);
+
+  // Each side judged on its own executable price. With a spread these are no
+  // longer mirror images: a market can be genuinely untradeable from both
+  // sides at once, which is what a wide spread means and what the mid hides.
+  const upNet = netEdgeCents(probability, VERDICTS.UP, quotes, { feeRate: config.feeRate });
+  const downNet = netEdgeCents(1 - probability, VERDICTS.DOWN, quotes, { feeRate: config.feeRate });
 
   const best =
-    (upValue?.net ?? -Infinity) >= (downValue?.net ?? -Infinity)
-      ? { side: VERDICTS.UP, value: upValue, entryCents: marketPriceCents }
-      : { side: VERDICTS.DOWN, value: downValue, entryCents: 100 - marketPriceCents };
+    (upNet?.netCents ?? -Infinity) >= (downNet?.netCents ?? -Infinity)
+      ? { side: VERDICTS.UP, cost: upNet }
+      : { side: VERDICTS.DOWN, cost: downNet };
 
-  if (Math.abs(upEdgeCents) < config.minimumEdgeCents) return skip('no_edge', read);
-  if (!best.value || best.value.net <= 0) return skip('fee_eats_it', read);
+  if (!best.cost) return skip('no_price', read);
+  best.entryCents = best.cost.entryCents;
+
+  // The gross edge of the side being taken, against the price it is taken at.
+  const bestEdgeCents = best.cost.grossCents;
+
+  if (bestEdgeCents < config.minimumEdgeCents) return skip('no_edge', read);
+  if (best.cost.netCents <= 0) return skip('fee_eats_it', read);
+
+  // Kept for the parts of the signal that still talk in expected value.
+  best.value = expectedValue(
+    best.side === VERDICTS.UP ? probability : 1 - probability,
+    best.entryCents / 100,
+    { feeRate: config.feeRate },
+  );
 
   // The pessimistic end of the band has to beat the market too. Requiring this
   // is what stops the engine calling markets it only wins on a lucky vol read.
   const worstProbability =
     best.side === VERDICTS.UP ? probabilityRange[0] : 1 - probabilityRange.at(-1);
-  const worstEdgeCents =
-    (worstProbability - (best.side === VERDICTS.UP ? marketProbability : noPriceDollars)) * 100;
+  const worstEdgeCents = worstProbability * 100 - best.entryCents;
   if (!Number.isFinite(worstEdgeCents) || worstEdgeCents < config.minimumWorstCaseEdgeCents) {
     notes.push(
       `Edge survives the central vol estimate but not the pessimistic one (${worstEdgeCents.toFixed(1)}¢)`,
@@ -208,7 +229,12 @@ export function evaluate(input, options = {}) {
     worstWinProbability:
       best.side === VERDICTS.UP ? probabilityRange[0] : 1 - probabilityRange.at(-1),
     marketProbability,
-    edgeCents: Math.abs(upEdgeCents),
+    // The edge of the side actually being called, against the price actually
+    // paid for it. `upEdgeCents` against the mid is kept below for display.
+    edgeCents: bestEdgeCents,
+    midEdgeCents: Math.abs(upEdgeCents),
+    quotes,
+    cost: best.cost,
     entryCents: best.entryCents,
     expected: best.value,
     sigma,

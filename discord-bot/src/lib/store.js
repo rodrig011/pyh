@@ -25,6 +25,7 @@ const EMPTY = {
   follows: [],
   kalshiSince: null,
   samples: {},
+  quotes: {},
 };
 
 /**
@@ -285,6 +286,23 @@ export function createStore(filePath) {
       data.samples[asset] = samples;
       if (flush) save();
       return samples;
+    },
+
+    /**
+     * Recorded market quotes, for measuring whether the market is ever wrong.
+     *
+     * Kept beside the price samples and flushed on the same timer, for the
+     * same reason: this writes all day, on the volume that also holds the
+     * payments, and one write per observation is not a trade worth making.
+     */
+    listQuotes(asset) {
+      return data.quotes[asset] ?? [];
+    },
+
+    putQuotes(asset, quotes, { flush = false } = {}) {
+      data.quotes[asset] = quotes;
+      if (flush) save();
+      return quotes;
     },
 
     kalshiSince() {

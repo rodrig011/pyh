@@ -27,6 +27,8 @@ import { storefrontMessage } from '../vip/storefront.js';
 import { shouldGreetDm } from '../vip/dmGreeting.js';
 import { promptDueSettlements, publishVoteResults, syncKalshiAccount } from '../picks/commands.js';
 import { collectOnce } from '../signals/collector.js';
+import { recordOnce } from '../signals/recorder.js';
+import { currentContract } from '../picks/kalshi.js';
 import { fetchSpotPrice } from '../picks/price.js';
 
 const log = createLogger('vip');
@@ -220,14 +222,31 @@ export function createVipBot(config = loadVipConfig()) {
     // that can only be believed. Flushed on a slower timer than it samples, so
     // two thousand writes a day do not land on the volume holding the payments.
     const signals = config.signals ?? {};
+    const kalshi = config.picks?.kalshi ?? {};
     if (signals.collect !== false) {
       const asset = config.picks?.defaultAsset ?? 'BTC';
       let unsaved = 0;
       setInterval(() => {
         collectOnce(store, { fetchPrice: fetchSpotPrice, asset })
-          .then((result) => {
+          .then(async (result) => {
             if (!result.added) return;
             unsaved += 1;
+
+            // The contract's own quote, next to the spot that was just saved.
+            //
+            // This is the only thing in the whole system that can answer
+            // whether Kalshi is ever actually mispriced. Everything else
+            // assumes it and computes the consequences. Recorded from the bot
+            // that is already deployed, so the data starts accumulating now
+            // rather than whenever the signal bot gets its own application —
+            // weeks of history that cannot be collected retroactively.
+            if (kalshi?.enabled && kalshi.seriesTicker) {
+              const contract = await currentContract(kalshi).catch(() => null);
+              if (contract) {
+                recordOnce(store, { asset, contract, spot: result.price });
+              }
+            }
+
             if (unsaved >= (signals.flushEvery ?? 10)) {
               unsaved = 0;
               store.save();

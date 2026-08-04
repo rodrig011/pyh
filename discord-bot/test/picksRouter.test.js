@@ -414,3 +414,55 @@ test('/picks undo-auto is refused to anyone who is not a mod', async () => {
   await handlePicks(interaction, { store: freshStore(), config });
   assert.match(String(interaction.replies.at(-1)), /Only the mods/);
 });
+
+test('/picks edge says plainly that nothing has settled yet', async () => {
+  const store = freshStore();
+  const interaction = fakeInteraction('edge');
+
+  await handlePicks(interaction, { store, config });
+
+  const reply = String(interaction.replies.at(-1));
+  assert.match(reply, /Recorded \*\*0\*\*/);
+  // The one instruction that matters when the log is empty: it is not
+  // recording, and the reason is a setting.
+  assert.match(reply, /KALSHI_ENABLED/);
+});
+
+test('/picks edge reports the market winning, rather than hiding it', async () => {
+  // The result nobody wants and everybody needs. A market that forecasts
+  // better than the model means there is no business here, and the command
+  // has to say so in those words rather than burying it in a score.
+  const store = freshStore();
+  const now = Date.now();
+  const log = [];
+
+  for (let i = 0; i < 40; i += 1) {
+    const ticker = `KXBTC15M-${i}`;
+    const finishedAbove = i % 2 === 0;
+    // The market is right and the model is confidently backwards.
+    log.push({
+      at: now - 600_000 + i * 1000,
+      ticker,
+      asset: 'BTC',
+      spot: finishedAbove ? 65_100 : 64_800,
+      strike: 65_000,
+      bid: finishedAbove ? 89 : 9,
+      ask: finishedAbove ? 91 : 11,
+      secondsLeft: 0,
+      model: finishedAbove ? 0.1 : 0.9,
+      outcome: null,
+    });
+  }
+  store.putQuotes('BTC', log);
+
+  const interaction = fakeInteraction('edge');
+  await handlePicks(interaction, { store, config });
+
+  const reply = String(interaction.replies.at(-1));
+  assert.match(reply, /The market is the better forecaster/);
+  assert.match(reply, /no edge here to trade/i);
+
+  // And the grading must have been written back, or every run regrades from
+  // scratch and the log never settles.
+  assert.ok(store.listQuotes('BTC').every((row) => row.outcome !== null));
+});

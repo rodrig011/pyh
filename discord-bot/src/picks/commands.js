@@ -9,6 +9,8 @@ import {
   time,
 } from 'discord.js';
 import { COLORS } from '../lib/brand.js';
+import { measureEdge } from '../signals/measure.js';
+import { settleObservations } from '../signals/recorder.js';
 import { postPermissionHelp } from '../lib/channelAccess.js';
 import {
   CLOSING_ACTIONS,
@@ -232,6 +234,11 @@ export function buildPickCommands(config) {
     )
     .addSubcommand((sub) =>
       sub.setName('kalshi').setDescription('Check the Kalshi contract feed and show what it returned'),
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('edge')
+        .setDescription('Is the Kalshi market actually mispriced? The measured answer (mods only)'),
     )
     .addSubcommand((sub) =>
       sub
@@ -940,6 +947,73 @@ export async function handlePicks(interaction, { store, config }) {
   // The response shape was never verified against a live account, so this
   // prints what came back rather than only whether it worked. That raw body is
   // what turns a guess into a fix.
+  if (sub === 'edge') {
+    const settings = pickSettings(config);
+    const asset = settings.defaultAsset ?? 'BTC';
+
+    const { log, settled } = settleObservations(store.listQuotes(asset));
+    if (settled > 0) store.putQuotes(asset, log, { flush: true });
+
+    const measured = measureEdge(log);
+    const recorded = log.length;
+
+    if (!measured.ready) {
+      return interaction.editReply(
+        [
+          `📊 **Measuring whether Kalshi is ever wrong — ${asset}**`,
+          '',
+          `Recorded **${recorded}** quote(s). None have settled yet.`,
+          '',
+          'This is the only number that decides whether the engine is a business.',
+          'It needs a few hundred settled markets, which is a couple of days of recording.',
+          recorded === 0
+            ? 'Nothing is being recorded yet: `KALSHI_ENABLED` must be `true` and `KALSHI_SERIES_TICKER` set.'
+            : 'Come back tomorrow.',
+        ].join('\n'),
+      );
+    }
+
+    const cents = (value) =>
+      Number.isFinite(value) ? `${value >= 0 ? '+' : ''}${value.toFixed(2)}¢` : '—';
+    const score = (value) => (Number.isFinite(value) ? value.toFixed(4) : '—');
+    const bias = measured.mispricing;
+
+    return interaction.editReply(
+      [
+        `📊 **Is the Kalshi market actually wrong? — ${asset}**`,
+        '',
+        `**${measured.settled}** settled observation(s), **${measured.scored}** with a model read.`,
+        '',
+        `**Market's forecast score:** \`${score(measured.marketBrier)}\``,
+        `**Model's forecast score:** \`${score(measured.modelBrier)}\``,
+        measured.modelBeatsMarket === null
+          ? '_The model has not scored enough of these to compare yet._'
+          : measured.modelBeatsMarket
+            ? `✅ **The model is the better forecaster** by \`${score(measured.brierGap)}\`.`
+            : '❌ **The market is the better forecaster.** There is no edge here to trade.',
+        '',
+        bias
+          ? [
+              `**Market's average error:** ${cents(bias.meanCents)} ` +
+                `(95% range ${cents(bias.ci95[0])} to ${cents(bias.ci95[1])})`,
+              bias.significant
+                ? '→ That range does not cross zero, so the bias is real.'
+                : '→ That range crosses zero, so there is **no measurable bias** yet.',
+            ].join('\n')
+          : null,
+        '',
+        measured.centsPerTrade !== null
+          ? `**Gross per contract taken:** ${cents(measured.centsPerTrade)} across ${measured.taken} trade(s).\n` +
+            '_The fee is roughly 2¢ at mid prices. Under that, this is a loss in a nice hat._'
+          : null,
+        '',
+        'Below 0.25 is better than a coin flip. Anything above it means stop.',
+      ]
+        .filter((line) => line !== null)
+        .join('\n'),
+    );
+  }
+
   if (sub === 'kalshi') {
     const settings = pickSettings(config);
     if (!settings.kalshi?.enabled) {

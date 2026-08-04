@@ -166,6 +166,28 @@ export function priceMarket({
 }
 
 /**
+ * A two-sided book around a mid.
+ *
+ * Without this the simulator lets every trade happen at the mid, which is a
+ * price that does not exist. Half the spread on the way in and half on the way
+ * out is a real cost and, at the two- to three-cent spreads these markets
+ * actually quote, it is comparable to the entire edge being hunted.
+ */
+export function bookAround(midCents, spreadCents = 0) {
+  if (!(midCents > 0)) return null;
+  const half = Math.max(0, spreadCents) / 2;
+  const bid = Math.max(1, Math.min(99, midCents - half));
+  const ask = Math.max(1, Math.min(99, midCents + half));
+  return {
+    yes_bid_dollars: String(bid / 100),
+    yes_ask_dollars: String(ask / 100),
+    liquidity_dollars: '1000',
+    bidCents: bid,
+    askCents: ask,
+  };
+}
+
+/**
  * Runs the engine over one market, from open to bell, and books the trades.
  *
  * Fees come out of every leg, the position is sized the way the bot would size
@@ -178,6 +200,12 @@ export function runMarket({
   sampleSeconds = 30,
   mode = 'fair',
   biasCents = 0,
+  spreadCents = 0,
+  // 'taker' crosses the spread to get in now. 'maker' rests at the bid and
+  // only trades if the market comes to it.
+  orderMode = 'taker',
+  quoteNoiseCents = 0,
+  noiseRandom = () => 0.5,
   bankroll = 100,
   engine = {},
   sizing = {},
@@ -186,7 +214,15 @@ export function runMarket({
 }) {
   const trades = [];
   let position = null;
+  // A resting order waiting to be hit, in maker mode. Never both this and a
+  // position: one order at a time keeps the accounting honest.
+  let pending = null;
   let cash = bankroll;
+
+  // The price of the side being held or sought, from the YES mid. A DOWN
+  // position lives on the reflected book, so every comparison below is written
+  // once in the held side's own terms rather than twice with a sign flip.
+  const heldMid = (side, midCents) => (side === 'up' ? midCents : 100 - midCents);
 
   for (let i = 0; i < prices.length; i += 1) {
     const stepsLeft = prices.length - 1 - i;
@@ -203,6 +239,19 @@ export function runMarket({
     });
     if (marketCents === null) continue;
 
+    // Quote noise: the mid wobbling for reasons that have nothing to do with
+    // what the contract will settle at — someone sizing out, a stale quote, an
+    // order that had to be filled. It matters enormously for the maker
+    // question. With no noise, every fill a resting order gets is a fill it
+    // was given because it was wrong. With noise, some of the flow is
+    // uninformed and there is something for a patient order to earn.
+    const noisyCents =
+      quoteNoiseCents > 0
+        ? Math.max(1, Math.min(99, marketCents + (noiseRandom() * 2 - 1) * quoteNoiseCents))
+        : marketCents;
+
+    const book = bookAround(noisyCents, spreadCents);
+
     // The engine only ever sees what the bot would see: the prices printed so
     // far, plus whatever history it was handed at the open.
     const seen = [...history, ...prices.slice(0, i + 1)];
@@ -214,30 +263,65 @@ export function runMarket({
         strike,
         marketPriceCents: marketCents,
         secondsLeft,
-        market: { liquidity_dollars: '1000' },
+        market: book,
       },
       { sampleSeconds, ...engine },
     );
 
-    // The price of the side actually held. A DOWN position is worth what NO
-    // costs, not what YES costs, and confusing the two prices every exit.
+    // What the held side could be SOLD for right now: its own bid, not the
+    // mid and not its ask. A DOWN position is sold at the NO bid, which is a
+    // hundred minus the YES ask. Getting either of those two facts wrong
+    // flatters every exit in the book.
     const heldCents = position
       ? position.side === 'up'
-        ? marketCents
-        : 100 - marketCents
-      : (result.entryCents ?? marketCents);
+        ? book.bidCents
+        : 100 - book.askCents
+      : (result.entryCents ?? noisyCents);
 
     const call = scalpDecision({ position, nowCents: heldCents, signal: result, secondsLeft });
 
-    if (call.action === SCALP_ACTIONS.ENTER && !position) {
+    // A resting order is filled by somebody crossing to it, which only happens
+    // when the price comes to us — and that is exactly when we were wrong.
+    // Modelling the fill this way is what makes the maker result trustworthy:
+    // the adverse selection is not an adjustment bolted on afterwards, it falls
+    // out of requiring the market to move against us before we own anything.
+    if (pending) {
+      const askNow = heldMid(pending.side, noisyCents) + spreadCents / 2;
+      const stale = secondsLeft < 120 || result.verdict !== pending.side;
+
+      if (askNow <= pending.limitCents) {
+        const stake = cash * pending.fraction;
+        if (stake > 0) {
+          position = { entryCents: pending.limitCents, side: pending.side, stake, at: i };
+        }
+        pending = null;
+      } else if (stale) {
+        // The reason to want it has gone. Leaving the order resting is how a
+        // maker ends up owning only the trades it no longer believes in.
+        pending = null;
+      }
+    }
+
+    if (call.action === SCALP_ACTIONS.ENTER && !position && !pending) {
       const sized = recommendSize({
         probability: result.winProbability,
         worstProbability: result.worstWinProbability,
         priceDollars: result.entryCents / 100,
         ...sizing,
       });
-      const stake = cash * (sized?.suggested ?? 0);
-      if (stake > 0) {
+      const fraction = sized?.suggested ?? 0;
+      const stake = cash * fraction;
+
+      if (stake > 0 && orderMode === 'maker') {
+        // Rest at the bid rather than paying the ask. The whole spread is
+        // saved when it fills, and the cost is that it often will not.
+        pending = {
+          side: call.side,
+          limitCents: heldMid(call.side, noisyCents) - spreadCents / 2,
+          fraction,
+          at: i,
+        };
+      } else if (stake > 0) {
         position = { entryCents: result.entryCents, side: call.side, stake, at: i };
       }
     } else if (call.action === SCALP_ACTIONS.EXIT && position) {
@@ -300,6 +384,13 @@ export function runBacktest({
   volClustering = 0,
   mode = 'fair',
   biasCents = 0,
+  // What the book actually quotes. Two to three cents is normal on these
+  // markets, and it is charged half on the way in and half on the way out.
+  spreadCents = 0,
+  orderMode = 'taker',
+  // How far the quoted mid wanders from fair for reasons unrelated to
+  // settlement. This is the parameter the maker-versus-taker answer turns on.
+  quoteNoiseCents = 0,
   seed = 7,
   bankroll = 100,
   engine = {},
@@ -320,6 +411,9 @@ export function runBacktest({
   // The market's pricing must not consume draws from the path's generator, or
   // pricing the contract would change the prices being priced.
   const pricingRandom = makeRandom(seed * 7919 + 13);
+  // Its own stream, so turning quote noise on does not change the prices it is
+  // supposed to be noise around.
+  const noiseRandom = makeRandom(seed * 104729 + 7);
   let cash = bankroll;
   const all = [];
   let marketsTraded = 0;
@@ -369,6 +463,10 @@ export function runBacktest({
       trueVolPerStep: volPerStep,
       mode,
       biasCents,
+      spreadCents,
+      orderMode,
+      quoteNoiseCents,
+      noiseRandom,
       bankroll: cash,
       engine,
       sizing,
