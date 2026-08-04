@@ -16,6 +16,7 @@ import { fetchSpotPrice } from '../picks/price.js';
 import { collectOnce, historyQuality, pricesSince } from '../signals/collector.js';
 import { VERDICTS, calibration, evaluate } from '../signals/engine.js';
 import { parseMarkets, planScan } from '../signals/scanner.js';
+import { SCALP_ACTIONS, minimumProfitableMoveCents, scalpDecision } from '../signals/scalp.js';
 import { oddsBar } from '../picks/panel.js';
 import { project, recommendSize } from '../signals/sizing.js';
 
@@ -121,6 +122,72 @@ export function signalEmbed(result, { asset, ticker, secondsLeft, sizing = null 
     .setTimestamp();
 }
 
+/**
+ * The line that goes out the instant something changes.
+ *
+ * Written for a phone notification, because that is where it is read and the
+ * whole value of it is being early. Everything a member needs to act is in the
+ * first line; the reasoning is underneath for anyone who wants it.
+ */
+export function liveMessage(kind, { entry, call, position = null, sizing = null }) {
+  const asset = entry.asset;
+  const price = Math.round(call.nowCents);
+
+  if (kind === 'enter') {
+    const up = call.side === VERDICTS.UP;
+    return {
+      content:
+        `${up ? '🟢' : '🔴'} **IN NOW — ${asset} ${up ? 'UP' : 'DOWN'} @ ${price}%**` +
+        (sizing ? ` · ${(sizing.suggested * 100).toFixed(1)}% of bankroll` : ''),
+      embeds: [
+        new EmbedBuilder()
+          .setColor(up ? COLORS.success : COLORS.danger)
+          .setDescription(
+            [
+              `Model **${Math.round(entry.result.probability * 100)}%** vs market **${price}%**`,
+              `Edge **${entry.result.edgeCents.toFixed(1)}¢** — needs **${call.needed}¢** to clear the round trip`,
+              `Flip risk **${Math.round((entry.result.flipProbability ?? 0) * 100)}%**`,
+            ].join('\n'),
+          )
+          .setFooter({ text: `${entry.ticker} · Not financial advice` })
+          .setTimestamp(),
+      ],
+    };
+  }
+
+  const trip = call.trip;
+  const won = (trip?.netCents ?? 0) > 0;
+  const why = {
+    'move banked': 'the move is paid for and the edge is gone',
+    'model flipped': 'the model changed sides — do not hold this',
+    bell: 'out of runway, this was never a settlement bet',
+    cut: 'it is bleeding and the model has stopped defending it',
+  }[call.reason] ?? call.reason;
+
+  return {
+    content:
+      `${won ? '💸' : '❌'} **OUT NOW — ${asset} @ ${price}%**` +
+      (trip ? ` · **${trip.percent >= 0 ? '+' : ''}${trip.percent.toFixed(1)}%** net of fees` : ''),
+    embeds: [
+      new EmbedBuilder()
+        .setColor(won ? COLORS.success : COLORS.danger)
+        .setDescription(
+          [
+            `In at **${Math.round(position?.entryCents ?? 0)}%**, out at **${price}%** — ${why}.`,
+            trip
+              ? `Gross **${trip.grossCents.toFixed(1)}¢**, fees **${trip.feeCents.toFixed(1)}¢**, ` +
+                `net **${trip.netCents.toFixed(1)}¢**.`
+              : null,
+          ]
+            .filter(Boolean)
+            .join('\n'),
+        )
+        .setFooter({ text: `${entry.ticker} · Not financial advice` })
+        .setTimestamp(),
+    ],
+  };
+}
+
 export function createSignalBot(config = loadSignalConfig()) {
   const store = createStore(config.storePath);
   const client = new Client({ intents: [GatewayIntentBits.Guilds] });
@@ -173,6 +240,54 @@ export function createSignalBot(config = loadSignalConfig()) {
     return { plan, waiting, inputs };
   }
 
+  /**
+   * The live loop: watch every market tick by tick and shout the moment
+   * something is worth doing.
+   *
+   * The scan answers "is this market worth trading". This answers "now?", two
+   * hundred times per market, which is the question a scalper is actually
+   * asking — and the only one whose answer expires in seconds.
+   *
+   * Positions are held in memory on purpose. This is advice about what to do
+   * right now, not a ledger; the record of what was called lives with the
+   * calls, and a restart should forget an opinion rather than resurrect a
+   * stale one.
+   */
+  const open = new Map();
+
+  async function tick(post) {
+    const { plan } = await readAll();
+    const byTicker = new Map();
+    for (const entry of [...plan.calls, ...plan.skips]) {
+      if (entry.ticker) byTicker.set(entry.ticker, entry);
+    }
+
+    for (const [ticker, entry] of byTicker) {
+      const nowCents = entry.result.entryCents ?? entry.result.marketProbability * 100;
+      const position = open.get(ticker) ?? null;
+
+      const call = scalpDecision(
+        {
+          position,
+          nowCents,
+          signal: entry.result,
+          secondsLeft: entry.result.secondsLeft ?? entry.secondsLeft,
+        },
+        { feeRate: config.engine.feeRate ?? 0.07 },
+      );
+
+      if (call.action === SCALP_ACTIONS.ENTER) {
+        open.set(ticker, { entryCents: nowCents, side: call.side, at: Date.now() });
+        await post(liveMessage('enter', { entry, call, sizing: entry.sizing }));
+      } else if (call.action === SCALP_ACTIONS.EXIT && position) {
+        open.delete(ticker);
+        await post(liveMessage('exit', { entry, call, position }));
+      }
+    }
+
+    return { watching: byTicker.size, holding: open.size };
+  }
+
   client.once(Events.ClientReady, async (ready) => {
     log.info(`Logged in as ${ready.user.tag}`);
 
@@ -192,6 +307,39 @@ export function createSignalBot(config = loadSignalConfig()) {
         `${asset} (${series}): ${samples.length} sample(s) on hand` +
           (samples.length < 20 ? ' — not enough to measure volatility yet' : ''),
       );
+    }
+
+    // The live loop. Off until the engine has earned it: an uncalibrated model
+    // shouting "in now" at people who pay for it is the fastest way to lose a
+    // room, and /engine is what decides when it has stopped being a guess.
+    if (config.autoPost && config.channelId) {
+      const channel = await client.channels.fetch(config.channelId).catch(() => null);
+      if (channel?.isTextBased()) {
+        const ping = config.roleIds.map((id) => `<@&${id}>`).join(' ');
+        const post = (payload) =>
+          channel
+            .send({
+              ...payload,
+              content: ping ? `${ping}\n${payload.content}` : payload.content,
+              allowedMentions: { roles: config.roleIds },
+            })
+            .catch((error) => log.warn(`Could not post: ${error.message}`));
+
+        let running = false;
+        setInterval(() => {
+          if (running) return;
+          running = true;
+          tick(post)
+            .catch((error) => log.error(`Live tick failed: ${error.message}`))
+            .finally(() => {
+              running = false;
+            });
+        }, Math.max(2, config.tickSeconds ?? 5) * 1000).unref();
+
+        log.info(`Live scalp alerts ON in #${channel.name}, every ${config.tickSeconds ?? 5}s`);
+      }
+    } else {
+      log.info('Live alerts are OFF (SIGNAL_AUTO_POST). /signal still answers on demand.');
     }
 
     // Sampling here as well, so this bot is useful even if it is the only one
@@ -326,5 +474,5 @@ export function createSignalBot(config = loadSignalConfig()) {
     return undefined;
   });
 
-  return { client, store, readAll, markets, config };
+  return { client, store, readAll, tick, markets, config };
 }

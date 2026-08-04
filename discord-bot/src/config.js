@@ -293,6 +293,9 @@ export function loadSignalConfig() {
     // in a mods-only channel for a couple of weeks costs nothing; publishing an
     // uncalibrated signal to people who pay for it costs the room.
     autoPost: bool('SIGNAL_AUTO_POST', false),
+    // How often the live loop asks "now?". A scalp signal is worth less every
+    // second it is late, and one small read is cheap.
+    tickSeconds: int('SIGNAL_TICK_SECONDS', 5),
     roleIds: list('SIGNAL_PING_ROLE_IDS'),
     kellyFraction: Number.parseFloat(str('SIGNAL_KELLY_FRACTION', '0.25')),
     maximumFraction: Number.parseFloat(str('SIGNAL_MAX_FRACTION', '0.1')),
