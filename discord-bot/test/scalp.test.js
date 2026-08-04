@@ -49,7 +49,11 @@ test('a market only supports as many trips as its movement can fund', () => {
   assert.equal(tripsSupported(3, 50), 0);
 });
 
-const edge = (verdict, edgeCents) => ({ verdict, edgeCents });
+// A signal shaped the way the engine actually emits one. `probability` is
+// always the chance of finishing ABOVE the strike — never the chance the side
+// being held wins — and keeping that straight is the whole point of several
+// tests below.
+const edge = (verdict, edgeCents, probability = null) => ({ verdict, edgeCents, probability });
 
 test('entry needs an edge bigger than the round trip, not just an edge', () => {
   const thin = scalpDecision({
@@ -84,11 +88,12 @@ test('nothing is opened with no room left for a round trip', () => {
   assert.match(late.reason, /bell/);
 });
 
-test('a banked swing is taken once the edge is gone', () => {
+test('a banked swing is taken once the price has caught up with the model', () => {
   const call = scalpDecision({
     position: { entryCents: 65, side: 'up' },
     nowCents: 85,
-    signal: edge('up', 0.5),
+    // The model says 85 and the contract costs 85. There is nothing left.
+    signal: edge('up', 0.5, 0.85),
     secondsLeft: 400,
   });
 
@@ -97,16 +102,49 @@ test('a banked swing is taken once the edge is gone', () => {
   assert.ok(call.trip.percent > 25);
 });
 
-test('a winner is held while the model still likes it', () => {
+test('a winner is held while the model still prices it above the market', () => {
   const call = scalpDecision({
     position: { entryCents: 65, side: 'up' },
     nowCents: 78,
-    signal: edge('up', 9),
+    signal: edge('up', 9, 0.87),
     secondsLeft: 400,
   });
 
   assert.equal(call.action, SCALP_ACTIONS.WAIT);
   assert.equal(call.reason, 'holding');
+});
+
+test('silence from the engine is not a reason to sell', () => {
+  // The engine skips a market whenever the edge falls under its ENTRY
+  // threshold, which is most ticks of most markets. Reading that as "get out"
+  // made every position a guaranteed round trip that captured nothing and paid
+  // two fees — in the paper runs it was every single trade, and it turned a
+  // known six-cent edge into a 70% loss.
+  const call = scalpDecision({
+    position: { entryCents: 65, side: 'up' },
+    nowCents: 72,
+    signal: { verdict: 'skip', reason: 'no_edge', probability: 0.74 },
+    secondsLeft: 400,
+  });
+
+  assert.equal(call.action, SCALP_ACTIONS.WAIT);
+  assert.equal(call.reason, 'holding');
+});
+
+test('a DOWN position is judged on the odds that DOWN wins', () => {
+  // The model's probability is the chance of finishing above the strike, so a
+  // DOWN position is doing well when that number is LOW. Comparing the raw
+  // probability against the price sells every winning down position.
+  const winning = scalpDecision({
+    position: { entryCents: 45, side: 'down' },
+    // NO trades at 70, and the model says NO is worth 80.
+    nowCents: 70,
+    signal: edge('down', 10, 0.2),
+    secondsLeft: 400,
+  });
+
+  assert.equal(winning.action, SCALP_ACTIONS.WAIT);
+  assert.ok(winning.favoured > 0);
 });
 
 test('the model changing its mind ends the position, profit or not', () => {
@@ -123,30 +161,71 @@ test('the model changing its mind ends the position, profit or not', () => {
   assert.equal(call.reason, 'model flipped');
 });
 
-test('a position is never carried into the bell', () => {
+test('a position the model has turned against is sold before the bell', () => {
   const call = scalpDecision({
     position: { entryCents: 65, side: 'up' },
     nowCents: 70,
-    signal: edge('up', 15),
+    // The contract costs 70 and the model says it is worth 65.
+    signal: edge('up', 15, 0.65),
     secondsLeft: 30,
   });
 
-  // It was sized as a scalp, not as a settlement bet.
   assert.equal(call.action, SCALP_ACTIONS.EXIT);
   assert.equal(call.reason, 'bell');
+});
+
+test('a position the model still likes is settled, not sold', () => {
+  // Settlement is the one exit the exchange does not charge for. Selling at
+  // 70 costs a fee; letting it settle costs nothing and pays the same on
+  // average. "Always flatten before expiry" is advice from venues that do not
+  // charge per leg, and following it here gives away a fee on every trade.
+  const liked = scalpDecision({
+    position: { entryCents: 65, side: 'up' },
+    nowCents: 70,
+    signal: edge('up', 15, 0.8),
+    secondsLeft: 30,
+  });
+
+  assert.equal(liked.action, SCALP_ACTIONS.WAIT);
+  assert.equal(liked.reason, 'settling');
+
+  // And with no read at all — which is what the engine returns this close to
+  // the bell — the contract's own price is the best estimate of what it
+  // settles at, so the fee is the only difference and holding still wins.
+  const blind = scalpDecision({
+    position: { entryCents: 65, side: 'up' },
+    nowCents: 70,
+    signal: { verdict: 'skip', reason: 'too_late' },
+    secondsLeft: 30,
+  });
+
+  assert.equal(blind.action, SCALP_ACTIONS.WAIT);
+  assert.equal(blind.reason, 'settling');
 });
 
 test('a losing position the model no longer defends is cut', () => {
   const call = scalpDecision({
     position: { entryCents: 65, side: 'up' },
     nowCents: 55,
-    signal: edge('up', 1),
+    signal: edge('up', 1, 0.55),
     secondsLeft: 400,
   });
 
   assert.equal(call.action, SCALP_ACTIONS.EXIT);
   assert.equal(call.reason, 'cut');
   assert.ok(call.trip.netCents < 0);
+});
+
+test('a loser the model still defends is held, not cut at the bottom', () => {
+  const call = scalpDecision({
+    position: { entryCents: 65, side: 'up' },
+    nowCents: 55,
+    signal: edge('up', 12, 0.67),
+    secondsLeft: 400,
+  });
+
+  assert.equal(call.action, SCALP_ACTIONS.WAIT);
+  assert.equal(call.reason, 'holding');
 });
 
 test('no price is a wait, never a guess', () => {

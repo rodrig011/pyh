@@ -76,6 +76,22 @@ export function roundTripReturn(entryCents, exitCents, { feeRate = 0.07 } = {}) 
 export const SCALP_ACTIONS = { ENTER: 'enter', EXIT: 'exit', WAIT: 'wait' };
 
 /**
+ * The model's odds for the side currently held, in the held side's own terms.
+ *
+ * `probability` from the engine is always the chance of finishing ABOVE the
+ * strike. A DOWN position wins on the complement, and comparing the wrong one
+ * of the two against the price is how a winning position gets sold.
+ *
+ * Returns null when the engine had no read at all (no price, no history) —
+ * which is a genuine "I do not know", and different from "no edge".
+ */
+export function heldProbability(side, signal) {
+  const p = signal?.probability;
+  if (!Number.isFinite(p)) return null;
+  return side === 'down' ? 1 - p : p;
+}
+
+/**
  * The live call, checked every few seconds while a market runs.
  *
  * This is the "buy now / out now" the room actually wants, and it is a
@@ -97,6 +113,8 @@ export function scalpDecision({ position = null, nowCents, signal, secondsLeft }
     // No new entries this close to the bell: there is not enough room left for
     // a move to cover two fees.
     noEntryWithinSeconds: 120,
+    // When a held position has to be decided: sell, or let it settle.
+    bellSeconds: 45,
     ...options,
   };
 
@@ -109,28 +127,57 @@ export function scalpDecision({ position = null, nowCents, signal, secondsLeft }
   if (position) {
     const trip = roundTripReturn(position.entryCents, nowCents, { feeRate: config.feeRate });
 
-    // The engine no longer likes this side at all. Leave regardless of profit:
-    // holding a position the model has stopped believing in is how a scalp
-    // becomes a bag.
-    if (signal?.verdict && signal.verdict !== position.side) {
-      return say(SCALP_ACTIONS.EXIT, 'model flipped', { trip });
+    // What the model now thinks of the side actually held, whether or not it
+    // has an opinion strong enough to open a NEW position with. These are two
+    // different questions and conflating them is expensive: the engine goes
+    // quiet the moment the edge falls under its entry threshold, which is most
+    // of the time, and reading that silence as "get out" turns every position
+    // into a guaranteed round trip that pays two fees to capture nothing.
+    const held = heldProbability(position.side, signal);
+    const favoured = held === null ? null : held * 100 - nowCents;
+
+    // A real reversal: the engine is calling the OTHER side outright. That is
+    // worth paying a fee to escape. Silence is not.
+    if (signal?.verdict && signal.verdict !== 'skip' && signal.verdict !== position.side) {
+      return say(SCALP_ACTIONS.EXIT, 'model flipped', { trip, favoured });
     }
 
-    // Out of runway. A position held into the bell is no longer a scalp, it is
-    // a settlement bet, and it was not sized as one.
-    if (secondsLeft <= 45) return say(SCALP_ACTIONS.EXIT, 'bell', { trip });
+    // Out of runway — sell, or let it settle?
+    //
+    // Settlement is the one exit the exchange does not charge for. And with no
+    // model read left (the engine stops reading a market this close to the
+    // bell) the contract's own price IS the best estimate of what it settles
+    // at, so the two outcomes have the same expected value and the fee is the
+    // only difference. Holding wins by exactly that fee. Sell only when the
+    // model actively says the side is now worth less than it costs.
+    //
+    // This is the opposite of the usual "always flatten before expiry" advice,
+    // and on a fee-per-leg exchange the usual advice is simply wrong.
+    if (secondsLeft <= config.bellSeconds) {
+      if (favoured === null || favoured >= 0) {
+        return say(SCALP_ACTIONS.WAIT, 'settling', { trip, favoured });
+      }
+      return say(SCALP_ACTIONS.EXIT, 'bell', { trip, favoured });
+    }
 
-    // The swing has paid for itself and then some.
-    if (trip && trip.netCents >= config.marginCents && (signal?.edgeCents ?? 0) < 2) {
-      return say(SCALP_ACTIONS.EXIT, 'move banked', { trip });
+    // Both of the remaining exits need the model to have an opinion and for
+    // that opinion to be against the price. Treating "no read" as a reason to
+    // sell is what made every position a guaranteed round trip.
+    const defended = favoured === null || favoured >= config.marginCents;
+
+    // The swing has paid for itself and the model no longer defends the price.
+    // A position still trading below what the model says it is worth is not a
+    // profit to bank, it is a position.
+    if (trip && trip.netCents >= config.marginCents && !defended) {
+      return say(SCALP_ACTIONS.EXIT, 'move banked', { trip, favoured });
     }
 
     // Bleeding, and the model has stopped defending it.
-    if (trip && trip.netCents < -config.marginCents * 4 && (signal?.edgeCents ?? 0) < 2) {
-      return say(SCALP_ACTIONS.EXIT, 'cut', { trip });
+    if (trip && trip.netCents < -config.marginCents * 4 && !defended) {
+      return say(SCALP_ACTIONS.EXIT, 'cut', { trip, favoured });
     }
 
-    return say(SCALP_ACTIONS.WAIT, 'holding', { trip });
+    return say(SCALP_ACTIONS.WAIT, 'holding', { trip, favoured });
   }
 
   if (secondsLeft < config.noEntryWithinSeconds) {

@@ -46,8 +46,9 @@ export function planScan(inputs, options = {}) {
     }
 
     const sizing = recommendSize({
-      probability: result.probability,
-      worstProbability: result.probabilityRange?.[0],
+      // The side being called, not the chance of finishing above the strike.
+      probability: result.winProbability,
+      worstProbability: result.worstWinProbability,
       priceDollars: result.entryCents / 100,
       kellyFraction,
       maximumFraction,

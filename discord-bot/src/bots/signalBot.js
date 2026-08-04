@@ -16,9 +16,8 @@ import { fetchSpotPrice } from '../picks/price.js';
 import { collectOnce, historyQuality, pricesSince } from '../signals/collector.js';
 import { VERDICTS, calibration, evaluate } from '../signals/engine.js';
 import { parseMarkets, planScan } from '../signals/scanner.js';
-import { SCALP_ACTIONS, minimumProfitableMoveCents, scalpDecision } from '../signals/scalp.js';
+import { SCALP_ACTIONS, scalpDecision } from '../signals/scalp.js';
 import { oddsBar } from '../picks/panel.js';
-import { project, recommendSize } from '../signals/sizing.js';
 
 const log = createLogger('signal');
 
@@ -263,8 +262,20 @@ export function createSignalBot(config = loadSignalConfig()) {
     }
 
     for (const [ticker, entry] of byTicker) {
-      const nowCents = entry.result.entryCents ?? entry.result.marketProbability * 100;
       const position = open.get(ticker) ?? null;
+
+      // The price of the side actually held, which is not always the side the
+      // engine currently prefers. A DOWN position is worth what NO costs, and
+      // measuring it against the YES price misreads every exit — the paper
+      // runs found this one before a member could.
+      const marketCents = Number.isFinite(entry.result.marketProbability)
+        ? entry.result.marketProbability * 100
+        : null;
+      const nowCents = position
+        ? position.side === VERDICTS.DOWN && marketCents !== null
+          ? 100 - marketCents
+          : marketCents
+        : (entry.result.entryCents ?? marketCents);
 
       const call = scalpDecision(
         {
@@ -277,12 +288,36 @@ export function createSignalBot(config = loadSignalConfig()) {
       );
 
       if (call.action === SCALP_ACTIONS.ENTER) {
-        open.set(ticker, { entryCents: nowCents, side: call.side, at: Date.now() });
+        open.set(ticker, {
+          entryCents: entry.result.entryCents ?? nowCents,
+          side: call.side,
+          at: Date.now(),
+        });
         await post(liveMessage('enter', { entry, call, sizing: entry.sizing }));
       } else if (call.action === SCALP_ACTIONS.EXIT && position) {
         open.delete(ticker);
         await post(liveMessage('exit', { entry, call, position }));
+      } else if (call.reason === 'settling' && position && !position.settling) {
+        // Said once, not every few seconds. A position is now allowed to run
+        // to settlement — selling costs a fee and settling does not — so the
+        // room has to be told that nothing more is coming, or it sits waiting
+        // for an exit call that is deliberately never sent.
+        position.settling = true;
+        await post({
+          content:
+            `⏳ **HOLDING TO SETTLEMENT — ${entry.asset} ${position.side === VERDICTS.UP ? 'UP' : 'DOWN'}** ` +
+            `· in at ${Math.round(position.entryCents)}%\n` +
+            '_Selling now costs a fee. Settling does not, and pays the same on average._',
+        });
       }
+    }
+
+    // A market that has rolled is gone from the scan, and any position left
+    // against it has settled by definition. Without this the map grows for as
+    // long as the bot runs and every one of those keys is a position the room
+    // is being told, wrongly, that it still holds.
+    for (const ticker of open.keys()) {
+      if (!byTicker.has(ticker)) open.delete(ticker);
     }
 
     return { watching: byTicker.size, holding: open.size };
