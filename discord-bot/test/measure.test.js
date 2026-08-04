@@ -243,3 +243,78 @@ test('daily growth is per trade compounded, not per trade added up', () => {
   const losing = dailyGrowth({ centsPerTrade: 1, entryCents: 50, tradesPerDay: 40 });
   assert.ok(losing.dailyPercent < 0);
 });
+
+test('the model read is written down beside the quote, not left for later', async () => {
+  // The half that cannot be rebuilt afterwards. The model's probability
+  // depends on the price history as it stood at that instant; an hour later
+  // that moment is gone, and with it any chance of asking whether our number
+  // beat the market's.
+  const { observeOnce } = await import('../src/signals/recorder.js');
+
+  const saved = [];
+  const store = {
+    listQuotes: () => saved,
+    putQuotes: (_asset, rows) => saved.splice(0, saved.length, ...rows),
+    listSamples: () => [{ at: Date.now() - 1000, price: 65_000 }],
+  };
+
+  const contract = {
+    price: 55,
+    market: {
+      ticker: 'KXBTC15M-T9',
+      floor_strike: 64_900,
+      yes_bid: 54,
+      yes_ask: 56,
+      close_time: new Date(Date.now() + 600_000).toISOString(),
+    },
+  };
+
+  observeOnce(store, {
+    contract,
+    spot: 65_000,
+    evaluateModel: () => ({ probability: 0.64 }),
+  });
+
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].model, 0.64);
+  assert.equal(saved[0].bid, 54);
+  assert.equal(saved[0].ask, 56);
+});
+
+test('a model that has no opinion records null, never a coin flip', async () => {
+  const { observeOnce } = await import('../src/signals/recorder.js');
+  const saved = [];
+  const store = {
+    listQuotes: () => saved,
+    putQuotes: (_asset, rows) => saved.splice(0, saved.length, ...rows),
+    listSamples: () => [],
+  };
+  const contract = {
+    price: 55,
+    market: {
+      ticker: 'KXBTC15M-T9',
+      floor_strike: 64_900,
+      yes_bid: 54,
+      yes_ask: 56,
+      close_time: new Date(Date.now() + 600_000).toISOString(),
+    },
+  };
+
+  // Not enough history to say anything — which is different from 50%, and
+  // recording it as 50% would quietly score a shrug as a forecast.
+  observeOnce(store, { contract, spot: 65_000, evaluateModel: () => ({ verdict: 'skip' }) });
+  assert.equal(saved[0].model, null);
+
+  // And a model that throws must not cost us the quote, which is the part
+  // that cannot be recovered later.
+  saved.length = 0;
+  observeOnce(store, {
+    contract,
+    spot: 65_000,
+    evaluateModel: () => {
+      throw new Error('model exploded');
+    },
+  });
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].model, null);
+});

@@ -27,7 +27,8 @@ import { storefrontMessage } from '../vip/storefront.js';
 import { shouldGreetDm } from '../vip/dmGreeting.js';
 import { promptDueSettlements, publishVoteResults, syncKalshiAccount } from '../picks/commands.js';
 import { collectOnce } from '../signals/collector.js';
-import { recordOnce } from '../signals/recorder.js';
+import { observeOnce } from '../signals/recorder.js';
+import { evaluate } from '../signals/engine.js';
 import { currentContract } from '../picks/kalshi.js';
 import { fetchSpotPrice } from '../picks/price.js';
 
@@ -243,7 +244,18 @@ export function createVipBot(config = loadVipConfig()) {
             if (kalshi?.enabled && kalshi.seriesTicker) {
               const contract = await currentContract(kalshi).catch(() => null);
               if (contract) {
-                recordOnce(store, { asset, contract, spot: result.price });
+                // The model's read goes down beside the quote. Recording the
+                // quote alone would only ever answer "is Kalshi biased"; the
+                // question the engine rests on is whether our number beats
+                // theirs, and that cannot be rebuilt afterwards because it
+                // depends on the price history as it stood at this instant.
+                observeOnce(store, {
+                  asset,
+                  contract,
+                  spot: result.price,
+                  evaluateModel: (input) =>
+                    evaluate(input, { sampleSeconds: signals.sampleSeconds ?? 30 }),
+                });
               }
             }
 

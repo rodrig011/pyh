@@ -113,6 +113,57 @@ export function settleObservations(log, { now = Date.now(), settledBefore = 60_0
 }
 
 /**
+ * One observation, with the model's own read attached.
+ *
+ * The reason this exists rather than the caller doing it inline: recording the
+ * quote alone answers only half the question. "Is Kalshi biased" is worth
+ * knowing, but the question the whole engine rests on is "does OUR number beat
+ * theirs", and that cannot be reconstructed later — the model's probability
+ * depends on the price history as it stood at that instant, and an hour later
+ * that moment is gone.
+ *
+ * The model may legitimately have no opinion: too early in the market, not
+ * enough history yet, a price off the board. Those rows are still worth
+ * keeping, because the market's own score can be computed from the quote
+ * alone. A null here means "no read", never "fifty-fifty".
+ */
+export function observeOnce(
+  store,
+  { asset = 'BTC', contract, spot, evaluateModel, historyMs = 60 * 60 * 1000, now = Date.now() } = {},
+) {
+  let modelProbability = null;
+
+  try {
+    const market = contract?.market;
+    if (market && typeof evaluateModel === 'function') {
+      const closesAt = Date.parse(market.close_time ?? '');
+      const read = evaluateModel({
+        prices: pricesFrom(store.listSamples(asset), now - historyMs),
+        spot,
+        strike: Number(market.floor_strike ?? market.cap_strike),
+        marketPriceCents: contract.price,
+        market,
+        secondsLeft: Number.isFinite(closesAt) ? (closesAt - now) / 1000 : null,
+      });
+      if (Number.isFinite(read?.probability)) modelProbability = read.probability;
+    }
+  } catch {
+    // A model that throws must not stop the quote being written down. The
+    // quote is the part that cannot be recovered later.
+    modelProbability = null;
+  }
+
+  return recordOnce(store, { asset, contract, spot, modelProbability, now });
+}
+
+/** Prices from stored samples, newest last, from `since` onward. */
+function pricesFrom(samples, since) {
+  return (samples ?? [])
+    .filter((sample) => sample?.at >= since && sample?.price > 0)
+    .map((sample) => sample.price);
+}
+
+/**
  * One pass of the recorder, to be called from a loop that already exists.
  *
  * Returns rather than throws: this runs beside the part of the system that
