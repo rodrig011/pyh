@@ -268,3 +268,164 @@ test('the Brier score catches an engine that is worse than a coin', () => {
   assert.ok(calibration(useless).brier > 0.25, 'confident and wrong is worse than saying nothing');
   assert.ok(Math.abs(calibration(honest).brier - 0.25) < 1e-9);
 });
+
+// --- Flips and exits ---------------------------------------------------------
+// A binary that is winning is not a won bet. These decide when a room is told
+// to take the money, and getting them wrong gives back the trades that were
+// about to pay most.
+
+test('being touched is exactly twice as likely as finishing beyond', async () => {
+  const { flipProbability } = await import('../src/signals/exit.js');
+  const { probabilityAbove } = await import('../src/signals/math.js');
+  const sigma = 0.002;
+  const spot = 65000 * Math.exp(sigma); // one sigma clear
+
+  const finishesWrong = 1 - probabilityAbove(spot, 65000, sigma);
+  const touched = flipProbability(spot, 65000, sigma);
+
+  // The reflection principle: touching is about twice as likely as finishing
+  // beyond, and that factor of two is the entire point — a position that
+  // finishes safe 84% of the time is touched 32% of the time. The exact
+  // barrier formula carries the drift term as well, so the two agree closely
+  // rather than exactly.
+  assert.ok(Math.abs(touched - 2 * finishesWrong) < 0.01);
+  assert.ok(touched > 0.3 && touched < 0.35);
+});
+
+test('further from the strike is dramatically safer, not linearly safer', async () => {
+  const { flipProbability } = await import('../src/signals/exit.js');
+  const sigma = 0.002;
+
+  const one = flipProbability(65000 * Math.exp(sigma), 65000, sigma);
+  const two = flipProbability(65000 * Math.exp(2 * sigma), 65000, sigma);
+  const three = flipProbability(65000 * Math.exp(3 * sigma), 65000, sigma);
+
+  assert.ok(one > 0.3);
+  assert.ok(two < 0.06);
+  assert.ok(three < 0.005);
+});
+
+test('sitting on the strike is a certain touch', async () => {
+  const { flipProbability } = await import('../src/signals/exit.js');
+  assert.equal(flipProbability(65000, 65000, 0.002), 1);
+});
+
+test('a winning position with high flip odds is cashed, not held', async () => {
+  const { exitDecision, EXIT_ACTIONS } = await import('../src/signals/exit.js');
+
+  const call = exitDecision({
+    entryCents: 39,
+    nowCents: 72,
+    spot: 65030,
+    strike: 65000,
+    sigma: 0.0009,
+    secondsLeft: 400,
+    direction: 'up',
+  });
+
+  assert.equal(call.action, EXIT_ACTIONS.CASH_OUT);
+  assert.equal(call.reason, 'flip_risk');
+  assert.ok(call.movePercent > 80, 'it is well in profit — that is why it is worth protecting');
+  assert.match(call.reasons.join(' '), /touches the strike/);
+});
+
+test('a position far clear of the strike is held', async () => {
+  const { exitDecision, EXIT_ACTIONS } = await import('../src/signals/exit.js');
+
+  const call = exitDecision({
+    entryCents: 39,
+    nowCents: 55,
+    spot: 65000 * Math.exp(0.004),
+    strike: 65000,
+    sigma: 0.001,
+    secondsLeft: 400,
+    direction: 'up',
+  });
+
+  assert.equal(call.action, EXIT_ACTIONS.HOLD);
+  assert.ok(call.flipProbability < 0.05);
+});
+
+test('a broken thesis is cut, whatever it cost', async () => {
+  const { exitDecision, EXIT_ACTIONS } = await import('../src/signals/exit.js');
+
+  // Bought UP, price is now well below the strike.
+  const call = exitDecision({
+    entryCents: 55,
+    nowCents: 12,
+    spot: 65000 * Math.exp(-0.003),
+    strike: 65000,
+    sigma: 0.001,
+    secondsLeft: 300,
+    direction: 'up',
+  });
+
+  assert.equal(call.action, EXIT_ACTIONS.CUT_LOSS);
+  assert.equal(call.reason, 'thesis_broken');
+});
+
+test('near the bell, a clear winner holds and everything else leaves', async () => {
+  const { exitDecision, EXIT_ACTIONS } = await import('../src/signals/exit.js');
+  const base = { entryCents: 40, nowCents: 80, strike: 65000, sigma: 0.001, secondsLeft: 30, direction: 'up' };
+
+  const clear = exitDecision({ ...base, spot: 65000 * Math.exp(0.004) });
+  const marginal = exitDecision({ ...base, spot: 65000 * Math.exp(0.0002) });
+
+  assert.equal(clear.action, EXIT_ACTIONS.HOLD);
+  assert.equal(clear.reason, 'hold_to_settle');
+  assert.equal(marginal.action, EXIT_ACTIONS.CASH_OUT);
+  assert.equal(marginal.reason, 'no_time');
+});
+
+test('a market that has caught up is left, even in profit', async () => {
+  const { exitDecision, EXIT_ACTIONS } = await import('../src/signals/exit.js');
+
+  // Model says 70%, the contract now costs 72c: nothing left to hold for.
+  const call = exitDecision({
+    entryCents: 45,
+    nowCents: 72,
+    spot: 65000 * Math.exp(0.0011),
+    strike: 65000,
+    sigma: 0.002,
+    secondsLeft: 400,
+    direction: 'up',
+  });
+
+  assert.equal(call.action, EXIT_ACTIONS.CASH_OUT);
+  assert.ok(['target_hit', 'flip_risk', 'edge_gone'].includes(call.reason));
+  assert.ok(call.movePercent > 0);
+});
+
+test('a DOWN position is judged on its own side', async () => {
+  const { exitDecision, EXIT_ACTIONS } = await import('../src/signals/exit.js');
+
+  // Bought DOWN with price well below the strike: this is winning.
+  const call = exitDecision({
+    entryCents: 40,
+    nowCents: 55,
+    spot: 65000 * Math.exp(-0.004),
+    strike: 65000,
+    sigma: 0.001,
+    secondsLeft: 400,
+    direction: 'down',
+  });
+
+  assert.equal(call.winning, true);
+  assert.equal(call.action, EXIT_ACTIONS.HOLD);
+});
+
+test('the exact barrier formula stays sane at the extremes', async () => {
+  const { flipProbability } = await import('../src/signals/exit.js');
+
+  // Never above 1, never below 0, monotone in distance.
+  assert.equal(flipProbability(65000, 65000, 0.01), 1);
+  assert.ok(flipProbability(65000 * Math.exp(6 * 0.001), 65000, 0.001) < 1e-6);
+
+  let previous = 1;
+  for (let sigmas = 0.5; sigmas <= 4; sigmas += 0.5) {
+    const value = flipProbability(65000 * Math.exp(sigmas * 0.002), 65000, 0.002);
+    assert.ok(value >= 0 && value <= 1);
+    assert.ok(value < previous, 'further from the strike is always safer');
+    previous = value;
+  }
+});
