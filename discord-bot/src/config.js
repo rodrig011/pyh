@@ -264,6 +264,41 @@ export function loadVipConfig() {
   };
 }
 
+/**
+ * The signal engine's own bot.
+ *
+ * Separate application, separate token, separate server if you want one. The
+ * VIP bot handles money and access; this one has opinions about markets. They
+ * fail for different reasons and should not be able to take each other down.
+ */
+export function loadSignalConfig() {
+  return {
+    token: required('SIGNAL_BOT_TOKEN'),
+    clientId: str('SIGNAL_BOT_CLIENT_ID'),
+    guildId: str('SIGNAL_GUILD_ID', str('VIP_GUILD_ID')),
+    channelId: str('SIGNAL_CHANNEL_ID'),
+    asset: str('SIGNAL_ASSET', 'BTC'),
+    seriesTicker: str('SIGNAL_SERIES_TICKER', str('KALSHI_SERIES_TICKER')),
+    apiBase: str('KALSHI_API_BASE'),
+    storePath: str('SIGNALS_STORE_PATH', str('STORE_PATH', 'data/store.json')),
+    sampleSeconds: int('SIGNALS_SAMPLE_SECONDS', 30),
+    // Posting is off until the engine has earned it. Watching it call markets
+    // in a mods-only channel for a couple of weeks costs nothing; publishing an
+    // uncalibrated signal to people who pay for it costs the room.
+    autoPost: bool('SIGNAL_AUTO_POST', false),
+    roleIds: list('SIGNAL_PING_ROLE_IDS'),
+    kellyFraction: Number.parseFloat(str('SIGNAL_KELLY_FRACTION', '0.25')),
+    maximumFraction: Number.parseFloat(str('SIGNAL_MAX_FRACTION', '0.1')),
+    engine: {
+      minimumEdgeCents: int('SIGNAL_MIN_EDGE_CENTS', 4),
+      minimumWorstCaseEdgeCents: int('SIGNAL_MIN_WORST_EDGE_CENTS', 2),
+      maximumSpreadCents: int('SIGNAL_MAX_SPREAD_CENTS', 3),
+      minimumLiquidityDollars: int('SIGNAL_MIN_LIQUIDITY', 25),
+      sampleSeconds: int('SIGNALS_SAMPLE_SECONDS', 30),
+    },
+  };
+}
+
 export function loadPhotoConfig() {
   return {
     token: required('PHOTO_BOT_TOKEN'),

@@ -1,7 +1,8 @@
 import 'dotenv/config';
-import { loadPhotoConfig, loadVipConfig } from './config.js';
+import { loadPhotoConfig, loadSignalConfig, loadVipConfig } from './config.js';
 import { createLogger } from './lib/logger.js';
 import { createPhotoBot } from './bots/photoBot.js';
+import { createSignalBot } from './bots/signalBot.js';
 import { createVipBot } from './bots/vipBot.js';
 
 const log = createLogger('main');
@@ -45,6 +46,18 @@ if (process.env.PHOTO_BOT_TOKEN) {
   await login('photos bot', client, config.token);
 } else {
   log.warn('PHOTO_BOT_TOKEN is not set: the photos-only bot will not start');
+}
+
+// The signal engine, if it has been given its own application. Separate from
+// the VIP bot on purpose: one handles money and access, the other has opinions
+// about markets, and they should not be able to take each other down.
+if (process.env.SIGNAL_BOT_TOKEN) {
+  const config = loadSignalConfig();
+  const { client } = createSignalBot(config);
+  started.push({ name: 'signal', client, stop: () => {} });
+  await login('signal bot', client, config.token);
+} else {
+  log.debug('SIGNAL_BOT_TOKEN is not set: the signal engine bot will not start');
 }
 
 if (started.length === 0) {
