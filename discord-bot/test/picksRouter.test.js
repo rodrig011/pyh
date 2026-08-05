@@ -466,3 +466,53 @@ test('/picks edge reports the market winning, rather than hiding it', async () =
   // scratch and the log never settles.
   assert.ok(store.listQuotes('BTC').every((row) => row.outcome !== null));
 });
+
+test('/picks read says what is missing before anyone hunts for a bug', async () => {
+  const store = freshStore();
+  const interaction = fakeInteraction('read');
+
+  await handlePicks(interaction, { store, config });
+
+  const reply = String(interaction.replies.at(-1));
+  assert.match(reply, /KALSHI_ENABLED/);
+});
+
+test('/picks read runs end to end with the feed on', async () => {
+  // The whole path: contract, spot, samples, model, message. Every previous
+  // command in this file shipped with a name that was never imported, and this
+  // is the cheapest place to catch the next one.
+  const store = freshStore();
+
+  // An hour of price history, so the model has a volatility to work from.
+  const now = Date.now();
+  const samples = [];
+  let price = 65_000;
+  let state = 999;
+  for (let i = 120; i > 0; i -= 1) {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    price *= Math.exp((state / 4294967296 - 0.5) * 0.0028);
+    samples.push({ at: now - i * 30_000, price });
+  }
+  store.putSamples('BTC', samples);
+
+  const interaction = fakeInteraction('read');
+  await handlePicks(interaction, {
+    store,
+    config: {
+      ...config,
+      picks: {
+        ...config.picks,
+        kalshi: { enabled: true, seriesTicker: 'KXBTC15M', side: 'yes' },
+      },
+    },
+  });
+
+  const reply = String(interaction.replies.at(-1));
+  // Either a real read or an honest "the feed did not answer" — never a crash
+  // and never a silent empty reply.
+  assert.ok(reply.length > 0);
+  assert.ok(
+    /UP|DOWN|No open market|No spot price|No read/.test(reply),
+    `unexpected reply: ${reply.slice(0, 200)}`,
+  );
+});

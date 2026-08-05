@@ -10,6 +10,7 @@ import {
 } from 'discord.js';
 import { COLORS } from '../lib/brand.js';
 import { measureEdge } from '../signals/measure.js';
+import { directionalRead } from '../signals/direction.js';
 import { settleObservations } from '../signals/recorder.js';
 import { postPermissionHelp } from '../lib/channelAccess.js';
 import {
@@ -234,6 +235,11 @@ export function buildPickCommands(config) {
     )
     .addSubcommand((sub) =>
       sub.setName('kalshi').setDescription('Check the Kalshi contract feed and show what it returned'),
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('read')
+        .setDescription('The engine’s live read on the BTC market right now'),
     )
     .addSubcommand((sub) =>
       sub
@@ -947,6 +953,94 @@ export async function handlePicks(interaction, { store, config }) {
   // The response shape was never verified against a live account, so this
   // prints what came back rather than only whether it worked. That raw body is
   // what turns a guess into a fix.
+  if (sub === 'read') {
+    const settings = pickSettings(config);
+    const asset = settings.defaultAsset ?? 'BTC';
+
+    if (!settings.kalshi?.enabled || !settings.kalshi.seriesTicker) {
+      return interaction.editReply(
+        '❌ **The contract feed is off.** `KALSHI_ENABLED` must be `true` and `KALSHI_SERIES_TICKER` set.',
+      );
+    }
+
+    const [contract, quote] = await Promise.all([
+      currentContract(settings.kalshi).catch((error) => ({ error: error.message })),
+      fetchSpotPrice(asset),
+    ]);
+
+    if (!contract?.market) {
+      return interaction.editReply(`❌ **No open market:** ${contract?.error ?? 'none returned'}`);
+    }
+    if (!(quote?.price > 0)) {
+      return interaction.editReply('❌ **No spot price right now**, so there is nothing to read.');
+    }
+
+    const samples = store.listSamples(asset);
+    const prices = samples
+      .filter((sample) => sample?.at >= Date.now() - 60 * 60 * 1000 && sample?.price > 0)
+      .map((sample) => sample.price);
+
+    const closesAt = Date.parse(contract.market.close_time ?? '');
+    const read = directionalRead({
+      prices,
+      spot: quote.price,
+      strike: Number(contract.market.floor_strike ?? contract.market.cap_strike),
+      marketPriceCents: contract.price,
+      market: contract.market,
+      secondsLeft: Number.isFinite(closesAt) ? (closesAt - Date.now()) / 1000 : null,
+    });
+
+    if (!read.call) {
+      return interaction.editReply(
+        [
+          `🤷 **No read on ${asset} yet** — ${read.reason}`,
+          '',
+          `Price history stored: **${prices.length}** sample(s). The model needs roughly an hour of them.`,
+        ].join('\n'),
+      );
+    }
+
+    const up = read.call === 'up';
+    const pct = (value) => (Number.isFinite(value) ? `${Math.round(value * 100)}%` : '—');
+    const minutes = Number.isFinite(read.secondsLeft) ? Math.floor(read.secondsLeft / 60) : null;
+
+    const lines = [
+      `${up ? '🟢' : '🔴'} **${up ? 'UP' : 'DOWN'} · ${asset}** — _${read.confidence}_`,
+      '',
+      `**Model** ${pct(read.winProbability)}  ·  **Market** ${pct(read.marketWinProbability)}` +
+        `  ·  **Entry** ${Math.round(read.entryCents)}¢`,
+    ];
+
+    if (read.disagrees) {
+      // The line worth more than any indicator on the panel.
+      lines.push(
+        '',
+        `⚠️ **${read.leaning === 'up' ? 'UP' : 'DOWN'} is the more likely side, but ${up ? 'UP' : 'DOWN'} is the one worth buying.**`,
+        `_The likely side costs too much for how likely it is. Paying up for the favourite is how a high win rate loses money._`,
+      );
+    }
+
+    lines.push(
+      '',
+      read.tradeable
+        ? `✅ **Worth trading** — **+${(read.netEdgeCents ?? 0).toFixed(1)}¢** net after the spread and the fee.`
+        : `⛔ **Not worth trading.** ${read.whyNotTradeable}`,
+    );
+
+    if (!read.tradeable && Number.isFinite(read.valueCents)) {
+      lines.push(
+        `_The model still likes this side by **${read.valueCents.toFixed(1)}¢** — just not enough to pay the costs._`,
+      );
+    }
+
+    lines.push(
+      '',
+      `\`${contract.market.ticker}\` · closes in **${minutes ?? '?'} min** · ${prices.length} samples · Not financial advice`,
+    );
+
+    return interaction.editReply(lines.join('\n'));
+  }
+
   if (sub === 'edge') {
     const settings = pickSettings(config);
     const asset = settings.defaultAsset ?? 'BTC';

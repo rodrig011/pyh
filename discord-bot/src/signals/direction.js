@@ -93,8 +93,13 @@ export function directionalRead(input, options = {}) {
   const upValue = Number.isFinite(upCost) ? probability * 100 - upCost : null;
   const downValue = Number.isFinite(downCost) ? (1 - probability) * 100 - downCost : null;
 
+  // When neither side is underpriced there is no side worth buying, and
+  // picking the marginally-less-bad one is noise dressed as a decision. In a
+  // fairly priced market the honest call is simply the likely side, with no
+  // claim of value attached.
+  const anyValue = (upValue ?? -Infinity) > 0 || (downValue ?? -Infinity) > 0;
   const call =
-    upValue === null || downValue === null
+    upValue === null || downValue === null || !anyValue
       ? leaning
       : upValue >= downValue
         ? VERDICTS.UP
@@ -123,8 +128,10 @@ export function directionalRead(input, options = {}) {
     leaning,
     // The moment worth teaching: the likely side and the cheap side are not
     // the same, and paying up for the likely one is how a high win rate
-    // becomes a losing account.
-    disagrees: call !== leaning,
+    // becomes a losing account. Only ever true when the cheap side is
+    // genuinely cheap — a fairly priced market has no cheap side, and saying
+    // otherwise would be inventing a disagreement out of rounding.
+    disagrees: anyValue && call !== leaning,
     winProbability,
     // The raw edge on the called side before any threshold, in cents. Positive
     // means the model thinks it is underpriced; it may still be far too small

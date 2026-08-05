@@ -153,9 +153,19 @@ export function evaluate(input, options = {}) {
   // ours is far enough from it to be worth acting on.
   const marketProbability = marketPriceCents / 100;
 
+  // The prices that can actually be traded, not the mid between them. Buying
+  // YES costs the ask; buying NO costs a hundred minus the YES BID. Measuring
+  // edge against the mid quietly claimed half the spread as profit on every
+  // trade — up to 1.5¢ of a 6¢ threshold, and always in the flattering
+  // direction.
+  const quotes = executablePrices(market, marketPriceCents);
+
   // What every refusal from here on still knows. A position already open is
-  // judged on this, not on the verdict.
-  const read = { probability, marketProbability, sigma, volatility: vol };
+  // judged on this, not on the verdict — and so is a directional read on a
+  // market the engine declines to trade, which is why the executable prices
+  // travel with it. Handing a refusal the mid instead sends the same
+  // half-spread error down a second path.
+  const read = { probability, marketProbability, sigma, volatility: vol, quotes };
 
   const trend = trendFit(prices.slice(-20));
   if (trend && trend.r2 > config.maximumTrendFit) {
@@ -165,12 +175,6 @@ export function evaluate(input, options = {}) {
 
   const upEdgeCents = (probability - marketProbability) * 100;
 
-  // The prices that can actually be traded, not the mid between them. Buying
-  // YES costs the ask; buying NO costs a hundred minus the YES BID. Measuring
-  // edge against the mid quietly claimed half the spread as profit on every
-  // trade — up to 1.5¢ of a 6¢ threshold, and always in the flattering
-  // direction.
-  const quotes = executablePrices(market, marketPriceCents);
   if (!quotes) return skip('no_price', read);
 
   // Each side judged on its own executable price. With a spread these are no

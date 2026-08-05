@@ -193,3 +193,19 @@ test('when they agree, they agree quietly', () => {
   assert.equal(read.leaning, read.call);
   assert.equal(read.disagrees, false);
 });
+
+test('a fairly priced market has no cheap side, and does not pretend to', () => {
+  // Both sides priced at what the model thinks they are worth. Picking the
+  // marginally-less-bad one and flagging it as a disagreement would be
+  // inventing a decision out of rounding error.
+  const read = directionalRead(
+    market({
+      marketPriceCents: 60,
+      market: { yes_bid_dollars: '0.59', yes_ask_dollars: '0.61', liquidity_dollars: '1000' },
+    }),
+  );
+
+  assert.equal(read.disagrees, false, 'no side is cheap, so nothing disagrees');
+  assert.equal(read.call, read.leaning);
+  assert.equal(read.tradeable, false);
+});
