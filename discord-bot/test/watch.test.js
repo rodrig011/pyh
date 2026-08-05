@@ -345,7 +345,12 @@ test('the paper sweep looks at the whole ladder, not one strike', async () => {
 
   assert.equal(result.ran, true);
   assert.equal(result.looked, 5);
-  assert.equal(store.current.seen, 5);
+  // Seen counts contracts that have EXPIRED, not sweeps: after one sweep the
+  // whole ladder is still live, so nothing has finished yet. Counting per sweep
+  // is what turned six hours into "2100 markets".
+  assert.equal(store.current.seen, 0);
+  assert.equal(store.current.looks, 1);
+  assert.equal(Object.keys(store.current.window).length, 5);
 });
 
 test('a reset landing mid-sweep is NOT overwritten by the stale copy', async () => {

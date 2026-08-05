@@ -107,15 +107,25 @@ test('a settled loser pays nothing at all', () => {
   assert.ok(account.trades[0].profit < 0);
 });
 
-test('refusals are counted, because most markets are refusals', () => {
-  // A report saying "0 trades, refused 41 markets" is the engine working. It
-  // has to be able to say that rather than looking broken.
+test('a contract is counted once, when it expires — not once per sweep', () => {
+  // The bug this pins, reported from six hours of live running: "it says 2100
+  // markets, that's impossible". It was. The sweep fires every ten seconds, so
+  // six hours is 2,160 ticks — and the counter added one per TICK, turning a
+  // couple of dozen fifteen-minute contracts into two thousand "markets". It
+  // also made a working reset look broken, because the number climbed back into
+  // the hundreds within minutes of being zeroed.
   let account = newAccount();
-  for (let i = 0; i < 5; i += 1) {
-    // A fairly priced market: nothing to win.
+
+  // The same market, seen over and over. That is one contract, not many.
+  for (let i = 0; i < 200; i += 1) {
     account = paperTick(account, market({ spot: 65_000, marketPriceCents: 50 })).account;
   }
-  assert.equal(account.seen, 5);
+  assert.equal(account.seen, 0, 'still in view, so nothing has finished yet');
+  assert.equal(account.looks, 200);
+
+  // The window rolls: a different strike is listed, so the old one expired.
+  account = paperTick(account, market({ spot: 65_000, strike: 66_000, marketPriceCents: 50 })).account;
+  assert.equal(account.seen, 1, '200 sweeps of one contract is one contract');
   assert.ok(account.refused > 0);
 });
 
@@ -195,21 +205,51 @@ const context = (over = {}) => ({
   ...over,
 });
 
-test('the whole ladder counts towards what it looked at, not one strike', () => {
-  const candidates = ladder();
-  const { account } = paperTick(newAccount(), context(), { candidates });
-  assert.equal(account.seen, candidates.length);
+test('the whole ladder counts once each, as its contracts expire', () => {
+  const first = ladder();
+  let account = newAccount();
+
+  // Many sweeps of the same five strikes.
+  for (let i = 0; i < 50; i += 1) {
+    account = paperTick(account, context(), { candidates: first }).account;
+  }
+  assert.equal(account.seen, 0);
+  assert.equal(account.looks, 50);
+
+  // The window rolls to a completely different ladder.
+  const next = ladder([70, 60, 50, 40, 30], [66_000, 66_200, 66_400, 66_600, 66_800]);
+  account = paperTick(account, context(), { candidates: next }).account;
+  assert.equal(account.seen, 5, 'five contracts expired, whatever the sweep count');
 });
 
-test('refusals are broken down by reason, so a dead feed is not read as a fair market', () => {
+test('refusals are broken down by reason once the contracts expire', () => {
   let account = newAccount();
-  for (let i = 0; i < 3; i += 1) {
-    account = paperTick(account, context(), { candidates: ladder() }).account;
-  }
+  account = paperTick(account, context(), { candidates: ladder() }).account;
+  account = paperTick(account, context(), {
+    candidates: ladder([70, 60, 50, 40, 30], [66_000, 66_200, 66_400, 66_600, 66_800]),
+  }).account;
 
   const total = Object.values(account.census).reduce((sum, n) => sum + n, 0);
   assert.equal(total, account.refused);
-  assert.ok(account.refused > 0);
+});
+
+test('a contract that was EVER tradeable is not booked as a refusal', () => {
+  // It is refused close to the bell, and near an extreme price, and that is
+  // normal. Counting the last word rather than the best one would report a
+  // market it genuinely called as one it turned down.
+  let account = newAccount();
+  const good = ladder([50], [65_000]);
+
+  account = paperTick(account, context(), { candidates: good }).account;
+  const everTradeable = account.window['KXBTC-65000'] === null;
+
+  // Now it goes untradeable — out of time.
+  account = paperTick(account, context({ secondsLeft: 10 }), { candidates: good }).account;
+  // And rolls off.
+  account = paperTick(account, context(), { candidates: ladder([50], [66_000]) }).account;
+
+  assert.equal(account.seen, 1);
+  if (everTradeable) assert.equal(account.refused, 0);
 });
 
 test('a position remembers its OWN strike and settles against that one', () => {

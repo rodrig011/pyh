@@ -12,7 +12,7 @@ import { COLORS } from '../lib/brand.js';
 import { measureEdge } from '../signals/measure.js';
 import { readBoard, nearestTheMoney, censusLine } from '../signals/board.js';
 import { addWatch, makeWatch, removeWatches } from './watch.js';
-import { START_BANKROLL, newAccount, report } from './paper.js';
+import { PROFILES, START_BANKROLL, newAccount, report } from './paper.js';
 import { roundTripCostCents } from '../signals/scalp.js';
 import { settleObservations } from '../signals/recorder.js';
 import { postPermissionHelp } from '../lib/channelAccess.js';
@@ -256,6 +256,15 @@ export function buildPickCommands(config) {
             .setDescription('Starting balance in dollars (default: 70)')
             .setMinValue(5)
             .setMaxValue(100000),
+        )
+        .addStringOption((option) =>
+          option
+            .setName('mode')
+            .setDescription('How hard it pushes (default: scalp)')
+            .addChoices(
+              { name: 'scalp — thinner edges, bigger bets, more trades', value: 'scalp' },
+              { name: 'careful — only what the measurements support', value: 'careful' },
+            ),
         )
         .addBooleanOption((option) =>
           option.setName('reset').setDescription('Wipe the run and start over'),
@@ -1060,7 +1069,11 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
     // A reset is confirmed by reading back what was stored, not by assuming the
     // write landed. The previous version reported success unconditionally, so a
     // reset undone by the background sweep looked exactly like one that worked.
-    const account = { ...newAccount({ bankroll, at: Date.now() }), userId: interaction.user.id };
+    const mode = interaction.options.getString('mode') ?? 'scalp';
+    const account = {
+      ...newAccount({ bankroll, at: Date.now(), profile: mode }),
+      userId: interaction.user.id,
+    };
     store.putPaperAccount(account);
 
     const stored = store.paperAccount();
@@ -1083,6 +1096,17 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
         'It reads **every strike** in the window, not just the one closing soonest —',
         'that alone took the share of windows with a signal from 36% to 76% in testing,',
         'with the edge threshold left exactly where it was.',
+        '',
+        `**Mode: ${PROFILES[mode]?.label ?? mode}.** ` +
+          (mode === 'scalp'
+            ? 'Half the edge required (3¢ not 6¢), double the bet size, enters a minute ' +
+              'from the bell instead of two, banks a move sooner.'
+            : 'Six cents of edge, quarter Kelly — only what the measurements support.'),
+        mode === 'scalp'
+          ? '_Measured honestly: a 3¢ bar loses ~7.6% against a market that is never wrong, ' +
+            'where 6¢ loses ~2.1%. That is the price of trading more. This is imaginary ' +
+            'money, which is exactly what a question like that is for._'
+          : null,
         '',
         '**I will DM you the result every 6 hours.** Only you.',
         '',

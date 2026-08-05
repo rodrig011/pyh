@@ -30,7 +30,49 @@ import { feePerContract } from '../signals/math.js';
 
 export const START_BANKROLL = 70;
 
-export function newAccount({ bankroll = START_BANKROLL, at = Date.now() } = {}) {
+/**
+ * How hard the account is allowed to push.
+ *
+ * `careful` is what the measurements support: six cents of edge, quarter
+ * Kelly, no entries inside two minutes of the bell. `scalp` is what was asked
+ * for — thinner edges, bigger bets, later entries, profits banked sooner.
+ *
+ * The honest label on `scalp`: the simulator says a three-cent bar loses about
+ * 7.6% against a market that is never wrong, where six cents loses 2.1%. That
+ * is the cost of trading more, and it is measured rather than feared. It is
+ * also exactly why this belongs in a PAPER account first: imaginary money is
+ * what a question like this is for, and being timid with imaginary money learns
+ * nothing.
+ */
+export const PROFILES = {
+  careful: {
+    label: 'careful',
+    engine: { minimumEdgeCents: 6, minimumWorstCaseEdgeCents: 2 },
+    sizing: { kellyFraction: 0.25, maximumFraction: 0.1 },
+    scalp: { marginCents: 0.5, noEntryWithinSeconds: 120 },
+  },
+  scalp: {
+    label: 'scalp',
+    // Half the edge required, and the pessimistic-volatility test dropped to
+    // break-even rather than +2¢: both of those gates exist to reject edges
+    // that are really vol-estimate noise, and loosening them means accepting
+    // some of that noise on purpose.
+    engine: { minimumEdgeCents: 3, minimumWorstCaseEdgeCents: 0 },
+    // Double the Kelly portion and double the cap. Size is what actually bounds
+    // the damage on this instrument — stops were measured and they are worse —
+    // so this is the knob that carries the real risk of the profile.
+    sizing: { kellyFraction: 0.5, maximumFraction: 0.2 },
+    // Enters a minute from the bell instead of two, and banks a move as soon as
+    // it has covered the round trip plus a quarter cent.
+    scalp: { marginCents: 0.25, noEntryWithinSeconds: 60 },
+  },
+};
+
+export function profileOf(account) {
+  return PROFILES[account?.profile] ?? PROFILES.careful;
+}
+
+export function newAccount({ bankroll = START_BANKROLL, at = Date.now(), profile = 'scalp' } = {}) {
   return {
     cash: bankroll,
     start: bankroll,
@@ -38,10 +80,25 @@ export function newAccount({ bankroll = START_BANKROLL, at = Date.now() } = {}) 
     position: null,
     trades: [],
     lastReportAt: at,
-    // Every market it looked at and refused, so the report can say how much of
-    // the day was spent waiting rather than trading.
+    profile: PROFILES[profile] ? profile : 'careful',
+    // Distinct CONTRACTS considered, not sweeps performed.
+    //
+    // This counted once per tick, and the sweep runs every ten seconds — so six
+    // hours of watching the same handful of 15-minute markets reported "2100
+    // markets", which is 2160 ticks wearing a different hat. It made a working
+    // reset look broken, because the number climbed back into the hundreds
+    // within minutes, and it made every refusal ratio meaningless.
+    //
+    // A market is now counted ONCE, when it rolls off the board, with whatever
+    // the last word on it was.
     seen: 0,
     refused: 0,
+    // Raw sweeps, kept so the two numbers can be shown side by side and the old
+    // inflated figure is recognisable for what it was.
+    looks: 0,
+    // Contracts currently in view: ticker -> refusal reason, or null if it was
+    // tradeable. Bounded by the size of one window's ladder.
+    window: {},
     // Refusals broken down by reason. Without this the report says "refused 41"
     // and nobody — including whoever wrote it — can tell an engine that is
     // working from an engine that is broken. With it, "38 no_edge" reads as a
@@ -73,24 +130,30 @@ export function paperTick(
   { now = Date.now(), ticker = null, sizing = {}, candidates = null } = {},
 ) {
   const position = account.position;
+  const profile = profileOf(account);
+
+  // The board is read on every tick, holding or not.
+  //
+  // It costs nothing — the quotes were already fetched — and it is what keeps
+  // the census honest: contracts expire whether or not the account happens to
+  // be in one, and only counting them while flat would report a fraction of the
+  // day and call it the whole of it.
+  const board = candidates
+    ? readBoard(candidates, input, profile.engine)
+    : readBoard(
+        [{ price: input?.marketPriceCents, market: input?.market, strike: input?.strike }],
+        input,
+        profile.engine,
+      );
+
+  const seen = countLook(account, board);
 
   // Holding something: the only market that matters is the one it is held on.
   // Reading the board's best strike instead would judge a position against a
   // contract it is not in — and settle it against a strike it was never
   // written on, which is the same class of mistake as grading a Kalshi call on
   // the spot price.
-  if (position) return holdTick(account, position, input, { now, candidates });
-
-  // Flat: the whole ladder is on the table. This is the change that answers
-  // "it skips every market" — not a lower bar, a wider look.
-  const board = candidates
-    ? readBoard(candidates, input)
-    : readBoard(
-        [{ price: input?.marketPriceCents, market: input?.market, strike: input?.strike }],
-        input,
-      );
-
-  const seen = countLook(account, board);
+  if (position) return holdTick(seen, position, input, { now, candidates });
 
   // The refusal the person paying for this explicitly asked to keep: when the
   // ladder as a whole says the volatility cannot be read, stand aside. One
@@ -124,7 +187,8 @@ function holdTick(account, position, input, { now, candidates }) {
     return { account: bookTrade(account, closed), event: { kind: 'settled', trade: closed } };
   }
 
-  const read = directionalRead({ ...input, strike, marketPriceCents, market });
+  const profile = profileOf(account);
+  const read = directionalRead({ ...input, strike, marketPriceCents, market }, profile.engine);
   const quotes = read.result?.quotes;
   if (!quotes) return { account, event: null };
 
@@ -132,12 +196,15 @@ function holdTick(account, position, input, { now, candidates }) {
   // at the NO bid, which is a hundred minus the YES ask.
   const heldBid = position.side === 'up' ? quotes.yesBidCents : quotes.noBidCents;
 
-  const call = scalpDecision({
-    position: { entryCents: position.entryCents, side: position.side },
-    nowCents: heldBid,
-    signal: read.result,
-    secondsLeft: input.secondsLeft,
-  });
+  const call = scalpDecision(
+    {
+      position: { entryCents: position.entryCents, side: position.side },
+      nowCents: heldBid,
+      signal: read.result,
+      secondsLeft: input.secondsLeft,
+    },
+    profile.scalp,
+  );
 
   if (call.action === SCALP_ACTIONS.EXIT && heldBid > 0) {
     // Selling pays a fee on the way out too.
@@ -156,23 +223,65 @@ function holdTick(account, position, input, { now, candidates }) {
   return { account, event: null };
 }
 
-/** Books what the whole board was looked at and refused for. */
+/**
+ * Books the board, counting each CONTRACT once rather than each sweep.
+ *
+ * A contract stays "in view" while it is listed, and its entry is overwritten
+ * every tick with the latest word on it. Only when it rolls off the board — the
+ * bell rang, the window moved on — is it folded into the totals, once, with
+ * whatever the last verdict was.
+ *
+ * This is what the old counter got wrong. It added one per tick, so the same
+ * fifteen-minute market was counted about ninety times, and six hours of
+ * watching a handful of contracts reported two thousand markets.
+ */
 function countLook(account, board) {
+  const window = { ...(account.window ?? {}) };
   const census = { ...(account.census ?? {}) };
-  for (const { reason, count } of board.census ?? []) {
-    census[reason] = (census[reason] ?? 0) + count;
+  let seen = account.seen;
+  let refused = account.refused;
+
+  const listed = new Set();
+  for (const entry of board.reads ?? []) {
+    // A contract with no ticker still needs identifying, or it is never counted
+    // at all. The strike is what actually distinguishes one contract in a
+    // window from another, so it stands in when the feed did not name it.
+    const key = entry.ticker ?? `strike:${entry.strike}`;
+    listed.add(key);
+    // Null means it cleared the bar at least at this moment. A market that was
+    // ever tradeable is not a refusal, whatever it looks like later.
+    window[key] = entry.read.tradeable
+      ? null
+      : window[key] === null
+        ? null
+        : entry.read.result?.reason ?? 'no read';
   }
+
+  // Anything no longer listed has finished. Count it, once.
+  for (const [ticker, reason] of Object.entries(window)) {
+    if (listed.has(ticker)) continue;
+    seen += 1;
+    if (reason !== null) {
+      refused += 1;
+      census[reason] = (census[reason] ?? 0) + 1;
+    }
+    delete window[ticker];
+  }
+
   return {
     ...account,
-    seen: account.seen + board.looked,
-    refused: account.refused + board.refused,
+    seen,
+    refused,
     census,
+    window,
+    looks: (account.looks ?? 0) + 1,
   };
 }
 
 /** Opens the board's best strike, if the stake buys at least one contract. */
 function enterTick(account, entry, { now, ticker, sizing }) {
   const read = entry.read;
+  const profile = profileOf(account);
 
   // Sized the way the live bot sizes: a quarter of Kelly on the pessimistic
   // probability, hard-capped.
@@ -180,6 +289,7 @@ function enterTick(account, entry, { now, ticker, sizing }) {
     probability: read.winProbability,
     worstProbability: read.result.worstWinProbability ?? read.winProbability,
     priceDollars: read.entryCents / 100,
+    ...profile.sizing,
     ...sizing,
   });
 
@@ -259,6 +369,7 @@ export function report(account, { now = Date.now(), markCents = null } = {}) {
 
   const lines = [
     `${profit >= 0 ? '📈' : '📉'} **PAPER — ${money(value)}** _(started ${money(account.start)})_`,
+    `_Mode: **${profileOf(account).label}**_`,
     '',
     `**${sign(profit)}${money(profit).replace('$', '$')}** · **${sign(percent)}${percent.toFixed(1)}%** in ${hours.toFixed(0)}h`,
   ];
@@ -275,16 +386,18 @@ export function report(account, { now = Date.now(), markCents = null } = {}) {
   if (closed.length === 0) {
     lines.push(
       '',
-      `No trades. It looked at **${account.seen}** market(s) and refused **${account.refused}**.`,
+      `No trades. **${account.seen}** contract(s) went by and it refused **${account.refused}**.`,
       why ? `Why: ${why}.` : null,
+      lookLine(account),
       '_Refusing is the normal state. Most 15-minute markets are priced correctly._',
     );
   } else {
     lines.push(
       '',
       `**${closed.length}** trade(s) · **${wins}W ${losses}L** · ` +
-        `refused **${account.refused}** of **${account.seen}** market(s)`,
+        `refused **${account.refused}** of **${account.seen}** contract(s)`,
       why ? `Refused because: ${why}.` : null,
+      lookLine(account),
       `**${money(fees)}** of that went to the exchange in fees.`,
     );
 
@@ -322,4 +435,21 @@ export function report(account, { now = Date.now(), markCents = null } = {}) {
 /** Whether enough time has passed to send another report. */
 export function reportDue(account, { now = Date.now(), everyHours = 6 } = {}) {
   return now - (account.lastReportAt ?? 0) >= everyHours * 3_600_000;
+}
+
+/**
+ * The two numbers that used to be one, and the reason they are both shown.
+ *
+ * The sweep runs every ten seconds, so six hours of watching the same handful
+ * of fifteen-minute contracts is about 2,160 looks at maybe two dozen markets.
+ * Reporting the looks as "markets" turned that into "2100 markets in 6 hours",
+ * which is impossible on its face and made a working reset look broken.
+ */
+function lookLine(account) {
+  const looks = account.looks ?? 0;
+  if (looks === 0) return null;
+  return (
+    `_${looks.toLocaleString('en-US')} sweep(s) of the board — a contract is counted once, ` +
+    `when it expires, not once every ten seconds._`
+  );
 }

@@ -599,3 +599,73 @@ Running total: eight ideas built and measured, two shipped — and one
 measurement that had to be repaired three times before it was worth reading.
 The recurring lesson is unchanged: the bugs are in what gets measured and what
 gets shown, not in the arithmetic.
+
+---
+
+## "2100 markets in 6 hours" — the counter was counting the wrong thing
+
+Reported from a live run, and the arithmetic gives it away immediately:
+
+```
+sweep every 10s × 6 hours = 2,160 ticks
+what the bot reported     = 2,100 "markets"
+```
+
+The paper account added one to `seen` **per sweep**, not per contract. A
+fifteen-minute market sitting in view gets looked at about ninety times, so a
+couple of dozen contracts were reported as two thousand.
+
+Two things followed from that, and both were reported as separate bugs:
+
+- **The reset looked broken.** It worked — the number just climbed back into
+  the hundreds within minutes of being zeroed, which is indistinguishable from
+  a reset that never happened.
+- **Every refusal ratio was meaningless.** "Refused 2,090 of 2,100" is one
+  handful of markets refused ninety times each.
+
+A contract is now counted **once**, when it rolls off the board, carrying
+whatever the last verdict on it was — and a contract that was *ever* tradeable
+is never booked as a refusal, because being refused near the bell is normal and
+says nothing about the call that was made earlier. The raw sweep count is still
+shown beside it, so the old inflated figure is recognisable for what it was.
+
+The board is now also read on every tick rather than only while flat. It costs
+nothing, and contracts expire whether or not the account happens to be holding
+one; counting them only while flat reports a fraction of the day as the whole
+of it.
+
+A gap this exposed: the single-market path had no ticker at all, so it was never
+counted. The strike stands in when the feed does not name the contract.
+
+## Two profiles, and what the aggressive one actually costs
+
+Trading harder was asked for repeatedly, so it is built — and measured rather
+than argued about. Seven seeds, 200 markets each, 2¢ spread.
+
+| Profile | World | Trades | Return |
+|---|---|---|---|
+| careful | fair (no edge exists) | 63 | **−4.2%** |
+| careful | biased +4¢ | 480 | **+6.6%** |
+| scalp | fair (no edge exists) | 389 | **−13.4%** |
+| scalp | biased +4¢ | 1056 | **+34.4%** |
+
+`scalp` halves the edge required (3¢ not 6¢), drops the pessimistic-volatility
+test to break-even, doubles the Kelly portion and the size cap, enters a minute
+from the bell instead of two, and banks a move sooner.
+
+The result is not "better" or "worse" — it is **leverage on a question that is
+not yet answered**. Six times the trades, and:
+
+- if Kalshi is efficient, it bleeds **three times faster** (−13.4% vs −4.2%)
+- if Kalshi is genuinely mispriced, it makes **five times more** (+34.4% vs +6.6%)
+
+Which of those happens depends entirely on the `/picks edge` measurement, and
+that measurement currently says "not yet known" over a population that was being
+sampled wrongly until this week.
+
+Which is the whole argument for putting it in the **paper** account and nowhere
+else. Imaginary money is exactly what an unanswered question of this shape is
+for, and being cautious with imaginary money learns nothing. `scalp` is now the
+default there; `careful` is one option away.
+
+Running total: nine ideas built and measured, three shipped.
