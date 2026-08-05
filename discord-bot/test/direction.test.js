@@ -248,3 +248,42 @@ test('a target that cannot cover the round trip is called out, not printed as a 
   assert.equal(plan.targetClearsCosts, false);
   assert.ok(plan.minimumExitCents > plan.targetCents);
 });
+
+test('a refusal says the exact price that would change its mind', async () => {
+  // "No trade" on its own sends somebody back to ask again in thirty seconds.
+  // The engine wants a fixed edge before acting, so the price that turns the
+  // refusal into a call is arithmetic, not opinion.
+  const { triggerPrices } = await import('../src/signals/direction.js');
+
+  // Model says the up side is worth 60. With a six point threshold, up becomes
+  // a buy at 54 and down (worth 40) becomes a buy at 34.
+  const t = triggerPrices(0.6, { minimumEdgeCents: 6 });
+
+  assert.ok(Math.abs(t.upAt - 54) < 1e-9);
+  assert.ok(Math.abs(t.downAt - 34) < 1e-9);
+  // And stated in the units the screen actually shows.
+  assert.ok(Math.abs(t.downAtYesPrice - 66) < 1e-9);
+});
+
+test('a side that can never become cheap enough is not offered as a target', async () => {
+  const { triggerPrices } = await import('../src/signals/direction.js');
+
+  // The model gives the down side almost nothing, so no price for it clears a
+  // six point edge. Printing a negative target would be worse than silence.
+  const t = triggerPrices(0.97, { minimumEdgeCents: 6 });
+  assert.equal(t.downAt, null);
+  assert.ok(t.upAt > 0);
+});
+
+test('every read carries its triggers, so a no is always actionable', () => {
+  const read = directionalRead(
+    market({
+      marketPriceCents: 60,
+      market: { yes_bid_dollars: '0.59', yes_ask_dollars: '0.61', liquidity_dollars: '1000' },
+    }),
+  );
+
+  assert.equal(read.tradeable, false);
+  assert.ok(read.triggers, 'a refusal must still say what it is waiting for');
+  assert.ok(read.triggers.upAt !== null || read.triggers.downAt !== null);
+});

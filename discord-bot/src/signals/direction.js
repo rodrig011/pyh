@@ -104,6 +104,39 @@ export function exitPlan(entryCents, winProbability, { feeRate = 0.07, marginCen
 }
 
 /**
+ * The price at which each side would actually become a buy.
+ *
+ * "No trade" on its own is a dead end. The engine wants a fixed number of
+ * cents of edge before it will act, so the price that turns a refusal into a
+ * call is not a matter of opinion — it is arithmetic, and it can be handed to
+ * somebody so they can watch for it instead of asking again every thirty
+ * seconds.
+ *
+ * Both sides, because on a two-sided market either one can come to you: the up
+ * side becomes a buy by getting cheaper, and the down side by the up side
+ * getting dearer.
+ */
+export function triggerPrices(probability, { minimumEdgeCents = 6 } = {}) {
+  if (!Number.isFinite(probability)) return null;
+
+  const upWorth = probability * 100;
+  const downWorth = (1 - probability) * 100;
+
+  const upAt = upWorth - minimumEdgeCents;
+  const downAt = downWorth - minimumEdgeCents;
+
+  return {
+    // Buy UP if its ask falls to this or below.
+    upAt: upAt > 0 ? upAt : null,
+    // Buy DOWN if the NO ask falls to this or below — which is the same as the
+    // YES bid rising to a hundred minus it.
+    downAt: downAt > 0 ? downAt : null,
+    // Stated the other way round too, since the screen shows the YES price.
+    downAtYesPrice: downAt > 0 ? 100 - downAt : null,
+  };
+}
+
+/**
  * The model's read on a market, always.
  *
  * Returns a direction whenever there is enough history to have one, plus the
@@ -198,6 +231,11 @@ export function directionalRead(input, options = {}) {
     // Where to aim to get out, and the price below which getting out loses
     // money however green the screen looks.
     exit: exitPlan(entryCents, winProbability),
+    // What would have to happen for a refusal to become a call. A "no" that
+    // does not say what it is waiting for is a dead end.
+    triggers: triggerPrices(probability, {
+      minimumEdgeCents: options.minimumEdgeCents ?? 6,
+    }),
     marketWinProbability,
     // How far the model is from the market on this side, in cents. Positive
     // means the model likes it more than the price does. This is an opinion

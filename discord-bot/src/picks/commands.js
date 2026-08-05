@@ -1134,15 +1134,39 @@ export async function handlePicks(interaction, { store, config }) {
             `**+${(read.netEdgeCents ?? 0).toFixed(1)}%** net after the spread and the fee`,
           `_Wins ${pct(read.winProbability)} of the time — ${read.likelihood}._`,
         ]
-      : [
-          // No trade. One line about which way it leans, and nothing that could
-          // be mistaken for an instruction.
-          `⚪ **NO TRADE** · ${asset}`,
-          '',
-          `Leaning **${read.leaning === 'up' ? 'UP' : 'DOWN'}**, model **${pct(read.winProbability)}**` +
-            ` vs market **${pct(read.marketWinProbability)}**.`,
-          `⛔ ${read.whyNotTradeable}`,
-        ];
+      : (() => {
+          // No trade — but never a dead end. A refusal that does not say what
+          // it is waiting for sends somebody back to ask again in thirty
+          // seconds, and the price that would change the answer is arithmetic.
+          const t = read.triggers;
+          const out = [
+            `⚪ **NO TRADE yet** · ${asset}`,
+            '',
+            `Leaning **${read.leaning === 'up' ? 'UP' : 'DOWN'}** — model **${pct(read.winProbability)}**` +
+              ` vs market **${pct(read.marketWinProbability)}**.`,
+            `⛔ ${read.whyNotTradeable}`,
+          ];
+
+          if (t && (t.upAt || t.downAt)) {
+            out.push('', '**What would make it a buy:**');
+            if (t.upAt) {
+              out.push(`🟢 **UP** if it drops to **${Math.round(t.upAt)}%** or lower`);
+            }
+            if (t.downAt) {
+              out.push(
+                `🔴 **DOWN** if it drops to **${Math.round(t.downAt)}%** or lower ` +
+                  `_(that is UP rising to ${Math.round(t.downAtYesPrice)}%)_`,
+              );
+            }
+            out.push(
+              '',
+              '_Or the model moves. Either way I am checking every few seconds — ' +
+                'run this again, or watch the channel._',
+            );
+          }
+
+          return out;
+        })();
 
     if (tradeable && read.disagrees) {
       lines.push(
