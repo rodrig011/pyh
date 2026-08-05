@@ -691,3 +691,39 @@ test('/picks read never says BUY when nothing is cheap enough to buy', async () 
     );
   }
 });
+
+test('/picks read never says BUY and "not worth trading" in the same message', async () => {
+  // The message that made the point: headline "BUY UP @ 4%", and four lines
+  // later "there is no exit here that pays" and "not worth trading". All three
+  // came from one read and only one of them can be the headline.
+  const store = freshStore();
+  const now = Date.now();
+  const samples = [];
+  let price = 65_000;
+  let state = 31337;
+  for (let i = 120; i > 0; i -= 1) {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    price *= Math.exp((state / 4294967296 - 0.5) * 0.0028);
+    samples.push({ at: now - i * 30_000, price });
+  }
+  store.putSamples('BTC', samples);
+
+  const interaction = fakeInteraction('read');
+  await handlePicks(interaction, {
+    store,
+    config: {
+      ...config,
+      picks: { ...config.picks, kalshi: { enabled: true, seriesTicker: 'KXBTC15M', side: 'yes' } },
+    },
+  });
+
+  const reply = String(interaction.replies.at(-1));
+  const saysBuy = /BUY (?:UP|DOWN) @/.test(reply);
+  const saysNo = /NO TRADE|not worth trading|no exit here that pays/i.test(reply);
+
+  assert.ok(!(saysBuy && saysNo), `contradicts itself:\n${reply.slice(0, 400)}`);
+
+  // And a real buy always says how long to hold it, because "get in" without
+  // "stay in until told" is what makes people sell on the first wobble.
+  if (saysBuy) assert.match(reply, /Hold it/);
+});

@@ -12,6 +12,7 @@ import { COLORS } from '../lib/brand.js';
 import { measureEdge } from '../signals/measure.js';
 import { directionalRead } from '../signals/direction.js';
 import { addWatch, makeWatch, removeWatches } from './watch.js';
+import { roundTripCostCents } from '../signals/scalp.js';
 import { settleObservations } from '../signals/recorder.js';
 import { postPermissionHelp } from '../lib/channelAccess.js';
 import {
@@ -1109,62 +1110,41 @@ export async function handlePicks(interaction, { store, config }) {
     const entry = Math.round(read.entryCents);
     const target = read.exit ? Math.round(read.exit.targetCents) : null;
 
-    // Is there anything here worth buying at all?
+    // BUY is said only when the engine itself would take the trade.
     //
-    // The headline is the only line most people read, so it must never say BUY
-    // when nothing is cheap. It once printed "BUY at 62%, target 61%" — buy
-    // this in order to sell it lower — because the model still had a direction
-    // and the message reached for it. A direction is not an instruction.
-    const worthBuying = Number.isFinite(read.valueCents) && read.valueCents > 0;
+    // It used to be said whenever the model liked a side by any margin at all,
+    // and a margin of a tenth of a percent is rounding. That produced a message
+    // whose headline read BUY UP @ 4% and which, four lines later, said there
+    // was no exit that pays and it was not worth trading. All three statements
+    // came from the same read. Only one of them can be the headline.
+    const tradeable = read.tradeable === true;
 
-    const lines = worthBuying
-      ? [`${up ? '🟢' : '🔴'} **BUY ${up ? 'UP' : 'DOWN'} @ ${entry}%** · ${asset}`]
-      : [
-          `⚪ **NO TRADE** · ${asset} — leaning **${up ? 'UP' : 'DOWN'} ${pct(read.winProbability)}**`,
+    const lines = tradeable
+      ? [
+          `${up ? '🟢' : '🔴'} **BUY ${up ? 'UP' : 'DOWN'} @ ${entry}%** · ${asset}`,
+          `🎯 **Target ${target}%** · below **${Math.round(read.exit.minimumExitCents)}%** the round trip loses`,
           '',
-          `${up ? 'UP' : 'DOWN'} costs **${entry}%** and the model says it is worth ` +
-            `**${target ?? '—'}%**. Nothing here is cheap enough to buy.`,
+          // The conviction the room asked for, and it is honest because the bot
+          // genuinely holds the other end: stay in until told, and it will
+          // tell you.
+          `**Hold it. Do not sell on a wobble** — \`/picks watch side:${up ? 'UP' : 'DOWN'} entry:${entry}\` ` +
+            'and I will DM you the moment to cash out.',
+          '',
+          `**Model** ${pct(read.winProbability)} · **Market** ${pct(read.marketWinProbability)} · ` +
+            `**+${(read.netEdgeCents ?? 0).toFixed(1)}%** net after the spread and the fee`,
+          `_Wins ${pct(read.winProbability)} of the time — ${read.likelihood}._`,
+        ]
+      : [
+          // No trade. One line about which way it leans, and nothing that could
+          // be mistaken for an instruction.
+          `⚪ **NO TRADE** · ${asset}`,
+          '',
+          `Leaning **${read.leaning === 'up' ? 'UP' : 'DOWN'}**, model **${pct(read.winProbability)}**` +
+            ` vs market **${pct(read.marketWinProbability)}**.`,
+          `⛔ ${read.whyNotTradeable}`,
         ];
 
-    // A target only means something when there is a trade to have one. Printed
-    // beside a refusal it reads as a plan, and a plan whose target sits below
-    // its entry is worse than no plan.
-    if (worthBuying && read.exit) {
-      const floor = read.exit.minimumExitCents;
-      lines.push(
-        `🎯 **Target ${target}%**` +
-          (Number.isFinite(floor)
-            ? ` · ⚠️ below **${Math.round(floor)}%** the round trip LOSES` +
-              ' (the exchange is paid both ways)'
-            : ''),
-      );
-      if (!read.exit.targetClearsCosts) {
-        lines.push(
-          `_Even if the model is right, ${target}% does not cover the round trip from ${entry}%. ` +
-            'There is no exit here that pays._',
-        );
-      }
-    }
-
-    lines.push(
-      '',
-      `**Model** ${pct(read.winProbability)}  ·  **Market** ${pct(read.marketWinProbability)}`,
-    );
-
-    if (worthBuying) {
-      lines.push(
-        `**Wins ${pct(read.winProbability)} of the time — ${read.likelihood}.** ` +
-          `_Edge is ${read.confidence}, which is a different thing._`,
-      );
-      if (read.winProbability < 0.45) {
-        lines.push(
-          '_A cheap ticket that is slightly underpriced — a good buy AND a probable loss. ' +
-            'Size it like one._',
-        );
-      }
-    }
-
-    if (read.disagrees) {
+    if (tradeable && read.disagrees) {
       lines.push(
         '',
         `⚠️ **${read.leaning === 'up' ? 'UP' : 'DOWN'} is the more likely side, but ${up ? 'UP' : 'DOWN'} is the one worth buying.**`,
@@ -1172,16 +1152,20 @@ export async function handlePicks(interaction, { store, config }) {
       );
     }
 
-    lines.push(
-      '',
-      read.tradeable
-        ? `✅ **Worth trading** — **+${(read.netEdgeCents ?? 0).toFixed(1)}%** net after the spread and the fee.`
-        : `⛔ ${read.whyNotTradeable}`,
-    );
-
-    if (worthBuying && !read.tradeable) {
+    if (tradeable && read.winProbability < 0.45) {
+      // What a cheap ticket really costs. The engine already prices the fee
+      // into its decision, so a call down here is genuinely positive value —
+      // and the person taking it should still see that at 8% the exchange
+      // takes a quarter of the stake for the round trip, and at 4% it takes
+      // half. An entry floor was measured and it only removed winning trades;
+      // saying the number does not.
+      const bite = roundTripCostCents(read.entryCents, read.entryCents);
       lines.push(
-        `_The model likes this side by **${read.valueCents.toFixed(1)}%** — the round trip costs more than that._`,
+        '_A cheap ticket that is underpriced — a good buy AND a probable loss._' +
+          (Number.isFinite(bite)
+            ? ` **The round trip alone costs ${Math.round((bite / read.entryCents) * 100)}% of what you put in.**`
+            : '') +
+          ' Size it like a lottery ticket.',
       );
     }
 
