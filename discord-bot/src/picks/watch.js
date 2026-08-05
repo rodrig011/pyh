@@ -272,7 +272,7 @@ export async function sweepWatches(client, store, config, deps = {}) {
  */
 export async function sweepPaper(client, store, config, deps = {}) {
   const {
-    currentContract,
+    openBoard,
     fetchSpotPrice,
     now = Date.now(),
     log = { debug() {}, info() {} },
@@ -283,36 +283,61 @@ export async function sweepPaper(client, store, config, deps = {}) {
 
   let account = store.paperAccount();
   if (!account?.userId) return { ran: false };
+  const epoch = account.epoch ?? null;
 
   try {
     const asset = settings.defaultAsset ?? 'BTC';
-    const [contract, quote] = await Promise.all([
-      currentContract(settings.kalshi).catch(() => null),
+    // The whole ladder of strikes closing in this window, not one of them.
+    // Reading a single strike is what made the bot look like it refused
+    // everything: it was forming an opinion about one contract out of a dozen,
+    // usually one already far from the money, and calling that the market.
+    const [board, quote] = await Promise.all([
+      openBoard(settings.kalshi, { now }).catch(() => null),
       fetchSpotPrice(asset),
     ]);
-    if (!contract?.market || !(quote?.price > 0)) return { ran: false };
 
-    const closesAt = Date.parse(contract.market.close_time ?? '');
-    const input = {
+    const candidates = board?.contracts ?? [];
+    if (candidates.length === 0 || !(quote?.price > 0)) return { ran: false };
+
+    // Everything shared across the ladder. Only the strike differs, which is
+    // exactly why one read of the price history serves the whole board.
+    const first = candidates[0].market;
+    const closesAt = Date.parse(first.close_time ?? '');
+    const context = {
       prices: store
         .listSamples(asset)
         .filter((s) => s?.at >= now - 60 * 60 * 1000 && s?.price > 0)
         .map((s) => s.price),
       spot: quote.price,
-      strike: Number(contract.market.floor_strike ?? contract.market.cap_strike),
-      marketPriceCents: contract.price,
-      market: contract.market,
       secondsLeft: Number.isFinite(closesAt) ? (closesAt - now) / 1000 : null,
     };
 
-    const stepped = paperTick(account, input, { now, ticker: contract.market.ticker });
+    // Re-read after the awaits. A reset that landed while the network call was
+    // in flight would otherwise be undone by writing back the copy fetched
+    // before it — the account would visibly reset and then silently come back,
+    // which is precisely the bug that was reported.
+    const current = store.paperAccount();
+    if (!current?.userId || (current.epoch ?? null) !== epoch) {
+      log.debug('Paper account changed mid-sweep; dropping this tick');
+      return { ran: false };
+    }
+    account = current;
+
+    const stepped = paperTick(account, context, { now, candidates });
     account = stepped.account;
 
-    if (reportDue(account, { now })) {
+    // Marked to the strike actually held, when there is one — the board's first
+    // contract is a different bet.
+    const held = account.position
+      ? candidates.find((c) => c.market?.ticker === account.position.ticker)
+      : null;
+
+    const due = reportDue(account, { now });
+    if (due) {
       const user = await client.users.fetch(account.userId).catch(() => null);
       if (user) {
         await user
-          .send(report(account, { now, markCents: contract.price }))
+          .send(report(account, { now, markCents: held?.price ?? null }))
           .catch((error) => log.debug(`Paper report DM failed: ${error.message}`));
       }
       // Marked whether or not it was delivered, so a closed inbox does not
@@ -320,8 +345,12 @@ export async function sweepPaper(client, store, config, deps = {}) {
       account = { ...account, lastReportAt: now };
     }
 
-    store.putPaperAccount(account, { flush: stepped.event !== null || reportDue(account, { now }) });
-    return { ran: true, event: stepped.event?.kind ?? null };
+    // Same guard on the far side of the DM, which is also a network call.
+    const latest = store.paperAccount();
+    if ((latest?.epoch ?? null) !== epoch) return { ran: false };
+
+    store.putPaperAccount(account, { flush: stepped.event !== null || due });
+    return { ran: true, event: stepped.event?.kind ?? null, looked: candidates.length };
   } catch (error) {
     log.debug(`Paper sweep failed: ${error.message}`);
     return { ran: false };

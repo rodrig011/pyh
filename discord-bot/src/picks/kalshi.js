@@ -215,6 +215,80 @@ export async function fetchMarket(settings, ticker, { fetchImpl = globalThis.fet
 }
 
 /**
+ * Every contract open in the same window, with the price of each.
+ *
+ * This exists because of the most expensive mistake in the whole signal path,
+ * and it was not a mistake of maths. Kalshi does not publish ONE fifteen-minute
+ * bitcoin contract. It publishes a LADDER of them — a dozen strikes spaced
+ * around spot, all closing at the same bell — and the engine was reading
+ * exactly one of them: whichever happened to close soonest.
+ *
+ * So the bot spent all day forming an opinion about a single strike, usually
+ * one already so far in or out of the money that no price on it was worth
+ * paying, and refused. It looked like an engine that was too strict. It was an
+ * engine that was near-sighted: it was refusing a board of twelve markets on
+ * the evidence of one.
+ *
+ * Measured on the simulator, against a market with a real four-cent bias, the
+ * share of windows containing at least one call goes from 36% to 76% when the
+ * ladder is read instead of a single strike — at the SAME edge threshold, with
+ * nothing loosened. It saturates around five strikes, because past that they
+ * are all priced out anyway, so reading the whole board costs one request and
+ * needs no cleverness about which part of it to read.
+ */
+export function boardForClose(markets, { closesAt = null, now = Date.now(), windowMs = 60 * 1000 } = {}) {
+  const open = openMarkets(markets, now);
+  if (open.length === 0) return [];
+
+  const closeOf = (market) => Date.parse(market.close_time ?? market.expiration_time ?? '');
+
+  // Which bell. Without an explicit one, the next bell to ring — the same rule
+  // a single contract used, applied to the whole ladder behind it.
+  const target = closesAt ?? closeOf(open[0]);
+  if (!Number.isFinite(target)) return [];
+
+  // A tolerance rather than an equality: the strikes of one window share a
+  // close time, but the field is a formatted timestamp and one stray second
+  // must not drop a strike off the board.
+  return open.filter((market) => {
+    const closes = closeOf(market);
+    return Number.isFinite(closes) && Math.abs(closes - target) <= windowMs;
+  });
+}
+
+/**
+ * The whole board, priced, soonest bell first.
+ *
+ * Never throws, and a strike with no usable price is dropped rather than
+ * carried as a null — a board is a list of things that can be traded.
+ */
+export async function openBoard(settings, options = {}) {
+  const { closesAt = null, now = Date.now() } = options;
+  const { markets, error, url } = await fetchMarkets(settings, options);
+  if (error) return { contracts: [], error, url };
+
+  const board = boardForClose(markets, { closesAt, now });
+  if (board.length === 0) return { contracts: [], error: 'no open markets', url };
+
+  const contracts = [];
+  for (const market of board) {
+    const price = readMarketPrice(market, settings.side ?? 'yes');
+    if (!price) continue;
+    contracts.push({ price: price.cents, priceSource: price.source, market });
+  }
+
+  return {
+    contracts,
+    error: contracts.length > 0 ? null : 'no usable price on any market in the window',
+    url,
+    // How much of the ladder was thrown away for want of a price, so a thin
+    // board can be told from a broken parser.
+    quoted: contracts.length,
+    listed: board.length,
+  };
+}
+
+/**
  * The market a call should be priced against, and its price right now.
  *
  * `ticker` pins it to a contract already chosen; `closesAt` picks the one

@@ -373,3 +373,140 @@ decides it, not an argument.
 
 Running total: seven ideas built and measured, one shipped. The one that
 shipped came from reading the contract's rules.
+
+---
+
+## "It skips every single market"
+
+The report, from someone running the bot live: every market refused, including
+in paper mode, at every price, all day.
+
+The obvious diagnosis is that the thresholds are too strict, and the obvious
+fix is to lower them. Both are wrong, and it is worth writing down why, because
+this is the second time an "it is too conservative" complaint turned out to be
+something else.
+
+### First: re-measure the threshold, because the engine is not the one I swept
+
+`minimumEdgeCents: 6` was chosen against an engine that had no settlement
+averaging, no executable pricing, no spread, and different exit rules. That
+measurement was stale, so it was run again — five seeds, 200 markets each,
+2¢ spread.
+
+| Threshold | Fair market | Biased +4¢ |
+|---|---|---|
+| 2¢ | 193 trades, **−7.6%** | 649 trades, +11.3% |
+| 4¢ | 179 trades, **−6.1%** | 604 trades, +11.1% |
+| 6¢ | 44 trades, **−2.1%** | 364 trades, +19.7% |
+| 8¢ | 5 trades, **−0.1%** | 113 trades, +8.7% |
+
+Against a market that is never wrong, loosening the bar costs money
+monotonically, and it does not buy anything against a biased one either. Six
+stays.
+
+### The trap in the jumpy world, which said the opposite
+
+Run the same sweep in a world with jumps and clustering, and a 2¢ threshold
+appears to make **+38%** against +26% at six. That is the result that would
+have justified loosening the bar, and it is entirely false.
+
+In those worlds the "fair" price has no closed form, so the simulated market
+prices itself by Monte Carlo — and a Monte Carlo price carries sampling noise.
+Noise *is* mispricing. The engine was not finding an edge; it was reading the
+simulator's own error bars.
+
+The test: run a world whose honest answer is known to be **exactly zero edge**,
+priced through the same noisy pricer.
+
+| Pricing paths | Trades | Return (truth is 0%) |
+|---|---|---|
+| 300 | 1322 | **+40.8%** |
+| 3000 | 462 | **−4.8%** |
+
+Ten times less pricing noise, and a 40% "profit" becomes a small loss. Every
+low-threshold jumpy-world result in this document's history is that artefact.
+A backtest can only be trusted to the precision of the opponent it is graded
+against.
+
+### The actual cause: the bot was reading one strike out of a dozen
+
+Kalshi does not list *one* fifteen-minute bitcoin contract. It lists a **ladder**
+— a dozen strikes spaced around spot, all closing at the same bell. The bot
+called `currentContract()`, which returns whichever market closes soonest, and
+formed its entire opinion of the window from that one strike.
+
+So it was refusing a board of twelve markets on the evidence of one, and the
+one was effectively picked at random — usually already so far in or out of the
+money that no price on it was worth paying. Every individual refusal was
+correct. The conclusion drawn from them was not.
+
+Measured on a simulated ladder, same edge threshold, nothing loosened:
+
+| Strikes read | Windows with a call (fair) | Windows with a call (biased +4¢) |
+|---|---|---|
+| 1 | 3% | **36%** |
+| 3 | 8% | 68% |
+| 5 | 9% | **76%** |
+| 9 | 9% | 77% |
+| 15 | 9% | 77% |
+
+Reading the board doubles the share of windows with a signal where money is
+actually available, and it saturates by five strikes — past that they are all
+priced out anyway, so there is nothing clever to do about *which* part of the
+board to read. Read all of it.
+
+Note the fair-market column moves too, 3% to 9%. Those extra calls are the
+vol estimate's own noise firing more often, and they are a genuine cost. The
+biased column gains six times more, which is the trade being made.
+
+### An eighth idea, measured and rejected
+
+The `priced_out` gate asks "would being right pay enough at this price?" and
+reads the **YES** price to answer it — before a side has been chosen. On a
+market quoted 93 that refuses the trade, while the trade actually on the table
+is the NO side at seven cents, which is not expensive at all. It fires on 19%
+of all looks.
+
+Moving it after the side selection, so it tests the price actually being paid,
+is plainly the more coherent version. Measured across seven seeds against a
+standing 6¢ mispricing:
+
+| | Before | After |
+|---|---|---|
+| Bias +6¢ | +139.9% | **+102.9%** |
+| Bias −6¢ | +88.9% | **+41.2%** |
+
+Sweeping `minimumEntryCents` (4 → 20) and `maximumEntryCents` (80 → 96)
+afterwards changed nothing, so the loss is not the entry band. The mechanism is
+that the early refusal deliberately returns *without* a probability, and the
+exit logic reads a probability-free skip as "no opinion, keep holding".
+Supplying one makes the scalp rules bank winners early at exactly the prices
+where a winning position sits.
+
+Reverted. The tidier version is the more expensive one, and the coupling it
+exposed belongs to `scalp.js`.
+
+### What shipped
+
+- **`openBoard()` / `readBoard()`** — the whole ladder, every strike evaluated,
+  ranked by edge remaining *after* fees.
+- **A refusal census.** "Refused 41 markets" cannot distinguish a fair market
+  from a dead price feed. "Refused 41: 30× no edge, 8× priced out, 3× thin book"
+  can, and it is now in the paper report and in `/picks read`.
+- **`boardIsUnreadable()`** — the one refusal that was explicitly asked to stay.
+  When most of the ladder is refused for `trending` / `vol_uncertain` / `no_vol`,
+  that is one condition showing up a dozen times, not a dozen opinions, and the
+  strike that slipped through is a false positive. Stand aside.
+- **Positions remember their own strike.** With a ladder, "whatever strike the
+  feed lists now" is a different contract on almost every tick, and settling
+  against it grades the trade on a bet that was never placed.
+
+The recorder was deliberately **not** widened to the board. Ten strikes at one
+instant share a spot, a volatility and a window, so they are nowhere near ten
+independent observations — the clustered standard errors elsewhere in this
+document are the same point — and the quote log has a fixed capacity, so the
+only thing widening it would reliably buy is ten times less history.
+
+Running total: eight ideas built and measured, two shipped. Neither of the two
+was a cleverer model. One came from reading the contract's settlement rules,
+and one from noticing the engine was only being shown a twelfth of the market.

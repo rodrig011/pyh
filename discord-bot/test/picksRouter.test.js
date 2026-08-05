@@ -26,6 +26,7 @@ function fakeInteraction(sub, options = {}, { admin = true } = {}) {
       getInteger: (name) => options[name] ?? null,
       getString: (name) => options[name] ?? null,
       getBoolean: (name) => options[name] ?? null,
+      getNumber: (name) => options[name] ?? null,
     },
     deferReply: async () => {},
     editReply: async (payload) => {
@@ -733,4 +734,206 @@ test('/picks read never says BUY and "not worth trading" in the same message', a
   // And a real buy always says how long to hold it, because "get in" without
   // "stay in until told" is what makes people sell on the first wobble.
   if (saysBuy) assert.match(reply, /Hold it/);
+});
+
+/**
+ * `/picks paper`, driven through the router.
+ *
+ * "The reset doesn't work" was reported from Discord, and no test touched the
+ * command — only the pure functions underneath it, which were fine. That is
+ * the pattern this file exists for.
+ */
+
+const paperConfig = {
+  guildId: 'g',
+  picks: {
+    defaultAsset: 'BTC',
+    defaultMinutes: 15,
+    kalshi: { enabled: true, seriesTicker: 'KXBTC' },
+  },
+};
+
+test('/picks paper starts a run and stores it against the caller', async () => {
+  const store = freshStore();
+  const interaction = fakeInteraction('paper', {});
+
+  await handlePicks(interaction, { store, config: paperConfig });
+
+  const account = store.paperAccount();
+  assert.equal(account.userId, 'mod');
+  assert.equal(account.cash, 70);
+  assert.match(String(interaction.replies.at(-1)), /Paper trading started/);
+});
+
+test('/picks paper reset actually wipes cash, trades and the refusal count', async () => {
+  const store = freshStore();
+  await handlePicks(fakeInteraction('paper', {}), { store, config: paperConfig });
+
+  // A run with some history on it.
+  store.putPaperAccount({
+    ...store.paperAccount(),
+    cash: 11.4,
+    seen: 900,
+    refused: 890,
+    census: { no_edge: 890 },
+    trades: [{ profit: -5, contracts: 10, entryCents: 50, exitCents: 20 }],
+  });
+
+  const interaction = fakeInteraction('paper', { reset: true });
+  await handlePicks(interaction, { store, config: paperConfig });
+
+  const account = store.paperAccount();
+  assert.equal(account.cash, 70);
+  assert.equal(account.seen, 0);
+  assert.equal(account.refused, 0);
+  assert.deepEqual(account.trades, []);
+  assert.deepEqual(account.census, {});
+  assert.match(String(interaction.replies.at(-1)), /reset/i);
+});
+
+test('/picks paper reset honours a new bankroll', async () => {
+  const store = freshStore();
+  await handlePicks(fakeInteraction('paper', {}), { store, config: paperConfig });
+
+  await handlePicks(fakeInteraction('paper', { reset: true, bankroll: 250 }), {
+    store,
+    config: paperConfig,
+  });
+
+  assert.equal(store.paperAccount().cash, 250);
+  assert.equal(store.paperAccount().start, 250);
+});
+
+test('/picks paper without reset reports instead of silently starting over', async () => {
+  const store = freshStore();
+  await handlePicks(fakeInteraction('paper', {}), { store, config: paperConfig });
+  store.putPaperAccount({ ...store.paperAccount(), cash: 88.25, seen: 40, refused: 40 });
+
+  const interaction = fakeInteraction('paper', {});
+  await handlePicks(interaction, { store, config: paperConfig });
+
+  assert.equal(store.paperAccount().cash, 88.25);
+  assert.match(String(interaction.replies.at(-1)), /reset:True/);
+});
+
+test('/picks paper says so when the contract feed is switched off', async () => {
+  const store = freshStore();
+  const interaction = fakeInteraction('paper', {});
+  await handlePicks(interaction, { store, config });
+
+  assert.equal(store.paperAccount(), null);
+  assert.match(String(interaction.replies.at(-1)), /contract feed is off/);
+});
+
+/**
+ * `/picks read`, driven through the router with a whole ladder of strikes.
+ *
+ * This is the command the room runs, and it was reading one contract —
+ * whichever closed soonest. So it answered NO TRADE almost every time and the
+ * room concluded the bot was too strict. It was near-sighted, not strict.
+ */
+
+const priceHistory = () => {
+  const samples = [];
+  let price = 65_000;
+  let state = 20_260_805;
+  for (let i = 0; i < 120; i += 1) {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    price *= Math.exp((state / 4294967296 - 0.5) * 0.003);
+    samples.push({ at: Date.now() - (120 - i) * 30_000, price });
+  }
+  return samples;
+};
+
+const ladderBoard = (cents = [82, 70, 58, 44, 30, 18], base = 64_400) => ({
+  contracts: cents.map((price, i) => ({
+    price,
+    market: {
+      ticker: `KXBTC-${base + i * 200}`,
+      floor_strike: base + i * 200,
+      status: 'active',
+      close_time: new Date(Date.now() + 420_000).toISOString(),
+      yes_bid_dollars: String((price - 1) / 100),
+      yes_ask_dollars: String((price + 1) / 100),
+      liquidity_dollars: '5000',
+    },
+  })),
+});
+
+function storeWithHistory() {
+  const store = freshStore();
+  store.putSamples('BTC', priceHistory());
+  return store;
+}
+
+test('/picks read reports how much of the board it looked at', async () => {
+  const store = storeWithHistory();
+  const interaction = fakeInteraction('read', {});
+
+  await handlePicks(interaction, {
+    store,
+    config: paperConfig,
+    deps: {
+      openBoard: async () => ladderBoard(),
+      fetchSpotPrice: async () => ({ price: 65_000 }),
+    },
+  });
+
+  const reply = String(interaction.replies.at(-1));
+  assert.match(reply, /Read \*\*6\*\* strike\(s\)/);
+  assert.match(reply, /KXBTC-/);
+});
+
+test('/picks read refusing the whole board says why, not just that it refused', async () => {
+  const store = storeWithHistory();
+  const interaction = fakeInteraction('read', {});
+
+  await handlePicks(interaction, {
+    store,
+    config: paperConfig,
+    deps: {
+      // Every strike priced at exactly what the model would say: nothing to win.
+      openBoard: async () => ladderBoard([50, 50, 50]),
+      fetchSpotPrice: async () => ({ price: 65_000 }),
+    },
+  });
+
+  const reply = String(interaction.replies.at(-1));
+  if (/NO TRADE/.test(reply)) {
+    assert.match(reply, /refused all of them/);
+  }
+});
+
+test('/picks read says so when the board comes back empty', async () => {
+  const store = storeWithHistory();
+  const interaction = fakeInteraction('read', {});
+
+  await handlePicks(interaction, {
+    store,
+    config: paperConfig,
+    deps: {
+      openBoard: async () => ({ contracts: [], error: 'HTTP 503' }),
+      fetchSpotPrice: async () => ({ price: 65_000 }),
+    },
+  });
+
+  assert.match(String(interaction.replies.at(-1)), /No open market.*503/);
+});
+
+test('/picks read survives a feed that throws', async () => {
+  const store = storeWithHistory();
+  const interaction = fakeInteraction('read', {});
+
+  await handlePicks(interaction, {
+    store,
+    config: paperConfig,
+    deps: {
+      openBoard: async () => {
+        throw new Error('socket hang up');
+      },
+      fetchSpotPrice: async () => ({ price: 65_000 }),
+    },
+  });
+
+  assert.match(String(interaction.replies.at(-1)), /No open market/);
 });

@@ -118,6 +118,23 @@ export function evaluate(input, options = {}) {
   if (!(secondsLeft > 0)) return skip('too_late', prices_);
   if (secondsLeft < config.minimumSecondsLeft) return skip('too_late', prices_);
 
+  // Judged on the YES price, before a side has been chosen — which is not
+  // strictly coherent, since on a market quoted 93 the trade on the table is
+  // the NO side at seven cents and seven cents is not expensive.
+  //
+  // Moving this check after the side selection, so it tests the price actually
+  // being paid, was tried and MEASURED: against a market with a standing six
+  // cent mispricing it took the return from +140% to +103% on the up bias and
+  // from +89% to +41% on the down one, across seven seeds, while barely moving
+  // the refusal count. Sweeping both the floor and the cap afterwards changed
+  // nothing, so the loss is not the entry band — it is that this early refusal
+  // deliberately returns WITHOUT a probability, and the exit logic reads a
+  // probability-free skip as "no opinion, keep holding". Supplying one here
+  // makes the scalp rules bank winners early at exactly the prices where a
+  // winning position sits.
+  //
+  // So it stays where it is. The tidier version is the more expensive one, and
+  // the coupling it exposes belongs to scalp.js, not to this gate.
   if (marketPriceCents > config.maximumEntryCents || marketPriceCents < config.minimumEntryCents) {
     return skip('priced_out', prices_);
   }

@@ -29,7 +29,7 @@ import { promptDueSettlements, publishVoteResults, syncKalshiAccount } from '../
 import { collectOnce } from '../signals/collector.js';
 import { observeOnce } from '../signals/recorder.js';
 import { evaluate } from '../signals/engine.js';
-import { currentContract } from '../picks/kalshi.js';
+import { currentContract, openBoard } from '../picks/kalshi.js';
 import { sweepPaper, sweepWatches } from '../picks/watch.js';
 import { fetchSpotPrice } from '../picks/price.js';
 
@@ -288,7 +288,7 @@ export function createVipBot(config = loadVipConfig()) {
 
         // Paper trading rides the same sweep, so it sees the market exactly as
         // often as somebody watching it would.
-        sweepPaper(client, store, config, { currentContract, fetchSpotPrice, log })
+        sweepPaper(client, store, config, { openBoard, fetchSpotPrice, log })
           .then((result) => {
             if (result.event) log.info(`Paper: ${result.event}`);
           })

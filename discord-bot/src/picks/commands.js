@@ -10,7 +10,7 @@ import {
 } from 'discord.js';
 import { COLORS } from '../lib/brand.js';
 import { measureEdge } from '../signals/measure.js';
-import { directionalRead } from '../signals/direction.js';
+import { readBoard, nearestTheMoney, censusLine } from '../signals/board.js';
 import { addWatch, makeWatch, removeWatches } from './watch.js';
 import { START_BANKROLL, newAccount, report } from './paper.js';
 import { roundTripCostCents } from '../signals/scalp.js';
@@ -57,6 +57,7 @@ import {
 import {
   currentContract,
   fetchMarkets,
+  openBoard,
   formatCents,
   gradeByContract,
   openMarkets,
@@ -856,8 +857,15 @@ function whyNotPosted(reason, conflicting) {
   return 'I cannot post the call — check `PICKS_CHANNEL_ID` and that I can write there.';
 }
 
-export async function handlePicks(interaction, { store, config }) {
+export async function handlePicks(interaction, { store, config, deps = {} }) {
   const sub = interaction.options.getSubcommand();
+
+  // The market feed, overridable for tests. `/picks read` is the command the
+  // room runs most and it was rewired to read a whole ladder of strikes; a
+  // rewiring nothing can drive end-to-end is exactly where this codebase's
+  // bugs have consistently hidden.
+  const readBoardFeed = deps.openBoard ?? openBoard;
+  const readSpot = deps.fetchSpotPrice ?? fetchSpotPrice;
   const picks = store.listPicks((pick) => pick.guildId === (interaction.guildId ?? config.guildId));
   await interaction.deferReply();
 
@@ -1035,32 +1043,54 @@ export async function handlePicks(interaction, { store, config }) {
     const bankroll = interaction.options.getNumber('bankroll') ?? START_BANKROLL;
 
     if (existing?.userId && !reset) {
-      const contract = await currentContract(settings.kalshi).catch(() => null);
+      const board = await openBoard(settings.kalshi).catch(() => null);
+      const held = existing.position
+        ? board?.contracts?.find((c) => c.market?.ticker === existing.position.ticker)
+        : null;
       return interaction.editReply(
         [
-          report(existing, { markCents: contract?.price ?? null }),
+          report(existing, { markCents: held?.price ?? null }),
           '',
+          `_Watching **${board?.contracts?.length ?? 0}** strike(s) in the current window._`,
           '_Already running. `reset:True` starts it over._',
         ].join('\n'),
       );
     }
 
-    const account = { ...newAccount({ bankroll }), userId: interaction.user.id };
+    // A reset is confirmed by reading back what was stored, not by assuming the
+    // write landed. The previous version reported success unconditionally, so a
+    // reset undone by the background sweep looked exactly like one that worked.
+    const account = { ...newAccount({ bankroll, at: Date.now() }), userId: interaction.user.id };
     store.putPaperAccount(account);
+
+    const stored = store.paperAccount();
+    if (stored?.epoch !== account.epoch || stored?.cash !== bankroll) {
+      return interaction.editReply(
+        '❌ **The reset did not stick.** The stored account still shows ' +
+          `$${(stored?.cash ?? 0).toFixed(2)} over ${stored?.trades?.length ?? 0} trade(s). Try again.`,
+      );
+    }
 
     return interaction.editReply(
       [
-        `📝 **Paper trading started — $${bankroll.toFixed(2)}**`,
+        `📝 **Paper trading ${reset ? 'reset' : 'started'} — $${bankroll.toFixed(2)}**`,
+        reset ? '_Previous run wiped: cash, trades, and the refusal count all back to zero._' : null,
         '',
         'The engine now trades the real BTC 15-minute market with imaginary money:',
         'it buys at the **ask**, sells at the **bid**, and pays both fees, exactly as the',
         'exchange charges them. No hindsight — it only takes what it would have called live.',
         '',
+        'It reads **every strike** in the window, not just the one closing soonest —',
+        'that alone took the share of windows with a signal from 36% to 76% in testing,',
+        'with the edge threshold left exactly where it was.',
+        '',
         '**I will DM you the result every 6 hours.** Only you.',
         '',
-        '_Expect long stretches with no trades. Refusing is the normal state, and a report',
-        'saying "0 trades, refused 41 markets" is the engine working, not the engine broken._',
-      ].join('\n'),
+        '_Reports say WHY it refused, broken down by reason. "30× no edge" is a fair',
+        'market and the engine working; "30× no price" would be the engine broken._',
+      ]
+        .filter((line) => line !== null)
+        .join('\n'),
     );
   }
 
@@ -1125,13 +1155,21 @@ export async function handlePicks(interaction, { store, config }) {
       );
     }
 
-    const [contract, quote] = await Promise.all([
-      currentContract(settings.kalshi).catch((error) => ({ error: error.message })),
-      fetchSpotPrice(asset),
+    // The whole ladder of strikes closing in this window.
+    //
+    // This command used to read one contract — whichever closed soonest — and
+    // it is the command the room actually runs. So the room saw NO TRADE almost
+    // every time, and reasonably concluded the bot was too strict. It was not:
+    // it was answering a question about a single strike out of a dozen, and
+    // usually one already too far from the money for any price on it to be
+    // worth paying. Same threshold, whole board, and the answer changes.
+    const [board, quote] = await Promise.all([
+      readBoardFeed(settings.kalshi).catch((error) => ({ contracts: [], error: error.message })),
+      readSpot(asset),
     ]);
 
-    if (!contract?.market) {
-      return interaction.editReply(`❌ **No open market:** ${contract?.error ?? 'none returned'}`);
+    if (!board?.contracts?.length) {
+      return interaction.editReply(`❌ **No open market:** ${board?.error ?? 'none returned'}`);
     }
     if (!(quote?.price > 0)) {
       return interaction.editReply('❌ **No spot price right now**, so there is nothing to read.');
@@ -1142,15 +1180,24 @@ export async function handlePicks(interaction, { store, config }) {
       .filter((sample) => sample?.at >= Date.now() - 60 * 60 * 1000 && sample?.price > 0)
       .map((sample) => sample.price);
 
-    const closesAt = Date.parse(contract.market.close_time ?? '');
-    const read = directionalRead({
+    const closesAt = Date.parse(board.contracts[0].market.close_time ?? '');
+    const ladder = readBoard(board.contracts, {
       prices,
       spot: quote.price,
-      strike: Number(contract.market.floor_strike ?? contract.market.cap_strike),
-      marketPriceCents: contract.price,
-      market: contract.market,
       secondsLeft: Number.isFinite(closesAt) ? (closesAt - Date.now()) / 1000 : null,
     });
+
+    // The best strike worth trading. Failing that, the one nearest a coin flip
+    // — because a refusal should be about the contract the room is looking at,
+    // not about whichever far-out strike happened to be listed first.
+    const chosen = ladder.best ?? nearestTheMoney(ladder.reads);
+    if (!chosen) {
+      return interaction.editReply(
+        `🤷 **No read on ${asset} yet** — nothing on the board had a usable price.`,
+      );
+    }
+
+    const read = chosen.read;
 
     if (!read.call) {
       return interaction.editReply(
@@ -1273,7 +1320,16 @@ export async function handlePicks(interaction, { store, config }) {
 
     lines.push(
       '',
-      `\`${contract.market.ticker}\` · closes in **${minutes ?? '?'} min** · ${prices.length} samples · Not financial advice`,
+      // Which strike this is about, and how much of the board it was chosen
+      // from. Without the second number a refusal reads as "there is nothing
+      // here", when what it means is "none of these eleven".
+      `\`${chosen.ticker ?? '—'}\` · strike **$${Math.round(chosen.strike).toLocaleString('en-US')}** · ` +
+        `closes in **${minutes ?? '?'} min**`,
+      `Read **${ladder.looked}** strike(s) in this window` +
+        (ladder.tradeable.length > 0
+          ? ` · **${ladder.tradeable.length}** tradeable.`
+          : `, refused all of them: ${censusLine(ladder.census) ?? 'no reason recorded'}.`),
+      `_${prices.length} samples · Not financial advice._`,
     );
 
     return interaction.editReply(lines.join('\n'));

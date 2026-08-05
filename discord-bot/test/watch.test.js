@@ -284,3 +284,120 @@ test('a position deep underwater warns without closing, and warns only once', ()
   // The position is still live, so the exit alert is still coming.
   assert.match(message, /still get the CASH OUT/);
 });
+
+/**
+ * The paper sweep, and the reset that would not stick.
+ *
+ * The reported bug was "/picks paper reset doesn't work". It did work — and
+ * then the background sweep, which had read the account BEFORE the reset and
+ * only wrote it back after its network calls returned, put the old one back.
+ * The account reset and then silently came back, which is indistinguishable
+ * from a reset that never happened.
+ */
+
+import { sweepPaper } from '../src/picks/watch.js';
+import { newAccount } from '../src/picks/paper.js';
+
+const ladderMarkets = (cents = [70, 60, 50, 40, 30], strikes = [64_600, 64_800, 65_000, 65_200, 65_400]) =>
+  cents.map((price, i) => ({
+    price,
+    market: {
+      ticker: `KXBTC-${strikes[i]}`,
+      floor_strike: strikes[i],
+      status: 'active',
+      close_time: new Date(Date.now() + 400_000).toISOString(),
+      yes_bid_dollars: String((price - 1) / 100),
+      yes_ask_dollars: String((price + 1) / 100),
+      liquidity_dollars: '4000',
+    },
+  }));
+
+function paperStore(account) {
+  let stored = account;
+  return {
+    paperAccount: () => stored,
+    putPaperAccount: (next) => {
+      stored = next;
+      return next;
+    },
+    listSamples: () => history().map((price, i) => ({ at: Date.now() - (120 - i) * 30_000, price })),
+    get current() {
+      return stored;
+    },
+    set current(next) {
+      stored = next;
+    },
+  };
+}
+
+const paperConfig = {
+  picks: { defaultAsset: 'BTC', kalshi: { enabled: true, seriesTicker: 'KXBTC' } },
+};
+
+const noClient = { users: { fetch: async () => null } };
+
+test('the paper sweep looks at the whole ladder, not one strike', async () => {
+  const store = paperStore({ ...newAccount(), userId: 'u1' });
+  const result = await sweepPaper(noClient, store, paperConfig, {
+    openBoard: async () => ({ contracts: ladderMarkets() }),
+    fetchSpotPrice: async () => ({ price: 65_000 }),
+  });
+
+  assert.equal(result.ran, true);
+  assert.equal(result.looked, 5);
+  assert.equal(store.current.seen, 5);
+});
+
+test('a reset landing mid-sweep is NOT overwritten by the stale copy', async () => {
+  // This is the whole bug. The sweep reads, then awaits the network, then
+  // writes. A reset inside that gap used to be undone by the write.
+  const store = paperStore({ ...newAccount({ at: 1000 }), userId: 'u1', cash: 12.5, seen: 400 });
+
+  const result = await sweepPaper(noClient, store, paperConfig, {
+    openBoard: async () => {
+      // The user runs /picks paper reset:True while the request is in flight.
+      store.current = { ...newAccount({ at: 2000 }), userId: 'u1' };
+      return { contracts: ladderMarkets() };
+    },
+    fetchSpotPrice: async () => ({ price: 65_000 }),
+  });
+
+  assert.equal(result.ran, false);
+  // The reset survived: fresh bankroll, nothing seen, no trades.
+  assert.equal(store.current.cash, 70);
+  assert.equal(store.current.seen, 0);
+  assert.equal(store.current.epoch, 2000);
+});
+
+test('with no account registered the sweep does nothing at all', async () => {
+  const store = paperStore(null);
+  const result = await sweepPaper(noClient, store, paperConfig, {
+    openBoard: async () => ({ contracts: ladderMarkets() }),
+    fetchSpotPrice: async () => ({ price: 65_000 }),
+  });
+  assert.equal(result.ran, false);
+});
+
+test('an empty board is not treated as a market worth refusing', async () => {
+  // Counting a feed outage as "refused 12 markets" would poison the census
+  // that the report now leans on to say whether the engine is working.
+  const store = paperStore({ ...newAccount(), userId: 'u1' });
+  const result = await sweepPaper(noClient, store, paperConfig, {
+    openBoard: async () => ({ contracts: [], error: 'HTTP 503' }),
+    fetchSpotPrice: async () => ({ price: 65_000 }),
+  });
+
+  assert.equal(result.ran, false);
+  assert.equal(store.current.seen, 0);
+});
+
+test('a feed that throws does not take down the sweep', async () => {
+  const store = paperStore({ ...newAccount(), userId: 'u1' });
+  const result = await sweepPaper(noClient, store, paperConfig, {
+    openBoard: async () => {
+      throw new Error('socket hang up');
+    },
+    fetchSpotPrice: async () => ({ price: 65_000 }),
+  });
+  assert.equal(result.ran, false);
+});

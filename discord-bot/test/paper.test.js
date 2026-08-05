@@ -164,3 +164,151 @@ test('the report fires every six hours and not before', () => {
   assert.equal(reportDue({ lastReportAt: now - 5 * 3_600_000 }, { now }), false);
   assert.equal(reportDue({ lastReportAt: now - 6 * 3_600_000 }, { now }), true);
 });
+
+/**
+ * Reading a ladder of strikes instead of one contract.
+ *
+ * "It skips every single market" was a true report with the wrong diagnosis
+ * attached. The thresholds were not too strict — the bot was being shown one
+ * strike out of the dozen Kalshi lists for the same window, and refusing that
+ * one is not evidence about the other eleven.
+ */
+
+const ladder = (cents = [70, 60, 50, 40, 30], strikes = [64_600, 64_800, 65_000, 65_200, 65_400]) =>
+  cents.map((price, i) => ({
+    price,
+    market: {
+      ticker: `KXBTC-${strikes[i]}`,
+      floor_strike: strikes[i],
+      status: 'active',
+      close_time: '2026-01-01T00:15:00Z',
+      yes_bid_dollars: String((price - 1) / 100),
+      yes_ask_dollars: String((price + 1) / 100),
+      liquidity_dollars: '4000',
+    },
+  }));
+
+const context = (over = {}) => ({
+  prices: history(),
+  spot: 65_000,
+  secondsLeft: 500,
+  ...over,
+});
+
+test('the whole ladder counts towards what it looked at, not one strike', () => {
+  const candidates = ladder();
+  const { account } = paperTick(newAccount(), context(), { candidates });
+  assert.equal(account.seen, candidates.length);
+});
+
+test('refusals are broken down by reason, so a dead feed is not read as a fair market', () => {
+  let account = newAccount();
+  for (let i = 0; i < 3; i += 1) {
+    account = paperTick(account, context(), { candidates: ladder() }).account;
+  }
+
+  const total = Object.values(account.census).reduce((sum, n) => sum + n, 0);
+  assert.equal(total, account.refused);
+  assert.ok(account.refused > 0);
+});
+
+test('a position remembers its OWN strike and settles against that one', () => {
+  // The ladder makes this fatal rather than merely wrong: "whatever strike the
+  // feed lists now" is a different contract on almost every tick, so settling
+  // against it grades the trade on a bet that was never placed.
+  const held = {
+    ...newAccount(),
+    cash: 40,
+    position: {
+      ticker: 'KXBTC-64600',
+      strike: 64_600,
+      side: 'up',
+      entryCents: 50,
+      contracts: 60,
+      cost: 30,
+      openedAt: 0,
+    },
+  };
+
+  // Out of time. Spot finished at 64,800: above the position's own strike of
+  // 64,600, and below the 65,000 strike the feed happens to lead with.
+  const { account, event } = paperTick(held, context({ secondsLeft: 0, spot: 64_800 }), {
+    candidates: ladder(),
+  });
+
+  assert.equal(event.kind, 'settled');
+  assert.equal(event.trade.exitCents, 100);
+  assert.ok(account.cash > 40);
+});
+
+test('a position whose contract has left the board settles rather than hanging', () => {
+  // The window rolled. The old ticker is gone, and a position that quietly
+  // stayed open across the roll would be marked against the next window's
+  // prices for the rest of the run.
+  const held = {
+    ...newAccount(),
+    cash: 40,
+    position: {
+      ticker: 'KXBTC-GONE',
+      strike: 64_600,
+      side: 'down',
+      entryCents: 50,
+      contracts: 60,
+      cost: 30,
+      openedAt: 0,
+    },
+  };
+
+  const { event } = paperTick(held, context({ spot: 64_800, secondsLeft: 400 }), {
+    candidates: ladder(),
+  });
+
+  assert.equal(event.kind, 'settled');
+  // Spot 64,800 finished ABOVE the 64,600 strike, so the DOWN side lost.
+  assert.equal(event.trade.exitCents, 0);
+});
+
+test('an entry records the ticker and strike of the contract it actually bought', () => {
+  const candidates = ladder([88, 70, 50, 30, 12]);
+  const { account, event } = paperTick(newAccount(), context(), { candidates });
+  if (!event) return; // refusing the whole ladder is a legitimate outcome
+
+  assert.equal(event.kind, 'enter');
+  assert.ok(account.position.ticker.startsWith('KXBTC-'));
+  assert.ok(account.position.strike > 0);
+  // The strike stored is the one belonging to the ticker stored.
+  const bought = candidates.find((c) => c.market.ticker === account.position.ticker);
+  assert.equal(Number(bought.market.floor_strike), account.position.strike);
+});
+
+test('a fresh account carries an epoch, so a reset can be told from a no-op', () => {
+  const first = newAccount({ at: 1000 });
+  const second = newAccount({ at: 2000 });
+  assert.notEqual(first.epoch, second.epoch);
+  assert.equal(first.census && typeof first.census, 'object');
+});
+
+test('the report says WHY it refused, not only how many', () => {
+  const account = {
+    ...newAccount(),
+    seen: 60,
+    refused: 60,
+    census: { no_edge: 48, thin_book: 9, trending: 3 },
+  };
+  const text = report(account, { now: account.startedAt + 6 * 3_600_000 });
+
+  assert.match(text, /48× no edge/);
+  assert.match(text, /thin book/);
+  // And it still leads with the money.
+  assert.match(text.split('\n')[0], /\$70\.00/);
+});
+
+test('the report names the strike being held, since a dozen share the asset', () => {
+  const account = {
+    ...newAccount(),
+    cash: 40,
+    position: { ticker: 'KXBTC-64600', strike: 64_600, side: 'up', entryCents: 50, contracts: 60 },
+  };
+  const text = report(account, { markCents: 55 });
+  assert.match(text, /64,600/);
+});
