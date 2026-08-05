@@ -1225,7 +1225,11 @@ export async function handlePicks(interaction, { store, config }) {
     const settings = pickSettings(config);
     const asset = settings.defaultAsset ?? 'BTC';
 
-    const { log, settled } = settleObservations(store.listQuotes(asset));
+    // Graded against the spot the bot recorded, averaged over the final sixty
+    // seconds — which is how the exchange settles these.
+    const { log, settled } = settleObservations(store.listQuotes(asset), {
+      samples: store.listSamples(asset),
+    });
     if (settled > 0) store.putQuotes(asset, log, { flush: true });
 
     const measured = measureEdge(log);

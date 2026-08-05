@@ -173,31 +173,75 @@ test('the recorder does not fill the log with the same second twice', () => {
   assert.equal(later.length, 2);
 });
 
-test('a market is only graded once it is properly finished', () => {
-  const live = [
-    observation({ at: 1_000_000, secondsLeft: 300 }),
-    observation({ at: 1_000_200, secondsLeft: 100 }),
+test('a market is graded when its clock ran out, not when a zero was observed', () => {
+  // The bug that left 996 recorded quotes with nothing graded. Settlement used
+  // to require observing secondsLeft hit zero — and the recorder reads
+  // whichever market is OPEN, so the moment one closes the exchange hands back
+  // the next one and the final seconds of the old ticker are never seen.
+  const now = Date.now();
+  const closes = now - 10 * 60_000;
+
+  // The last thing ever seen of this market: still 45 seconds to run.
+  const log = [
+    { at: closes - 300_000, ticker: 'M1', strike: 64_900, bid: 55, ask: 57, secondsLeft: 345, outcome: null },
+    { at: closes - 45_000, ticker: 'M1', strike: 64_900, bid: 60, ask: 62, secondsLeft: 45, outcome: null },
   ];
 
-  // Still trading: grading it now would score it on a price from mid-life.
-  const early = settleObservations(live, { now: 1_000_300 });
-  assert.equal(early.settled, 0);
-  assert.ok(early.log.every((row) => row.outcome === null));
+  // Spot samples carry on past the close, because the collector never stops.
+  const samples = [];
+  for (let t = closes - 120_000; t <= closes + 60_000; t += 30_000) {
+    samples.push({ at: t, price: 65_000 });
+  }
 
-  const finished = [...live, observation({ at: 1_000_400, secondsLeft: 0, spot: 65_000 })];
-  const done = settleObservations(finished, { now: 1_000_400 + 120_000 });
-  assert.equal(done.settled, 3);
-  // Spot 65000 finished above the 64900 strike.
-  assert.ok(done.log.every((row) => row.outcome === 1));
+  const done = settleObservations(log, { now, samples });
+  assert.equal(done.settled, 2, 'the market finished ten minutes ago');
+  assert.ok(done.log.every((row) => row.outcome === 1), 'it closed above the strike');
 });
 
-test('a market that finished below the strike is graded as a loss', () => {
+test('a market still running is left alone', () => {
+  const now = Date.now();
   const log = [
-    observation({ at: 1_000_000, secondsLeft: 100 }),
-    observation({ at: 1_000_400, secondsLeft: 0, spot: 64_000 }),
+    { at: now - 60_000, ticker: 'M1', strike: 64_900, bid: 55, ask: 57, secondsLeft: 600, outcome: null },
   ];
-  const done = settleObservations(log, { now: 1_000_400 + 120_000 });
-  assert.ok(done.log.every((row) => row.outcome === 0));
+  const done = settleObservations(log, { now, samples: [{ at: now, price: 65_000 }] });
+  assert.equal(done.settled, 0);
+});
+
+test('the settlement price is the final minute averaged, as the exchange does it', () => {
+  // A late spike must not decide a market that spent the whole minute below
+  // the strike — Kalshi settles on the average of the last sixty seconds, and
+  // grading on the single nearest print would score the spike.
+  const now = Date.now();
+  const closes = now - 10 * 60_000;
+
+  const log = [
+    { at: closes - 200_000, ticker: 'M1', strike: 65_000, bid: 50, ask: 52, secondsLeft: 200, outcome: null },
+  ];
+
+  const samples = [
+    { at: closes - 55_000, price: 64_800 },
+    { at: closes - 40_000, price: 64_800 },
+    { at: closes - 20_000, price: 64_800 },
+    // One print above the strike, right at the bell.
+    { at: closes - 1_000, price: 65_400 },
+  ];
+
+  const done = settleObservations(log, { now, samples });
+  assert.equal(done.settled, 1);
+  // Average is about 64,950 — below the strike, so the spike does not win it.
+  assert.equal(done.log[0].outcome, 0);
+});
+
+test('a market with no spot anywhere near its close is left ungraded', () => {
+  // Grading on a price from ten minutes off would be worse than not grading.
+  const now = Date.now();
+  const closes = now - 60 * 60_000;
+  const log = [
+    { at: closes - 100_000, ticker: 'M1', strike: 65_000, bid: 50, ask: 52, secondsLeft: 100, outcome: null },
+  ];
+
+  const done = settleObservations(log, { now, samples: [{ at: now, price: 65_000 }] });
+  assert.equal(done.settled, 0);
 });
 
 test('the recorder never throws into the loop that also handles payments', () => {

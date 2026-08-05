@@ -127,27 +127,65 @@ export function appendObservation(log, observation, { capacity = DEFAULT_CAPACIT
  * under. It biases nothing on average — the disagreement is symmetric — but it
  * adds noise, and near-the-money observations are where it lands hardest.
  */
-export function settleObservations(log, { now = Date.now(), settledBefore = 60_000 } = {}) {
-  // The last spot seen for each market is the best available reading of where
-  // it finished.
-  const finalSpot = new Map();
+export function settleObservations(log, { now = Date.now(), settledBefore = 60_000, samples = [] } = {}) {
+  // When each market actually closed, from any observation of it: the moment
+  // it was seen plus the time it had left.
+  //
+  // This replaces waiting to observe secondsLeft hitting zero, which never
+  // happened and meant nothing ever settled. The recorder reads whichever
+  // market is OPEN, so the instant one closes the exchange hands back the next
+  // one — the final seconds of the old ticker are never seen at all. Nine
+  // hundred quotes had accumulated with not a single graded market.
+  const closesAt = new Map();
   for (const row of log) {
-    const seen = finalSpot.get(row.ticker);
-    if (!seen || row.at > seen.at) finalSpot.set(row.ticker, row);
+    if (!Number.isFinite(row?.secondsLeft)) continue;
+    const closes = row.at + row.secondsLeft * 1000;
+    const known = closesAt.get(row.ticker);
+    // The latest observation has the least guesswork in it.
+    if (!known || row.at > known.at) closesAt.set(row.ticker, { closes, at: row.at });
+  }
+
+  // Spot prices, in order, so a market can be graded on where the index
+  // actually was when it closed rather than on the last quote before it.
+  const priced = (samples ?? [])
+    .filter((sample) => sample?.at > 0 && sample?.price > 0)
+    .sort((a, b) => a.at - b.at);
+
+  /**
+   * The settlement value: the average of the final sixty seconds, which is how
+   * Kalshi settles these. Falls back to the nearest single sample when the
+   * window is empty, and to nothing at all when there is no sample near the
+   * close — grading a market on a price from ten minutes earlier would be
+   * worse than leaving it ungraded.
+   */
+  const settlementSpot = (closes) => {
+    const window = priced.filter((s) => s.at > closes - 60_000 && s.at <= closes + 5_000);
+    if (window.length > 0) {
+      return window.reduce((total, s) => total + s.price, 0) / window.length;
+    }
+    const nearest = priced.reduce(
+      (best, s) =>
+        best === null || Math.abs(s.at - closes) < Math.abs(best.at - closes) ? s : best,
+      null,
+    );
+    return nearest && Math.abs(nearest.at - closes) < 5 * 60_000 ? nearest.price : null;
+  };
+
+  const finalSpot = new Map();
+  for (const [ticker, { closes }] of closesAt) {
+    if (now - closes <= settledBefore) continue;
+    const spot = settlementSpot(closes);
+    if (spot !== null) finalSpot.set(ticker, spot);
   }
 
   let settled = 0;
   const out = log.map((row) => {
     if (row.outcome !== null) return row;
-
-    const last = finalSpot.get(row.ticker);
-    // Only score a market that is comfortably finished, so a contract still
-    // trading is never graded on a price from the middle of its life.
-    const closed = last && last.secondsLeft <= 0 && now - last.at > settledBefore;
-    if (!closed) return row;
+    const spot = finalSpot.get(row.ticker);
+    if (spot === undefined) return row;
 
     settled += 1;
-    return { ...row, outcome: last.spot > row.strike ? 1 : 0 };
+    return { ...row, outcome: spot > row.strike ? 1 : 0 };
   });
 
   return { log: out, settled };

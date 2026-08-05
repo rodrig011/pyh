@@ -454,6 +454,13 @@ test('/picks edge reports the market winning, rather than hiding it', async () =
     });
   }
   store.putQuotes('BTC', log);
+  // Spot samples spanning each market's close, which is what grading needs now
+  // that a market settles on its clock rather than on an observed zero.
+  const samples = [];
+  for (let i = 0; i < 200; i += 1) {
+    samples.push({ at: now - 700_000 + i * 3000, price: i % 2 === 0 ? 65_100 : 64_800 });
+  }
+  store.putSamples('BTC', samples);
 
   const interaction = fakeInteraction('edge');
   await handlePicks(interaction, { store, config });
