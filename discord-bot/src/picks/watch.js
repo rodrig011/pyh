@@ -4,6 +4,9 @@ import { readBoard, nearestTheMoney } from '../signals/board.js';
 import { flipRisk, whaleActivity } from './whales.js';
 import {
   alertMessage,
+  dmAlertMessage,
+  noteDmFailure,
+  noteDmSuccess,
   rememberAlert,
   shouldAlert,
   shouldAlertWhale,
@@ -441,20 +444,25 @@ export async function sweepSignalAlerts(client, store, config, deps = {}) {
           secondsLeft: context.secondsLeft,
         });
 
-        await channel.send(
-          alertMessage({
-            read: best.read,
-            asset,
-            ticker: best.ticker,
-            strike: best.strike,
-            whales,
-            risk,
-          }),
-        );
+        const body = alertMessage({
+          read: best.read,
+          asset,
+          ticker: best.ticker,
+          strike: best.strike,
+          whales,
+          risk,
+        });
+
+        await channel.send(body);
         alerts = rememberAlert(alerts, { ticker: best.ticker, kind: 'signal', now });
         store.putAlerts(alerts, { flush: true });
-        log.info(`Signal alert posted for ${best.ticker}`);
-        return { posted: 1, kind: 'signal' };
+
+        // And to everyone who asked for it in their DMs. Booked to the store
+        // BEFORE this, so a crash mid-delivery cannot cause the same contract
+        // to be announced to the channel twice.
+        const dmd = await deliverDms(client, store, dmAlertMessage(body), log);
+        log.info(`Signal alert posted for ${best.ticker}${dmd ? ` (+${dmd} DM)` : ''}`);
+        return { posted: 1, kind: 'signal', dms: dmd };
       }
     }
 
@@ -491,4 +499,41 @@ export async function sweepSignalAlerts(client, store, config, deps = {}) {
     log.debug(`Signal alert sweep failed: ${error.message}`);
     return { posted: 0 };
   }
+}
+
+/**
+ * Sends one alert to everyone who opted in, and forgets the ones who cannot be
+ * reached.
+ *
+ * Sequential rather than parallel on purpose: Discord rate-limits direct
+ * messages hard, and a burst to fifty people gets the bot throttled at exactly
+ * the moment the rest of the system is trying to work. A signal channel this
+ * size is a handful of subscribers, so the cost is a second at most.
+ *
+ * One person's closed inbox must never cost somebody else their alert, so every
+ * send is caught individually.
+ */
+async function deliverDms(client, store, body, log) {
+  let subs = store.signalDms();
+  const userIds = Object.keys(subs);
+  if (userIds.length === 0) return 0;
+
+  let sent = 0;
+  for (const userId of userIds) {
+    try {
+      const user = await client.users.fetch(userId);
+      await user.send(body);
+      subs = noteDmSuccess(subs, userId);
+      sent += 1;
+    } catch (error) {
+      const before = Object.keys(subs).length;
+      subs = noteDmFailure(subs, userId);
+      if (Object.keys(subs).length < before) {
+        log.debug(`Dropped ${userId} from call DMs after repeated failures: ${error.message}`);
+      }
+    }
+  }
+
+  store.putSignalDms(subs, { flush: true });
+  return sent;
 }

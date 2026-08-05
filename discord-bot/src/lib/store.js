@@ -34,6 +34,10 @@ const EMPTY = {
   // settable from a phone by the person running the room.
   signalPanel: null,
   alerts: null,
+  // Who asked for the calls in their DMs. Opt-in, one entry per person, with a
+  // failure count so a closed inbox stops being retried instead of costing a
+  // write every three minutes forever.
+  signalDms: null,
 };
 
 /**
@@ -319,6 +323,16 @@ export function createStore(filePath) {
 
     alerts() {
       return data.alerts ?? {};
+    },
+
+    signalDms() {
+      return data.signalDms ?? {};
+    },
+
+    putSignalDms(subs, { flush = true } = {}) {
+      data.signalDms = subs;
+      if (flush) save();
+      return subs;
     },
 
     putAlerts(alerts, { flush = false } = {}) {

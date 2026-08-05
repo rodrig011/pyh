@@ -40,6 +40,7 @@ export const SIGNAL_BUTTONS = {
   READ: `${SIGNAL_PANEL_PREFIX}read`,
   RECORD: `${SIGNAL_PANEL_PREFIX}record`,
   PAPER: `${SIGNAL_PANEL_PREFIX}paper`,
+  DM: `${SIGNAL_PANEL_PREFIX}dm`,
 };
 
 /** Which panel button was pressed, or null when it is not one of ours. */
@@ -111,7 +112,9 @@ export function signalPanelMessage({ asset = 'BTC', record = null, paper = null 
     .setColor(COLORS.info)
     .setTitle(`📈 ${asset} · 15-minute signals`)
     .setDescription(lines.join('\n'))
-    .setFooter({ text: 'Alerts arrive in this channel. Cash-outs arrive in your DMs.' });
+    .setFooter({
+      text: 'Alerts arrive in this channel. Press 🔔 to get the calls in your DMs too.',
+    });
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
@@ -129,6 +132,14 @@ export function signalPanelMessage({ asset = 'BTC', record = null, paper = null 
       .setLabel('Paper account')
       .setStyle(ButtonStyle.Secondary)
       .setEmoji('📝'),
+    // The one people will actually press, so it gets its own colour. A toggle
+    // rather than two buttons: nobody remembers which state they are in, and
+    // the press tells them.
+    new ButtonBuilder()
+      .setCustomId(SIGNAL_BUTTONS.DM)
+      .setLabel('DM me the calls')
+      .setStyle(ButtonStyle.Success)
+      .setEmoji('🔔'),
   );
 
   return { embeds: [embed], components: [row] };
@@ -273,4 +284,66 @@ export function rememberAlert(alerts, { ticker, kind = 'signal', now = Date.now(
     }
   }
   return next;
+}
+
+/**
+ * The calls, in a direct message, for whoever asked for them.
+ *
+ * Opt-in and per person, which is the whole point: a channel post is for the
+ * room, and a DM is a phone buzzing in somebody's pocket. Those need different
+ * consent. Nobody is subscribed by being present.
+ *
+ * Only trade calls are delivered this way. Whale posts stay in the channel —
+ * they are context, not instructions, and a buzz that turns out to mean "some
+ * size traded" is how a person learns to ignore the buzz that means "get in".
+ */
+
+/** How many failed sends before somebody is dropped from the list. */
+export const DM_FAILURE_LIMIT = 3;
+
+export function isSubscribed(subs, userId) {
+  return Boolean(subs?.[userId]);
+}
+
+export function subscribeDm(subs, userId, { now = Date.now() } = {}) {
+  if (!userId) return subs ?? {};
+  return { ...(subs ?? {}), [userId]: { at: now, failures: 0 } };
+}
+
+export function unsubscribeDm(subs, userId) {
+  const next = { ...(subs ?? {}) };
+  delete next[userId];
+  return next;
+}
+
+/**
+ * Books a failed send, dropping anyone whose inbox has refused often enough.
+ *
+ * A person with DMs closed cannot be reached, and retrying every alert for the
+ * rest of the month costs a write and a log line each time while helping
+ * nobody. Three strikes, because one failure is usually Discord rather than the
+ * person.
+ */
+export function noteDmFailure(subs, userId, { limit = DM_FAILURE_LIMIT } = {}) {
+  const existing = subs?.[userId];
+  if (!existing) return subs ?? {};
+  const failures = (existing.failures ?? 0) + 1;
+  if (failures >= limit) return unsubscribeDm(subs, userId);
+  return { ...subs, [userId]: { ...existing, failures } };
+}
+
+/** A successful send clears the count, so an outage does not accumulate. */
+export function noteDmSuccess(subs, userId) {
+  const existing = subs?.[userId];
+  if (!existing || !existing.failures) return subs ?? {};
+  return { ...subs, [userId]: { ...existing, failures: 0 } };
+}
+
+/** The channel alert, with the line that makes it stoppable. */
+export function dmAlertMessage(body) {
+  return [
+    body,
+    '',
+    '_Sent because you asked for the calls in your DMs. `/picks dm on:False` stops it._',
+  ].join('\n');
 }

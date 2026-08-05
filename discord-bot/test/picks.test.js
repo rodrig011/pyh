@@ -770,7 +770,7 @@ test('a non-mod cannot wipe a record', async (t) => {
   );
   await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
 
-  assert.match(replies[0], /Only the mods/);
+  assert.match(replies[0], /for the mods|Only the mods/);
   assert.equal(store.listPicks().length, 1);
 });
 
@@ -957,7 +957,7 @@ test('a non-mod cannot change a result', async (t) => {
   );
   await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
 
-  assert.match(replies[0], /Only the mods/);
+  assert.match(replies[0], /for the mods|Only the mods/);
   assert.equal(store.getPick(pick.id).outcome, OUTCOMES.LOSS, 'untouched');
   assert.equal(posted.length, 0);
 });

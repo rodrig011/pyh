@@ -13,7 +13,13 @@ import { measureEdge } from '../signals/measure.js';
 import { readBoard, nearestTheMoney, censusLine } from '../signals/board.js';
 import { addWatch, makeWatch, removeWatches } from './watch.js';
 import { PROFILES, START_BANKROLL, equity, newAccount, profileOf, report } from './paper.js';
-import { signalPanelMessage } from './signalPanel.js';
+import { activeSubscriptions } from '../vip/subscriptions.js';
+import {
+  isSubscribed,
+  signalPanelMessage,
+  subscribeDm,
+  unsubscribeDm,
+} from './signalPanel.js';
 import { roundTripCostCents } from '../signals/scalp.js';
 import { settleObservations } from '../signals/recorder.js';
 import { postPermissionHelp } from '../lib/channelAccess.js';
@@ -207,6 +213,17 @@ export function buildPickCommands(config) {
     .setName('picks')
     .setDescription('Track records for the calls made in this server')
     .setDMPermission(false)
+    // Mods only. Discord can gate visibility on a permission BIT but never on a
+    // role, so this hides the command from everyone without Manage Messages and
+    // the code check below is the real authority — exactly the split `/call`
+    // already uses.
+    //
+    // Members are not left without the two things that were theirs: the 🔔
+    // button on the signals panel still subscribes them to the calls, and the
+    // cash-out DMs they already registered keep arriving. A button is not a
+    // command and does not inherit this gate, which is what makes the split
+    // work at all.
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
     .addSubcommand((sub) =>
       sub
         .setName('record')
@@ -248,6 +265,14 @@ export function buildPickCommands(config) {
       sub
         .setName('signals')
         .setDescription('Post the signals panel here — alerts then arrive in this channel by themselves'),
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('dm')
+        .setDescription('Get the trade calls in your DMs — yours only, off unless you ask')
+        .addBooleanOption((option) =>
+          option.setName('on').setDescription('True to start, False to stop (leave blank to toggle)'),
+        ),
     )
     .addSubcommand((sub) =>
       sub.setName('kalshi').setDescription('Check the Kalshi contract feed and show what it returned'),
@@ -872,6 +897,15 @@ function whyNotPosted(reason, conflicting) {
   return 'I cannot post the call — check `PICKS_CHANNEL_ID` and that I can write there.';
 }
 
+/**
+ * Subcommands a member may still run.
+ *
+ * Empty by design: `/picks` is mods-only. The constant exists so that opening
+ * one back up is a one-line, obvious change rather than an unpicking of the
+ * guard below.
+ */
+export const MEMBER_SUBCOMMANDS = new Set();
+
 export async function handlePicks(interaction, { store, config, deps = {} }) {
   const sub = interaction.options.getSubcommand();
 
@@ -883,6 +917,19 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
   const readSpot = deps.fetchSpotPrice ?? fetchSpotPrice;
   const picks = store.listPicks((pick) => pick.guildId === (interaction.guildId ?? config.guildId));
   await interaction.deferReply();
+
+  // The real gate. Discord's permission bit hides the command from the picker,
+  // which is not the same as preventing it: a member who knows the name can
+  // still send it, and anyone with Manage Messages passes the bit whether or
+  // not they hold the mods role.
+  if (!MEMBER_SUBCOMMANDS.has(sub) && !isAnalyst(interaction, config)) {
+    return interaction.editReply(
+      '🔒 **`/picks` is for the mods.**\n\n' +
+        'The signals panel is where the calls are — press **🔔 DM me the calls** on it to get ' +
+        'them sent to you, and you will still get the CASH OUT direct messages for anything ' +
+        'you are already watching.',
+    );
+  }
 
   if (sub === 'record') {
     const user = interaction.options.getUser('analyst') ?? interaction.user;
@@ -1040,6 +1087,23 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
 
     await interaction.channel.send(guideMessage(config, pickSettings(config)));
     return interaction.editReply('Guide posted. **Pin it** — the buttons only work if the room reads them the same way.');
+  }
+
+  if (sub === 'dm') {
+    const settings = pickSettings(config);
+    const active = activeSubscriptions(store);
+    // An analyst or mod runs the room, so they are never locked out of their
+    // own signals by a membership record.
+    const isMember =
+      active.some((subscription) => subscription.userId === interaction.user.id) ||
+      isAnalyst(interaction, config);
+
+    const result = toggleSignalDm(store, config, {
+      userId: interaction.user.id,
+      isMember,
+      want: interaction.options.getBoolean('on'),
+    });
+    return interaction.editReply(result.message);
   }
 
   // Named `signals`, not `panel`: `/picks panel` is the analyst console and has
@@ -2768,6 +2832,15 @@ export async function handleSignalPanelButton(interaction, { store, config }, ac
     );
   }
 
+  if (action === 'dm') {
+    const active = activeSubscriptions(store);
+    const isMember =
+      active.some((subscription) => subscription.userId === interaction.user.id) ||
+      isAnalyst(interaction, config);
+    const result = toggleSignalDm(store, config, { userId: interaction.user.id, isMember });
+    return interaction.editReply(result.message);
+  }
+
   if (action === 'paper') {
     const account = store.paperAccount();
     if (!account?.userId) {
@@ -2782,4 +2855,62 @@ export async function handleSignalPanelButton(interaction, { store, config }, ac
     'Run **`/picks read`** for the live read — it shows every strike in the window, ' +
       'which one is worth taking, and why it refused the rest.',
   );
+}
+
+/**
+ * Turning the calls-in-your-DMs subscription on or off.
+ *
+ * Shared by the panel button and the slash command, because two paths to the
+ * same state that compute it separately is how they end up disagreeing.
+ *
+ * Gated on an active membership. The calls are the product being sold, and a
+ * command that DMs them to anyone who finds it gives the product away — the
+ * panel usually lives in a members-only channel, but a slash command does not
+ * inherit that protection.
+ */
+export function toggleSignalDm(store, config, { userId, isMember, want = null, now = Date.now() }) {
+  const subs = store.signalDms();
+  const already = isSubscribed(subs, userId);
+  const target = want === null ? !already : want;
+
+  if (target && !isMember) {
+    return {
+      changed: false,
+      subscribed: false,
+      message:
+        '🔒 **The calls go to members.** Your membership is not active right now, so there is ' +
+        'nothing to send. `/vip buy` sorts it, and the button works the moment it is.',
+    };
+  }
+
+  if (target === already) {
+    return {
+      changed: false,
+      subscribed: already,
+      message: already
+        ? '🔔 Already on — the calls come to your DMs. Press again, or `/picks dm on:False`, to stop.'
+        : '🔕 Already off. Nothing is being sent to your DMs.',
+    };
+  }
+
+  store.putSignalDms(
+    target ? subscribeDm(subs, userId, { now }) : unsubscribeDm(subs, userId),
+  );
+
+  return {
+    changed: true,
+    subscribed: target,
+    message: target
+      ? [
+          '🔔 **On — the calls will come to your DMs.**',
+          '',
+          'Only **trade calls**. Whale posts stay in the channel: they are context, not',
+          'instructions, and a buzz that turns out to mean "some size traded" is how a person',
+          'learns to ignore the buzz that means "get in".',
+          '',
+          '_Press the button again, or `/picks dm on:False`, to stop._',
+          '_If your DMs are closed I cannot reach you, and after a few failures I stop trying._',
+        ].join('\n')
+      : '🔕 **Off.** No more calls in your DMs. The channel alerts carry on.',
+  };
 }

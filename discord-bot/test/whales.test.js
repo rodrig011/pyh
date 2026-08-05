@@ -214,3 +214,72 @@ test('panel buttons are recognised, and other buttons are left alone', () => {
   assert.equal(signalPanelAction('pick:panel:cash_out'), null);
   assert.equal(signalPanelAction(undefined), null);
 });
+
+/**
+ * The calls in a direct message, for whoever asked.
+ *
+ * Opt-in and per person: a channel post is for the room, a DM is a phone
+ * buzzing in somebody's pocket, and those need different consent.
+ */
+
+import {
+  DM_FAILURE_LIMIT,
+  dmAlertMessage,
+  isSubscribed,
+  noteDmFailure,
+  noteDmSuccess,
+  subscribeDm,
+  unsubscribeDm,
+} from '../src/picks/signalPanel.js';
+
+test('nobody is subscribed by being present', () => {
+  assert.equal(isSubscribed({}, 'u1'), false);
+  assert.equal(isSubscribed(undefined, 'u1'), false);
+});
+
+test('subscribing and unsubscribing is per person', () => {
+  let subs = subscribeDm({}, 'u1');
+  subs = subscribeDm(subs, 'u2');
+  assert.equal(isSubscribed(subs, 'u1'), true);
+
+  subs = unsubscribeDm(subs, 'u1');
+  assert.equal(isSubscribed(subs, 'u1'), false);
+  assert.equal(isSubscribed(subs, 'u2'), true, 'one person leaving does not remove another');
+});
+
+test('a closed inbox is dropped after a few tries, not retried forever', () => {
+  // Retrying every alert for the rest of the month costs a write and a log line
+  // each time while helping nobody.
+  let subs = subscribeDm({}, 'u1');
+  for (let i = 0; i < DM_FAILURE_LIMIT - 1; i += 1) {
+    subs = noteDmFailure(subs, 'u1');
+    assert.equal(isSubscribed(subs, 'u1'), true, 'one failure is usually Discord, not the person');
+  }
+  subs = noteDmFailure(subs, 'u1');
+  assert.equal(isSubscribed(subs, 'u1'), false);
+});
+
+test('a success clears the count, so an outage does not accumulate', () => {
+  let subs = subscribeDm({}, 'u1');
+  subs = noteDmFailure(subs, 'u1');
+  subs = noteDmSuccess(subs, 'u1');
+  subs = noteDmFailure(subs, 'u1');
+  subs = noteDmFailure(subs, 'u1');
+  assert.equal(isSubscribed(subs, 'u1'), true);
+});
+
+test('failures against somebody who never subscribed change nothing', () => {
+  assert.deepEqual(noteDmFailure({}, 'ghost'), {});
+});
+
+test('the DM says how to stop, every time', () => {
+  const text = dmAlertMessage('🟢 **BUY UP @ 44%**');
+  assert.match(text, /BUY UP @ 44%/);
+  assert.match(text, /picks dm on:False/);
+});
+
+test('the panel carries the button members press to subscribe', () => {
+  const { components } = signalPanelMessage({});
+  const labels = components[0].components.map((button) => button.data.label);
+  assert.ok(labels.some((label) => /DM me the calls/.test(label)));
+});

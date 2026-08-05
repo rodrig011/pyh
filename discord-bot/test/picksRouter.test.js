@@ -80,7 +80,7 @@ test('/picks backfill refuses anyone who is not a mod', async () => {
   await handlePicks(interaction, { store, config });
 
   assert.equal(store.listPicks().length, 0);
-  assert.match(String(interaction.replies.at(-1)), /Only the mods/);
+  assert.match(String(interaction.replies.at(-1)), /for the mods|Only the mods/);
 });
 
 test('/picks backfill will not record nothing', async () => {
@@ -273,7 +273,7 @@ test('/picks account is refused to anyone who is not a mod', async () => {
   const interaction = fakeInteraction('account', {}, { admin: false });
   await handlePicks(interaction, { store: freshStore(), config });
 
-  assert.match(String(interaction.replies.at(-1)), /Only the mods/);
+  assert.match(String(interaction.replies.at(-1)), /for the mods|Only the mods/);
 });
 
 test('/picks account names the markets traded, so a wrong series filter is visible', async () => {
@@ -429,7 +429,7 @@ test('/picks undo-auto removes only what the account published', async () => {
 test('/picks undo-auto is refused to anyone who is not a mod', async () => {
   const interaction = fakeInteraction('undo-auto', {}, { admin: false });
   await handlePicks(interaction, { store: freshStore(), config });
-  assert.match(String(interaction.replies.at(-1)), /Only the mods/);
+  assert.match(String(interaction.replies.at(-1)), /for the mods|Only the mods/);
 });
 
 test('/picks edge says plainly that nothing has settled yet', async () => {
@@ -1084,7 +1084,7 @@ test('/picks signals is refused to anyone who is not a mod', async () => {
   await handlePicks(interaction, { store, config: paperConfig });
 
   assert.equal(store.signalPanel(), null);
-  assert.match(String(interaction.replies.at(-1)), /Only the mods can post the signals panel/);
+  assert.match(String(interaction.replies.at(-1)), /for the mods|Only the mods/);
 });
 
 test('/picks signals promises nothing about the win rate', async () => {
@@ -1097,4 +1097,69 @@ test('/picks signals promises nothing about the win rate', async () => {
   const reply = String(interaction.replies.at(-1));
   assert.match(reply, /measured/i);
   assert.doesNotMatch(reply, /guarantee|guaranteed|win rate of \d/i);
+});
+
+/**
+ * `/picks` is mods-only, and members keep the two things that were theirs.
+ */
+
+test('a member running /picks is refused and told where the calls are', async () => {
+  const store = freshStore();
+  const interaction = fakeInteraction('read', {}, { admin: false });
+
+  await handlePicks(interaction, { store, config: paperConfig });
+
+  const reply = String(interaction.replies.at(-1));
+  assert.match(reply, /for the mods/);
+  // A refusal that does not say what somebody CAN do sends them to ask a human.
+  assert.match(reply, /DM me the calls/);
+});
+
+test('the mods gate covers every subcommand, not the ones remembered', async () => {
+  // The failure this guards: a subcommand added later, gated nowhere, reachable
+  // by anyone who knows its name. The check is on the router, so it covers
+  // whatever exists rather than whatever was listed.
+  const store = freshStore();
+  for (const sub of ['read', 'edge', 'paper', 'backfill', 'signals', 'record']) {
+    const interaction = fakeInteraction(sub, {}, { admin: false });
+    await handlePicks(interaction, { store, config: paperConfig });
+    assert.match(String(interaction.replies.at(-1)), /for the mods/, `${sub} was not gated`);
+  }
+});
+
+test('a mod still gets through to every subcommand', async () => {
+  const store = freshStore();
+  const interaction = fakeInteraction('record', {});
+  await handlePicks(interaction, { store, config: paperConfig });
+  assert.doesNotMatch(String(interaction.replies.at(-1)), /for the mods/);
+});
+
+test('/picks dm turns the call DMs on for a mod and off again', async () => {
+  const store = freshStore();
+
+  const on = fakeInteraction('dm', { on: true });
+  await handlePicks(on, { store, config: paperConfig });
+  assert.equal(Boolean(store.signalDms()['mod']), true);
+  assert.match(String(on.replies.at(-1)), /On — the calls will come/);
+
+  const off = fakeInteraction('dm', { on: false });
+  await handlePicks(off, { store, config: paperConfig });
+  assert.equal(Boolean(store.signalDms()['mod']), false);
+});
+
+test('/picks dm with no argument toggles rather than demanding a state', async () => {
+  const store = freshStore();
+  await handlePicks(fakeInteraction('dm', {}), { store, config: paperConfig });
+  assert.equal(Boolean(store.signalDms()['mod']), true);
+
+  await handlePicks(fakeInteraction('dm', {}), { store, config: paperConfig });
+  assert.equal(Boolean(store.signalDms()['mod']), false);
+});
+
+test('turning on what is already on says so instead of writing again', async () => {
+  const store = freshStore();
+  await handlePicks(fakeInteraction('dm', { on: true }), { store, config: paperConfig });
+  const again = fakeInteraction('dm', { on: true });
+  await handlePicks(again, { store, config: paperConfig });
+  assert.match(String(again.replies.at(-1)), /Already on/);
 });
