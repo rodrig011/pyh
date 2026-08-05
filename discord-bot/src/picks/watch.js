@@ -1,5 +1,14 @@
 import { SCALP_ACTIONS, roundTripReturn, scalpDecision } from '../signals/scalp.js';
 import { directionalRead } from '../signals/direction.js';
+import { readBoard, nearestTheMoney } from '../signals/board.js';
+import { flipRisk, whaleActivity } from './whales.js';
+import {
+  alertMessage,
+  rememberAlert,
+  shouldAlert,
+  shouldAlertWhale,
+  whaleAlertMessage,
+} from './signalPanel.js';
 import { newAccount, paperTick, report, reportDue, equity } from './paper.js';
 
 /**
@@ -354,5 +363,132 @@ export async function sweepPaper(client, store, config, deps = {}) {
   } catch (error) {
     log.debug(`Paper sweep failed: ${error.message}`);
     return { ran: false };
+  }
+}
+
+/**
+ * One pass over the board looking for something worth interrupting a room for.
+ *
+ * Separate from the paper sweep and from the exit alerts, because it answers a
+ * different question: not "what should this account do" but "is anything
+ * happening that the people in this channel would want to know about".
+ *
+ * The bar is deliberately higher than the engine's own. The engine decides
+ * whether a trade is worth taking; this decides whether a trade is worth a
+ * notification, and those are not the same threshold. A channel that posts
+ * every signal is a channel nobody reads by Wednesday.
+ *
+ * Never throws: this shares a process with the part that handles payments.
+ */
+export async function sweepSignalAlerts(client, store, config, deps = {}) {
+  const {
+    openBoard,
+    fetchSpotPrice,
+    fetchTrades,
+    now = Date.now(),
+    log = { debug() {}, info() {} },
+  } = deps;
+
+  const settings = config.picks ?? {};
+  if (!settings.kalshi?.enabled || !settings.kalshi.seriesTicker) return { posted: 0 };
+
+  const panel = store.signalPanel();
+  if (!panel?.channelId) return { posted: 0 };
+
+  try {
+    const asset = settings.defaultAsset ?? 'BTC';
+    const [board, quote] = await Promise.all([
+      openBoard(settings.kalshi, { now }).catch(() => null),
+      fetchSpotPrice(asset),
+    ]);
+
+    const candidates = board?.contracts ?? [];
+    if (candidates.length === 0 || !(quote?.price > 0)) return { posted: 0 };
+
+    const closesAt = Date.parse(candidates[0].market.close_time ?? '');
+    const context = {
+      prices: store
+        .listSamples(asset)
+        .filter((s) => s?.at >= now - 60 * 60 * 1000 && s?.price > 0)
+        .map((s) => s.price),
+      spot: quote.price,
+      secondsLeft: Number.isFinite(closesAt) ? (closesAt - now) / 1000 : null,
+    };
+
+    const ladder = readBoard(candidates, context);
+    let alerts = store.alerts();
+
+    // The best tradeable strike, if there is one. Only ever one alert per pass:
+    // announcing three strikes of the same ladder at once is one idea posted
+    // three times, and the room reads it as noise.
+    const best = ladder.best;
+    const channel = await client.channels.fetch(panel.channelId).catch(() => null);
+    if (!channel) return { posted: 0 };
+
+    if (best) {
+      const decision = shouldAlert(best.read, { ticker: best.ticker, alerts, now });
+      if (decision.alert) {
+        // Only now is the tape worth a request: one fetch, for the one contract
+        // about to be announced, rather than a fetch per strike per sweep.
+        const tape = fetchTrades
+          ? await fetchTrades(settings.kalshi, best.ticker, { limit: 100 }).catch(() => null)
+          : null;
+        const whales = tape ? whaleActivity(tape.trades, { since: now - 15 * 60 * 1000 }) : null;
+        const risk = flipRisk({
+          side: best.read.call,
+          flipProbability: best.read.result?.flipProbability,
+          whales,
+          secondsLeft: context.secondsLeft,
+        });
+
+        await channel.send(
+          alertMessage({
+            read: best.read,
+            asset,
+            ticker: best.ticker,
+            strike: best.strike,
+            whales,
+            risk,
+          }),
+        );
+        alerts = rememberAlert(alerts, { ticker: best.ticker, kind: 'signal', now });
+        store.putAlerts(alerts, { flush: true });
+        log.info(`Signal alert posted for ${best.ticker}`);
+        return { posted: 1, kind: 'signal' };
+      }
+    }
+
+    // No trade worth announcing. Size moving into the contract nearest the
+    // money is still the most useful thing anyone will see this minute, and it
+    // is posted with "this is not a trade call" written on it.
+    if (!fetchTrades) return { posted: 0 };
+    const near = nearestTheMoney(ladder.reads);
+    if (!near?.ticker) return { posted: 0 };
+
+    const tape = await fetchTrades(settings.kalshi, near.ticker, { limit: 100 }).catch(() => null);
+    if (!tape) return { posted: 0 };
+
+    const whales = whaleActivity(tape.trades, { since: now - 15 * 60 * 1000 });
+    const decision = shouldAlertWhale(whales, { ticker: near.ticker, alerts, now });
+    if (!decision.alert) return { posted: 0 };
+
+    const risk = flipRisk({
+      side: whales.lean > 0 ? 'up' : 'down',
+      flipProbability: near.read.result?.flipProbability,
+      whales,
+      secondsLeft: context.secondsLeft,
+    });
+
+    await channel.send(
+      whaleAlertMessage({ whales, asset, ticker: near.ticker, strike: near.strike, risk }),
+    );
+    store.putAlerts(rememberAlert(alerts, { ticker: near.ticker, kind: 'whale', now }), {
+      flush: true,
+    });
+    log.info(`Whale alert posted for ${near.ticker}`);
+    return { posted: 1, kind: 'whale' };
+  } catch (error) {
+    log.debug(`Signal alert sweep failed: ${error.message}`);
+    return { posted: 0 };
   }
 }

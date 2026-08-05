@@ -12,7 +12,8 @@ import { COLORS } from '../lib/brand.js';
 import { measureEdge } from '../signals/measure.js';
 import { readBoard, nearestTheMoney, censusLine } from '../signals/board.js';
 import { addWatch, makeWatch, removeWatches } from './watch.js';
-import { PROFILES, START_BANKROLL, newAccount, report } from './paper.js';
+import { PROFILES, START_BANKROLL, equity, newAccount, profileOf, report } from './paper.js';
+import { signalPanelMessage } from './signalPanel.js';
 import { roundTripCostCents } from '../signals/scalp.js';
 import { settleObservations } from '../signals/recorder.js';
 import { postPermissionHelp } from '../lib/channelAccess.js';
@@ -242,6 +243,11 @@ export function buildPickCommands(config) {
     )
     .addSubcommand((sub) =>
       sub.setName('guide').setDescription('Post the announcement explaining what each signal means'),
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('signals')
+        .setDescription('Post the signals panel here — alerts then arrive in this channel by themselves'),
     )
     .addSubcommand((sub) =>
       sub.setName('kalshi').setDescription('Check the Kalshi contract feed and show what it returned'),
@@ -1034,6 +1040,52 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
 
     await interaction.channel.send(guideMessage(config, pickSettings(config)));
     return interaction.editReply('Guide posted. **Pin it** — the buttons only work if the room reads them the same way.');
+  }
+
+  // Named `signals`, not `panel`: `/picks panel` is the analyst console and has
+  // been since long before this existed. Two subcommands with one name means
+  // the first router branch wins and the second is dead code nobody notices.
+  if (sub === 'signals') {
+    if (!isAnalyst(interaction, config)) {
+      return interaction.editReply('Only the mods can post the signals panel.');
+    }
+    const help = postPermissionHelp(interaction.channel, interaction.guild);
+    if (help) return interaction.editReply(help);
+
+    const settings = pickSettings(config);
+    const asset = settings.defaultAsset ?? 'BTC';
+    const record = computeRecord(picks, { analystId: settings.autoAnalystId ?? null });
+    const account = store.paperAccount();
+
+    const posted = await interaction.channel.send(
+      signalPanelMessage({
+        asset,
+        record: record?.settled > 0 ? record : null,
+        paper: account
+          ? { value: equity(account), start: account.start, profile: profileOf(account).label }
+          : null,
+      }),
+    );
+
+    // The channel is stored, not configured. Setting an environment variable
+    // needs a redeploy and somebody at a dashboard; this has to be settable
+    // from a phone by whoever runs the room.
+    store.putSignalPanel({ channelId: interaction.channelId, messageId: posted.id, at: Date.now() });
+
+    return interaction.editReply(
+      [
+        '📈 **Panel posted — pin it.**',
+        '',
+        `Alerts now arrive **in this channel by themselves**: a BUY when a strike clears the bar`,
+        'after the spread and both fees, and a 🐋 WHALE when real size crosses the spread.',
+        '',
+        '**One alert per contract, ever**, and never two within three minutes — a channel that',
+        'posts every signal is a channel nobody reads by Wednesday.',
+        '',
+        '_The win rate on the panel is the **measured** one, sample size included. It goes up by',
+        'the bot staying quiet when it is unsure, which is the only honest lever there is._',
+      ].join('\n'),
+    );
   }
 
   // The response shape was never verified against a live account, so this
@@ -2685,4 +2737,49 @@ export async function promptDueSettlements(client, store, config, now = Date.now
   }
 
   return { graded, asked, prompted: graded + asked };
+}
+
+/**
+ * A press on the signals panel.
+ *
+ * Every answer is ephemeral. A panel is pinned and pressed all day, and a
+ * public reply per press turns the channel it was posted in into the thing it
+ * was meant to replace.
+ */
+export async function handleSignalPanelButton(interaction, { store, config }, action) {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  if (action === 'record') {
+    const picks = store.listPicks((pick) => pick.guildId === (interaction.guildId ?? config.guildId));
+    const settings = pickSettings(config);
+    const record = computeRecord(picks, { analystId: settings.autoAnalystId ?? null });
+
+    if (!record || record.settled === 0) {
+      return interaction.editReply('No settled calls yet — the record starts once they grade.');
+    }
+    const rate = (record.wins / record.settled) * 100;
+    return interaction.editReply(
+      [
+        `**${record.wins}W ${record.settled - record.wins}L — ${rate.toFixed(0)}%** over ${record.settled} settled call(s).`,
+        record.settled < 30
+          ? '_Under about thirty calls this is noise, not a track record._'
+          : '_Graded on the contract, not on where BTC went._',
+      ].join('\n'),
+    );
+  }
+
+  if (action === 'paper') {
+    const account = store.paperAccount();
+    if (!account?.userId) {
+      return interaction.editReply('No paper run yet. A mod starts one with `/picks paper`.');
+    }
+    return interaction.editReply(report(account));
+  }
+
+  // 'read' and anything unrecognised: point at the command rather than
+  // duplicating it, so the two can never drift apart.
+  return interaction.editReply(
+    'Run **`/picks read`** for the live read — it shows every strike in the window, ' +
+      'which one is worth taking, and why it refused the rest.',
+  );
 }

@@ -11,7 +11,9 @@ import { handlePicks } from '../src/picks/commands.js';
 // room — `/picks backfill` answered "sendLog is not defined". These drive the
 // router directly, which is the cheapest place to catch that class of mistake.
 
-function fakeInteraction(sub, options = {}, { admin = true } = {}) {
+const interactionChannelPosts = [];
+
+function fakeInteraction(sub, options = {}, { admin = true, channel = false } = {}) {
   const replies = [];
   return {
     replies,
@@ -28,6 +30,20 @@ function fakeInteraction(sub, options = {}, { admin = true } = {}) {
       getBoolean: (name) => options[name] ?? null,
       getNumber: (name) => options[name] ?? null,
     },
+    channelId: 'chan-1',
+    guild: channel ? { members: { me: { permissionsIn: () => ({ has: () => true }) } } } : undefined,
+    // Only handed a channel where a test needs one posted to: several other
+    // routes branch on whether one exists at all.
+    channel: channel
+      ? {
+          id: 'chan-1',
+          isTextBased: () => true,
+          send: async (payload) => {
+            interactionChannelPosts.push(payload);
+            return { id: 'msg-1' };
+          },
+        }
+      : undefined,
     deferReply: async () => {},
     editReply: async (payload) => {
       replies.push(payload);
@@ -1040,4 +1056,45 @@ test('/picks read survives a feed that throws', async () => {
   });
 
   assert.match(String(interaction.replies.at(-1)), /No open market/);
+});
+
+/**
+ * `/picks panel` — the panel that turns pulled signals into pushed ones.
+ *
+ * Wiring, again: the panel is worthless if the channel it was posted in is not
+ * remembered, and nothing about that is visible from reading the message.
+ */
+
+test('/picks signals posts the panel and remembers where it lives', async () => {
+  const store = freshStore();
+  const interaction = fakeInteraction('signals', {}, { channel: true });
+
+  await handlePicks(interaction, { store, config: paperConfig });
+
+  const panel = store.signalPanel();
+  assert.equal(panel.channelId, 'chan-1');
+  assert.equal(panel.messageId, 'msg-1');
+  assert.match(String(interaction.replies.at(-1)), /Panel posted/);
+});
+
+test('/picks signals is refused to anyone who is not a mod', async () => {
+  const store = freshStore();
+  const interaction = fakeInteraction('signals', {}, { admin: false, channel: true });
+
+  await handlePicks(interaction, { store, config: paperConfig });
+
+  assert.equal(store.signalPanel(), null);
+  assert.match(String(interaction.replies.at(-1)), /Only the mods can post the signals panel/);
+});
+
+test('/picks signals promises nothing about the win rate', async () => {
+  // The one thing a signals panel must never do is claim a hit rate. It reports
+  // the measured one, sample size attached, or says there is not one yet.
+  const store = freshStore();
+  const interaction = fakeInteraction('signals', {}, { channel: true });
+  await handlePicks(interaction, { store, config: paperConfig });
+
+  const reply = String(interaction.replies.at(-1));
+  assert.match(reply, /measured/i);
+  assert.doesNotMatch(reply, /guarantee|guaranteed|win rate of \d/i);
 });

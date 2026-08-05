@@ -28,6 +28,12 @@ const EMPTY = {
   quotes: {},
   watches: [],
   paper: null,
+  // Where the signals panel lives, and what has already been announced there.
+  // Kept in the store rather than an environment variable on purpose: setting
+  // an env var needs a redeploy and someone at a dashboard, and this has to be
+  // settable from a phone by the person running the room.
+  signalPanel: null,
+  alerts: null,
 };
 
 /**
@@ -299,6 +305,26 @@ export function createStore(filePath) {
      */
     paperAccount() {
       return data.paper ?? null;
+    },
+
+    signalPanel() {
+      return data.signalPanel ?? null;
+    },
+
+    putSignalPanel(panel, { flush = true } = {}) {
+      data.signalPanel = panel;
+      if (flush) save();
+      return panel;
+    },
+
+    alerts() {
+      return data.alerts ?? {};
+    },
+
+    putAlerts(alerts, { flush = false } = {}) {
+      data.alerts = alerts;
+      if (flush) save();
+      return alerts;
     },
 
     putPaperAccount(account, { flush = true } = {}) {

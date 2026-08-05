@@ -25,6 +25,8 @@ import { COLORS } from '../lib/brand.js';
 import { postPermissionHelp } from '../lib/channelAccess.js';
 import { createLogger } from '../lib/logger.js';
 import { buildMessage } from '../lib/build.js';
+import { signalPanelAction } from '../picks/signalPanel.js';
+import { handleSignalPanelButton } from '../picks/commands.js';
 import { createSubscriptionCheckout } from '../payments/stripe.js';
 import { buildEvidence, formatEvidence, money } from './evidence.js';
 import { normalizeCode } from '../lib/codes.js';
@@ -1763,6 +1765,14 @@ export async function handleInteraction(interaction, context) {
   // instead of on the next guess.
   if (interaction.isButton()) {
     commandLog.debug(`Button ${interaction.customId} from ${interaction.user?.tag}`);
+  }
+
+  // The signals panel. Every button is a shortcut to a command people would
+  // otherwise type a hundred times a day, and each answers ephemerally so a
+  // pinned panel does not become a thread.
+  if (interaction.isButton() && signalPanelAction(interaction.customId)) {
+    const action = signalPanelAction(interaction.customId);
+    return handleSignalPanelButton(interaction, context, action);
   }
 
   if (interaction.isButton() && interaction.customId?.startsWith(FOLLOW_PREFIX)) {

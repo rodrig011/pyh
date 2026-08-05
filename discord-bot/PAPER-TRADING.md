@@ -669,3 +669,80 @@ for, and being cautious with imaginary money learns nothing. `scalp` is now the
 default there; `careful` is one option away.
 
 Running total: nine ideas built and measured, three shipped.
+
+---
+
+## The signals panel, and what "high success rate" can honestly mean
+
+Three things were asked for together: a panel that pushes notifications instead
+of waiting to be asked, a whale alert tied to flip risk, and a high success rate.
+The first two are engineering. The third is worth being precise about, because
+it is the one that can be faked.
+
+### The whale reading was decoration
+
+`largePrints()` had lived in the indicators for weeks and had **never been given
+a single trade**. Every call site passed `trades: []`. It computed a lean from an
+empty array and reported zero, forever.
+
+It now reads the exchange's own trade tape. That choice matters: a whale in BTC
+spot is interesting, but a whale in *this contract* is what moves the price being
+traded. Somebody lifting four hundred contracts on the NO side is a statement
+about this fifteen-minute window in a way a spot print an exchange away is not.
+
+`taker_side` is what gets counted — the side that crossed the spread. A resting
+order that got hit was not making a statement; the order that reached across was.
+
+### Flip risk is two independent things, kept separate
+
+- **The arithmetic**: `flipProbability`, already computed by the engine — the
+  chance the price touches the strike again before the bell. On a 15-minute
+  binary that is roughly **twice** the chance of finishing on the wrong side,
+  which is the most counter-intuitive number in the whole system and the reason
+  people sell winners in a wobble.
+- **The pressure**: size crossing the spread *against* the side held.
+
+They are reported separately because they fail differently, and size on your own
+side reduces the risk score rather than being spun as confirmation. A whale is
+evidence about pressure, never about outcome, and every line says so.
+
+### On the success rate
+
+It is **reported, never promised**, and there is only one honest lever for
+raising it: **stay quiet when unsure**. That does not make the model better — it
+makes the bot silent about the cases where it is least sure, and that is exactly
+what a high hit rate is made of.
+
+So the bar to *interrupt a room* is deliberately higher than the bar to *answer a
+question*:
+
+| | Bar |
+|---|---|
+| `/picks read` answers | whatever the engine says, refusals included |
+| An alert posts | only tradeable, **≥4¢ net** after spread and both fees |
+| A whale posts alone | **≥1000 contracts**, lean ≥0.6, labelled "not a trade call" |
+
+Plus: one alert per contract *ever* — a market announced twice is a market
+somebody enters twice — and never two alerts within three minutes, so a volatile
+hour cannot flood the channel.
+
+Four cents net against the engine's six-cent gross bar is not a second number
+pulled from the air: the engine's threshold is gross edge against the price, and
+this one is what survives the spread and both fees, so a signal clearing six
+gross can easily be under four net.
+
+The panel prints the **measured** record with its sample size attached, and says
+outright that anything under about thirty settled calls is noise rather than a
+track record. A panel claiming a win rate is worth nothing; a panel showing the
+real one, including when it is bad, is the only version that survives a member
+who is counting.
+
+### A collision worth recording
+
+The new subcommand was first called `/picks panel` — which already existed, as
+the analyst console, and had for months. The router branches in order, so the
+old handler won and the new one was unreachable dead code that every unit test
+passed straight through. It only surfaced because a test drove the *router*
+rather than the function. Renamed to `/picks signals`.
+
+Running total: ten ideas built and measured, four shipped.

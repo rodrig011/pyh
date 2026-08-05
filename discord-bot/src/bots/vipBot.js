@@ -31,7 +31,8 @@ import { collectOnce } from '../signals/collector.js';
 import { observeOnce } from '../signals/recorder.js';
 import { evaluate } from '../signals/engine.js';
 import { currentContract, nearestTheMoneyContract, openBoard } from '../picks/kalshi.js';
-import { sweepPaper, sweepWatches } from '../picks/watch.js';
+import { fetchTrades } from '../picks/whales.js';
+import { sweepPaper, sweepSignalAlerts, sweepWatches } from '../picks/watch.js';
 import { fetchSpotPrice } from '../picks/price.js';
 
 const log = createLogger('vip');
@@ -313,6 +314,12 @@ export function createVipBot(config = loadVipConfig()) {
             if (result.event) log.info(`Paper: ${result.event}`);
           })
           .catch((error) => log.debug(`Paper sweep failed: ${error.message}`));
+
+        // Signal and whale alerts into the panel's channel, if one was posted.
+        // Same sweep, because an alert is worth less every second it is late —
+        // and it costs nothing when no panel exists.
+        sweepSignalAlerts(client, store, config, { openBoard, fetchSpotPrice, fetchTrades, log })
+          .catch((error) => log.debug(`Alert sweep failed: ${error.message}`));
       }, watchMs).unref();
 
       log.info(`Watching positions for cash-out alerts every ${watchMs / 1000}s`);
