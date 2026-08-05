@@ -12,7 +12,15 @@ import { COLORS } from '../lib/brand.js';
 import { measureEdge } from '../signals/measure.js';
 import { readBoard, nearestTheMoney, censusLine } from '../signals/board.js';
 import { addWatch, makeWatch, removeWatches } from './watch.js';
-import { PROFILES, START_BANKROLL, equity, newAccount, profileOf, report } from './paper.js';
+import {
+  PROFILES,
+  START_BANKROLL,
+  compareReport,
+  equity,
+  newAccount,
+  profileOf,
+  report,
+} from './paper.js';
 import { activeSubscriptions } from '../vip/subscriptions.js';
 import {
   isSubscribed,
@@ -292,8 +300,9 @@ export function buildPickCommands(config) {
         .addStringOption((option) =>
           option
             .setName('mode')
-            .setDescription('How hard it pushes (default: scalp)')
+            .setDescription('How hard it pushes (default: both, side by side)')
             .addChoices(
+              { name: 'both — run them side by side and compare (recommended)', value: 'both' },
               { name: 'scalp — thinner edges, bigger bets, more trades', value: 'scalp' },
               { name: 'careful — only what the measurements support', value: 'careful' },
             ),
@@ -1164,18 +1173,25 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
       );
     }
 
-    const existing = store.paperAccount();
     const reset = interaction.options.getBoolean('reset') ?? false;
     const bankroll = interaction.options.getNumber('bankroll') ?? START_BANKROLL;
+    const mode = interaction.options.getString('mode') ?? 'both';
+    const wanted = mode === 'both' ? ['careful', 'scalp'] : [mode];
 
-    if (existing?.userId && !reset) {
+    const existing = store.paperAccounts();
+    const running = Object.values(existing).filter((account) => account?.userId);
+
+    if (running.length > 0 && !reset) {
       const board = await openBoard(settings.kalshi).catch(() => null);
-      const held = existing.position
-        ? board?.contracts?.find((c) => c.market?.ticker === existing.position.ticker)
-        : null;
+      const marks = {};
+      for (const [profile, account] of Object.entries(existing)) {
+        if (!account?.position) continue;
+        marks[profile] =
+          board?.contracts?.find((c) => c.market?.ticker === account.position.ticker)?.price ?? null;
+      }
       return interaction.editReply(
         [
-          report(existing, { markCents: held?.price ?? null }),
+          compareReport(existing, { marks }),
           '',
           `_Watching **${board?.contracts?.length ?? 0}** strike(s) in the current window._`,
           '_Already running. `reset:True` starts it over._',
@@ -1186,53 +1202,66 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
     // A reset is confirmed by reading back what was stored, not by assuming the
     // write landed. The previous version reported success unconditionally, so a
     // reset undone by the background sweep looked exactly like one that worked.
-    const mode = interaction.options.getString('mode') ?? 'scalp';
-    const account = {
-      ...newAccount({ bankroll, at: Date.now(), profile: mode }),
-      userId: interaction.user.id,
-    };
-    store.putPaperAccount(account);
+    const at = Date.now();
+    const accounts = {};
+    for (const profile of wanted) {
+      accounts[profile] = { ...newAccount({ bankroll, at, profile }), userId: interaction.user.id };
+    }
+    store.putPaperAccounts(accounts);
 
-    const stored = store.paperAccount();
-    if (stored?.epoch !== account.epoch || stored?.cash !== bankroll) {
+    const stored = store.paperAccounts();
+    const landed = wanted.every(
+      (profile) => stored[profile]?.epoch === at && stored[profile]?.cash === bankroll,
+    );
+    if (!landed) {
       return interaction.editReply(
-        '❌ **The reset did not stick.** The stored account still shows ' +
-          `$${(stored?.cash ?? 0).toFixed(2)} over ${stored?.trades?.length ?? 0} trade(s). Try again.`,
+        '❌ **The reset did not stick.** The stored accounts do not match what was just written. Try again.',
       );
     }
 
-    return interaction.editReply(
-      [
-        `📝 **Paper trading ${reset ? 'reset' : 'started'} — $${bankroll.toFixed(2)}**`,
-        reset ? '_Previous run wiped: cash, trades, and the refusal count all back to zero._' : null,
+    const lines = [
+      `📝 **Paper trading ${reset ? 'reset' : 'started'} — $${bankroll.toFixed(2)}${wanted.length > 1 ? ' each' : ''}**`,
+      reset ? '_Previous run wiped: cash, trades, and the refusal count all back to zero._' : null,
+      '',
+      'The engine trades the real BTC 15-minute market with imaginary money: it buys at the',
+      '**ask**, sells at the **bid**, and pays both fees, exactly as the exchange charges them.',
+      'No hindsight — it only takes what it would have called live.',
+      '',
+    ];
+
+    if (wanted.length > 1) {
+      lines.push(
+        '**Two runs, side by side.** Same markets, same instant, same quoted prices — the only',
+        'difference between them is how hard they push. That is what makes it an experiment',
+        'rather than two stories: a careful run from Tuesday against an aggressive run from',
+        'Thursday compares two weeks of weather.',
         '',
-        'The engine now trades the real BTC 15-minute market with imaginary money:',
-        'it buys at the **ask**, sells at the **bid**, and pays both fees, exactly as the',
-        'exchange charges them. No hindsight — it only takes what it would have called live.',
+        '🐢 **careful** — 6¢ of edge, quarter Kelly, no entries inside 2 min of the bell',
+        '🔥 **scalp** — 3¢ of edge, double the bet size, enters at 1 min, banks sooner',
         '',
-        'It reads **every strike** in the window, not just the one closing soonest —',
-        'that alone took the share of windows with a signal from 36% to 76% in testing,',
-        'with the edge threshold left exactly where it was.',
-        '',
-        `**Mode: ${PROFILES[mode]?.label ?? mode}.** ` +
-          (mode === 'scalp'
-            ? 'Half the edge required (3¢ not 6¢), double the bet size, enters a minute ' +
-              'from the bell instead of two, banks a move sooner.'
+        '_Measured on the simulator: against a market that is never wrong, scalp bleeds about',
+        '3× faster; against one that is genuinely mispriced, it makes about 5× more. Which of',
+        'those is real is the whole question, and this is how it gets answered._',
+      );
+    } else {
+      const label = PROFILES[wanted[0]]?.label ?? wanted[0];
+      lines.push(
+        `**Mode: ${label}.** ` +
+          (wanted[0] === 'scalp'
+            ? 'Half the edge required (3¢ not 6¢), double the bet size, enters a minute from the bell.'
             : 'Six cents of edge, quarter Kelly — only what the measurements support.'),
-        mode === 'scalp'
-          ? '_Measured honestly: a 3¢ bar loses ~7.6% against a market that is never wrong, ' +
-            'where 6¢ loses ~2.1%. That is the price of trading more. This is imaginary ' +
-            'money, which is exactly what a question like that is for._'
-          : null,
-        '',
-        '**I will DM you the result every 6 hours.** Only you.',
-        '',
-        '_Reports say WHY it refused, broken down by reason. "30× no edge" is a fair',
-        'market and the engine working; "30× no price" would be the engine broken._',
-      ]
-        .filter((line) => line !== null)
-        .join('\n'),
+      );
+    }
+
+    lines.push(
+      '',
+      `**I will DM you ${wanted.length > 1 ? 'both results' : 'the result'} every 6 hours.** Only you.`,
+      '',
+      '_Reports say WHY it refused, broken down by reason. "30× no edge" is a fair market and',
+      'the engine working; "30× no price" would be the engine broken._',
     );
+
+    return interaction.editReply(lines.filter((line) => line !== null).join('\n'));
   }
 
   if (sub === 'watch' || sub === 'unwatch') {

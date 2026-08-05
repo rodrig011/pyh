@@ -307,8 +307,37 @@ export function createStore(filePath) {
      * same reason: this writes all day, on the volume that also holds the
      * payments, and one write per observation is not a trade worth making.
      */
-    paperAccount() {
-      return data.paper ?? null;
+    /**
+     * Every paper account, keyed by profile.
+     *
+     * Two running side by side is the only clean way to answer whether the
+     * aggressive settings are worth it: same markets, same instant, same
+     * prices, one difference. A careful run from Tuesday against a scalp run
+     * from Thursday compares two weeks of weather, not two strategies.
+     *
+     * Migrates the old single-account shape in place, so a run already going is
+     * not thrown away by a deploy.
+     */
+    paperAccounts() {
+      const stored = data.paper;
+      if (!stored) return {};
+      // Old shape: one bare account. It has `cash`; a map of accounts does not.
+      if (typeof stored.cash === 'number') return { [stored.profile ?? 'careful']: stored };
+      return stored;
+    },
+
+    putPaperAccounts(accounts, { flush = true } = {}) {
+      data.paper = accounts;
+      if (flush) save();
+      return accounts;
+    },
+
+    /** One account by profile, or the most aggressive one running. */
+    paperAccount(profile = null) {
+      const accounts = this.paperAccounts();
+      if (profile) return accounts[profile] ?? null;
+      const all = Object.values(accounts);
+      return accounts.scalp ?? all[0] ?? null;
     },
 
     signalPanel() {
@@ -342,8 +371,9 @@ export function createStore(filePath) {
     },
 
     putPaperAccount(account, { flush = true } = {}) {
-      data.paper = account;
-      if (flush) save();
+      const accounts = { ...this.paperAccounts() };
+      accounts[account?.profile ?? 'careful'] = account;
+      this.putPaperAccounts(accounts, { flush });
       return account;
     },
 

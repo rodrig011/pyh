@@ -453,3 +453,99 @@ function lookLine(account) {
     `when it expires, not once every ten seconds._`
   );
 }
+
+/**
+ * Both accounts, side by side, in one message.
+ *
+ * One message and not two, because the comparison IS the answer. Two separate
+ * reports arriving together make a person do the subtraction themselves, and
+ * the subtraction is the only part that matters: same markets, same instant,
+ * same quoted prices, one difference between them.
+ *
+ * The controlled experiment is what makes this worth anything. A careful run
+ * from Tuesday against an aggressive run from Thursday compares two weeks of
+ * weather. These two see the identical tape.
+ */
+export function compareReport(accounts, { now = Date.now(), marks = {} } = {}) {
+  const entries = Object.entries(accounts ?? {}).filter(([, account]) => account?.start > 0);
+  if (entries.length === 0) return 'No paper runs going.';
+  if (entries.length === 1) {
+    const [profile, account] = entries[0];
+    return report(account, { now, markCents: marks[profile] ?? null });
+  }
+
+  const money = (n) => `$${n.toFixed(2)}`;
+  const sign = (n) => (n >= 0 ? '+' : '');
+
+  const rows = entries
+    .map(([profile, account]) => {
+      const value = equity(account, marks[profile] ?? null);
+      const profit = value - account.start;
+      return {
+        profile,
+        label: PROFILES[profile]?.label ?? profile,
+        value,
+        profit,
+        percent: (profit / account.start) * 100,
+        trades: account.trades.length,
+        wins: account.trades.filter((trade) => trade.profit > 0).length,
+        losses: account.trades.filter((trade) => trade.profit < 0).length,
+        seen: account.seen,
+        refused: account.refused,
+        account,
+      };
+    })
+    // Best first, so the answer is the first thing read.
+    .sort((a, b) => b.percent - a.percent);
+
+  const hours = (now - Math.min(...entries.map(([, a]) => a.startedAt))) / 3_600_000;
+  const lines = [
+    `⚖️ **PAPER — ${rows.length} runs, same markets, ${hours.toFixed(0)}h**`,
+    '',
+  ];
+
+  for (const row of rows) {
+    lines.push(
+      `${row.profit >= 0 ? '📈' : '📉'} **${row.label.toUpperCase()} — ${money(row.value)}** ` +
+        `_(${sign(row.percent)}${row.percent.toFixed(1)}%)_`,
+      row.trades === 0
+        ? `　no trades · **${row.seen}** contract(s) seen, **${row.refused}** refused`
+        : `　**${row.trades}** trade(s) · **${row.wins}W ${row.losses}L** · ` +
+          `refused **${row.refused}** of **${row.seen}**`,
+    );
+
+    const why = censusLine(
+      Object.entries(row.account.census ?? {})
+        .map(([reason, count]) => ({ reason, count }))
+        .sort((a, b) => b.count - a.count),
+      { limit: 3 },
+    );
+    if (why) lines.push(`　_${why}_`);
+    lines.push('');
+  }
+
+  // The subtraction, done for them.
+  const [best, worst] = [rows[0], rows.at(-1)];
+  const gap = best.percent - worst.percent;
+  const totalTrades = rows.reduce((sum, row) => sum + row.trades, 0);
+
+  lines.push(
+    gap < 0.05
+      ? '**Dead level so far.** Neither setting has shown anything the other has not.'
+      : `**${best.label} is ahead by ${gap.toFixed(1)} points**, on ${totalTrades} trade(s) between them.`,
+  );
+
+  // The warning that has to travel with the number, every time. A handful of
+  // 15-minute binaries is a coin-flip sequence, and the gap between two of them
+  // after a day says almost nothing.
+  lines.push(
+    totalTrades < 40
+      ? '_Far too few trades to mean anything. Under about forty a side, this gap is noise ' +
+        'and reading it as a verdict is how a bad setting gets promoted._'
+      : '_Still early. Judge this over weeks, not days._',
+    '',
+    '_Imaginary money, real prices: bought at the ask, sold at the bid, both fees charged._',
+  );
+
+  return lines.join('\n');
+}

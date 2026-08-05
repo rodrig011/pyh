@@ -12,7 +12,7 @@ import {
   shouldAlertWhale,
   whaleAlertMessage,
 } from './signalPanel.js';
-import { newAccount, paperTick, report, reportDue, equity } from './paper.js';
+import { compareReport, newAccount, paperTick, report, reportDue, equity } from './paper.js';
 import { closeTimeOf } from './kalshi.js';
 
 /**
@@ -294,16 +294,21 @@ export async function sweepPaper(client, store, config, deps = {}) {
   const settings = config.picks ?? {};
   if (!settings.kalshi?.enabled || !settings.kalshi.seriesTicker) return { ran: false };
 
-  let account = store.paperAccount();
-  if (!account?.userId) return { ran: false };
-  const epoch = account.epoch ?? null;
+  const accounts = store.paperAccounts();
+  const running = Object.entries(accounts).filter(([, account]) => account?.userId);
+  if (running.length === 0) return { ran: false };
+
+  // One epoch per account, captured before the network call. A reset landing
+  // while the request is in flight must not be undone by writing back the copy
+  // fetched before it.
+  const epochs = Object.fromEntries(running.map(([profile, a]) => [profile, a.epoch ?? null]));
 
   try {
     const asset = settings.defaultAsset ?? 'BTC';
     // The whole ladder of strikes closing in this window, not one of them.
-    // Reading a single strike is what made the bot look like it refused
-    // everything: it was forming an opinion about one contract out of a dozen,
-    // usually one already far from the money, and calling that the market.
+    // Fetched ONCE and handed to every account, which is what makes running two
+    // profiles a controlled experiment rather than two anecdotes: same markets,
+    // same instant, same quoted prices, one difference between them.
     const [board, quote] = await Promise.all([
       openBoard(settings.kalshi, { now }).catch(() => null),
       fetchSpotPrice(asset),
@@ -312,8 +317,6 @@ export async function sweepPaper(client, store, config, deps = {}) {
     const candidates = board?.contracts ?? [];
     if (candidates.length === 0 || !(quote?.price > 0)) return { ran: false };
 
-    // Everything shared across the ladder. Only the strike differs, which is
-    // exactly why one read of the price history serves the whole board.
     const first = candidates[0].market;
     const closesAt = closeTimeOf(first);
     const context = {
@@ -325,50 +328,64 @@ export async function sweepPaper(client, store, config, deps = {}) {
       secondsLeft: Number.isFinite(closesAt) ? (closesAt - now) / 1000 : null,
     };
 
-    // Re-read after the awaits. A reset that landed while the network call was
-    // in flight would otherwise be undone by writing back the copy fetched
-    // before it — the account would visibly reset and then silently come back,
-    // which is precisely the bug that was reported.
-    const current = store.paperAccount();
-    if (!current?.userId || (current.epoch ?? null) !== epoch) {
-      log.debug('Paper account changed mid-sweep; dropping this tick');
-      return { ran: false };
+    // Re-read after the awaits, and drop any account whose epoch moved.
+    const latest = store.paperAccounts();
+    const stepped = {};
+    const events = [];
+    let userId = null;
+
+    for (const [profile] of running) {
+      const current = latest[profile];
+      if (!current?.userId || (current.epoch ?? null) !== epochs[profile]) {
+        log.debug(`Paper account ${profile} changed mid-sweep; dropping this tick`);
+        continue;
+      }
+      userId = userId ?? current.userId;
+      const result = paperTick(current, context, { now, candidates });
+      stepped[profile] = result.account;
+      if (result.event) events.push(`${profile}:${result.event.kind}`);
     }
-    account = current;
 
-    const stepped = paperTick(account, context, { now, candidates });
-    account = stepped.account;
+    if (Object.keys(stepped).length === 0) return { ran: false };
 
-    // Marked to the strike actually held, when there is one — the board's first
-    // contract is a different bet.
-    const held = account.position
-      ? candidates.find((c) => c.market?.ticker === account.position.ticker)
-      : null;
+    // Marks for whatever each account happens to be holding.
+    const marks = {};
+    for (const [profile, account] of Object.entries(stepped)) {
+      if (!account.position) continue;
+      marks[profile] = candidates.find((c) => c.market?.ticker === account.position.ticker)?.price ?? null;
+    }
 
-    const due = reportDue(account, { now });
-    if (due) {
-      const user = await client.users.fetch(account.userId).catch(() => null);
+    // Both report together, on one clock. Two messages arriving separately make
+    // a person do the subtraction themselves, and the subtraction is the point.
+    const due = Object.values(stepped).some((account) => reportDue(account, { now }));
+    if (due && userId) {
+      const user = await client.users.fetch(userId).catch(() => null);
       if (user) {
         await user
-          .send(report(account, { now, markCents: held?.price ?? null }))
+          .send(compareReport(stepped, { now, marks }))
           .catch((error) => log.debug(`Paper report DM failed: ${error.message}`));
       }
-      // Marked whether or not it was delivered, so a closed inbox does not
-      // produce a report attempt every ten seconds for the rest of the day.
-      account = { ...account, lastReportAt: now };
+      for (const profile of Object.keys(stepped)) {
+        stepped[profile] = { ...stepped[profile], lastReportAt: now };
+      }
     }
 
-    // Same guard on the far side of the DM, which is also a network call.
-    const latest = store.paperAccount();
-    if ((latest?.epoch ?? null) !== epoch) return { ran: false };
+    // Same epoch guard on the far side of the DM, which is also a network call.
+    const afterwards = store.paperAccounts();
+    const merged = { ...afterwards };
+    for (const [profile, account] of Object.entries(stepped)) {
+      if ((afterwards[profile]?.epoch ?? null) !== epochs[profile]) continue;
+      merged[profile] = account;
+    }
 
-    store.putPaperAccount(account, { flush: stepped.event !== null || due });
-    return { ran: true, event: stepped.event?.kind ?? null, looked: candidates.length };
+    store.putPaperAccounts(merged, { flush: events.length > 0 || due });
+    return { ran: true, event: events[0] ?? null, events, looked: candidates.length };
   } catch (error) {
     log.debug(`Paper sweep failed: ${error.message}`);
     return { ran: false };
   }
 }
+
 
 /**
  * One pass over the board looking for something worth interrupting a room for.

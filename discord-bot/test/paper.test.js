@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   START_BANKROLL,
+  compareReport,
   contractsFor,
   equity,
   newAccount,
@@ -351,4 +352,66 @@ test('the report names the strike being held, since a dozen share the asset', ()
   };
   const text = report(account, { markCents: 55 });
   assert.match(text, /64,600/);
+});
+
+/**
+ * Two runs, one tape.
+ *
+ * The comparison IS the answer, so it arrives as one message. Two reports
+ * landing together make a person do the subtraction themselves, and the
+ * subtraction is the only part that matters.
+ */
+
+test('the comparison shows both runs, best first', () => {
+  const accounts = {
+    careful: { ...newAccount({ profile: 'careful' }), cash: 72, seen: 40, refused: 38 },
+    scalp: { ...newAccount({ profile: 'scalp' }), cash: 66, seen: 40, refused: 20 },
+  };
+  const text = compareReport(accounts, { now: Date.now() + 6 * 3_600_000 });
+
+  assert.match(text, /CAREFUL/);
+  assert.match(text, /SCALP/);
+  // Best first: the answer is the first thing read.
+  assert.ok(text.indexOf('CAREFUL') < text.indexOf('SCALP'));
+  assert.match(text, /careful is ahead by/);
+});
+
+test('the comparison never lets a small sample read as a verdict', () => {
+  // A handful of 15-minute binaries is a coin-flip sequence, and the gap
+  // between two of them after a day says almost nothing.
+  const accounts = {
+    careful: { ...newAccount({ profile: 'careful' }), cash: 90 },
+    scalp: { ...newAccount({ profile: 'scalp' }), cash: 50 },
+  };
+  assert.match(compareReport(accounts), /Far too few trades/);
+});
+
+test('a dead heat is called a dead heat, not a winner', () => {
+  const accounts = {
+    careful: { ...newAccount({ profile: 'careful' }), cash: 70 },
+    scalp: { ...newAccount({ profile: 'scalp' }), cash: 70 },
+  };
+  assert.match(compareReport(accounts), /Dead level/);
+});
+
+test('one run alone falls back to the ordinary report', () => {
+  const accounts = { scalp: { ...newAccount({ profile: 'scalp' }), cash: 70 } };
+  const text = compareReport(accounts);
+  assert.match(text, /PAPER —/);
+  assert.doesNotMatch(text, /runs, same markets/);
+});
+
+test('the comparison carries each run’s refusal reasons', () => {
+  const accounts = {
+    careful: { ...newAccount({ profile: 'careful' }), seen: 40, refused: 40, census: { no_edge: 40 } },
+    scalp: { ...newAccount({ profile: 'scalp' }), seen: 40, refused: 12, census: { wide_spread: 12 } },
+  };
+  const text = compareReport(accounts);
+  assert.match(text, /no edge/);
+  assert.match(text, /wide spread/);
+});
+
+test('nothing running says so rather than dividing by zero', () => {
+  assert.match(compareReport({}), /No paper runs/);
+  assert.match(compareReport(null), /No paper runs/);
 });

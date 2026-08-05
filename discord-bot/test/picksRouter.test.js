@@ -879,9 +879,13 @@ test('/picks paper starts a run and stores it against the caller', async () => {
 
   await handlePicks(interaction, { store, config: paperConfig });
 
-  const account = store.paperAccount();
-  assert.equal(account.userId, 'mod');
-  assert.equal(account.cash, 70);
+  // Two runs by default: careful and scalp, side by side.
+  const accounts = store.paperAccounts();
+  assert.deepEqual(Object.keys(accounts).sort(), ['careful', 'scalp']);
+  for (const account of Object.values(accounts)) {
+    assert.equal(account.userId, 'mod');
+    assert.equal(account.cash, 70);
+  }
   assert.match(String(interaction.replies.at(-1)), /Paper trading started/);
 });
 
@@ -902,12 +906,13 @@ test('/picks paper reset actually wipes cash, trades and the refusal count', asy
   const interaction = fakeInteraction('paper', { reset: true });
   await handlePicks(interaction, { store, config: paperConfig });
 
-  const account = store.paperAccount();
-  assert.equal(account.cash, 70);
-  assert.equal(account.seen, 0);
-  assert.equal(account.refused, 0);
-  assert.deepEqual(account.trades, []);
-  assert.deepEqual(account.census, {});
+  for (const account of Object.values(store.paperAccounts())) {
+    assert.equal(account.cash, 70);
+    assert.equal(account.seen, 0);
+    assert.equal(account.refused, 0);
+    assert.deepEqual(account.trades, []);
+    assert.deepEqual(account.census, {});
+  }
   assert.match(String(interaction.replies.at(-1)), /reset/i);
 });
 
@@ -920,19 +925,21 @@ test('/picks paper reset honours a new bankroll', async () => {
     config: paperConfig,
   });
 
-  assert.equal(store.paperAccount().cash, 250);
-  assert.equal(store.paperAccount().start, 250);
+  for (const account of Object.values(store.paperAccounts())) {
+    assert.equal(account.cash, 250);
+    assert.equal(account.start, 250);
+  }
 });
 
 test('/picks paper without reset reports instead of silently starting over', async () => {
   const store = freshStore();
   await handlePicks(fakeInteraction('paper', {}), { store, config: paperConfig });
-  store.putPaperAccount({ ...store.paperAccount(), cash: 88.25, seen: 40, refused: 40 });
+  store.putPaperAccount({ ...store.paperAccount('scalp'), cash: 88.25, seen: 40, refused: 40 });
 
   const interaction = fakeInteraction('paper', {});
   await handlePicks(interaction, { store, config: paperConfig });
 
-  assert.equal(store.paperAccount().cash, 88.25);
+  assert.equal(store.paperAccount('scalp').cash, 88.25);
   assert.match(String(interaction.replies.at(-1)), /reset:True/);
 });
 
@@ -941,7 +948,7 @@ test('/picks paper says so when the contract feed is switched off', async () => 
   const interaction = fakeInteraction('paper', {});
   await handlePicks(interaction, { store, config });
 
-  assert.equal(store.paperAccount(), null);
+  assert.deepEqual(store.paperAccounts(), {});
   assert.match(String(interaction.replies.at(-1)), /contract feed is off/);
 });
 
@@ -1162,4 +1169,35 @@ test('turning on what is already on says so instead of writing again', async () 
   const again = fakeInteraction('dm', { on: true });
   await handlePicks(again, { store, config: paperConfig });
   assert.match(String(again.replies.at(-1)), /Already on/);
+});
+
+test('/picks paper mode:scalp runs only the one asked for', async () => {
+  const store = freshStore();
+  await handlePicks(fakeInteraction('paper', { mode: 'scalp' }), { store, config: paperConfig });
+  assert.deepEqual(Object.keys(store.paperAccounts()), ['scalp']);
+});
+
+test('both runs start from the same bankroll on the same clock', async () => {
+  // Same markets, same instant, same money. Anything else and the difference
+  // between them stops being the profile.
+  const store = freshStore();
+  await handlePicks(fakeInteraction('paper', {}), { store, config: paperConfig });
+
+  const [a, b] = Object.values(store.paperAccounts());
+  assert.equal(a.start, b.start);
+  assert.equal(a.startedAt, b.startedAt);
+  assert.notEqual(a.profile, b.profile);
+});
+
+test('/picks paper on an existing pair reports both, not one', async () => {
+  const store = freshStore();
+  await handlePicks(fakeInteraction('paper', {}), { store, config: paperConfig });
+
+  const interaction = fakeInteraction('paper', {});
+  await handlePicks(interaction, { store, config: paperConfig });
+
+  const reply = String(interaction.replies.at(-1));
+  assert.match(reply, /CAREFUL/);
+  assert.match(reply, /SCALP/);
+  assert.match(reply, /Already running/);
 });

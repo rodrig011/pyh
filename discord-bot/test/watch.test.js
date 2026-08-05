@@ -313,19 +313,33 @@ const ladderMarkets = (cents = [70, 60, 50, 40, 30], strikes = [64_600, 64_800, 
   }));
 
 function paperStore(account) {
-  let stored = account;
+  // Keyed by profile, exactly as the real store keeps them: two accounts run
+  // side by side against one market read, which is what makes the comparison
+  // between profiles an experiment rather than two anecdotes.
+  let stored = account ? { [account.profile ?? 'careful']: account } : {};
   return {
-    paperAccount: () => stored,
-    putPaperAccount: (next) => {
+    paperAccounts: () => stored,
+    putPaperAccounts: (next) => {
       stored = next;
       return next;
     },
+    paperAccount: (profile = null) => {
+      if (profile) return stored[profile] ?? null;
+      const all = Object.values(stored);
+      return stored.scalp ?? all[0] ?? null;
+    },
+    putPaperAccount: (next) => {
+      stored = { ...stored, [next?.profile ?? 'careful']: next };
+      return next;
+    },
     listSamples: () => history().map((price, i) => ({ at: Date.now() - (120 - i) * 30_000, price })),
+    // The single account, for tests that only run one.
     get current() {
-      return stored;
+      const all = Object.values(stored);
+      return stored.scalp ?? all[0] ?? null;
     },
     set current(next) {
-      stored = next;
+      stored = next ? { [next.profile ?? 'careful']: next } : {};
     },
   };
 }
