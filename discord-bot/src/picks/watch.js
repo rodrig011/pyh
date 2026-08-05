@@ -13,6 +13,7 @@ import {
   whaleAlertMessage,
 } from './signalPanel.js';
 import { newAccount, paperTick, report, reportDue, equity } from './paper.js';
+import { closeTimeOf } from './kalshi.js';
 
 /**
  * Watching a position somebody actually holds, and telling them when to leave.
@@ -224,7 +225,7 @@ export async function sweepWatches(client, store, config, deps = {}) {
       const { contract, quote } = seen.get(watch.ticker);
       if (!contract?.market || !(quote?.price > 0)) continue;
 
-      const closesAt = Date.parse(contract.market.close_time ?? '');
+      const closesAt = closeTimeOf(contract.market);
       const samples = store.listSamples(asset);
       const result = checkWatch(watch, {
         prices: samples
@@ -314,7 +315,7 @@ export async function sweepPaper(client, store, config, deps = {}) {
     // Everything shared across the ladder. Only the strike differs, which is
     // exactly why one read of the price history serves the whole board.
     const first = candidates[0].market;
-    const closesAt = Date.parse(first.close_time ?? '');
+    const closesAt = closeTimeOf(first);
     const context = {
       prices: store
         .listSamples(asset)
@@ -408,7 +409,7 @@ export async function sweepSignalAlerts(client, store, config, deps = {}) {
     const candidates = board?.contracts ?? [];
     if (candidates.length === 0 || !(quote?.price > 0)) return { posted: 0 };
 
-    const closesAt = Date.parse(candidates[0].market.close_time ?? '');
+    const closesAt = closeTimeOf(candidates[0].market);
     const context = {
       prices: store
         .listSamples(asset)

@@ -77,15 +77,55 @@ export function readMarketPrice(market, side = 'yes') {
   return null;
 }
 
+/**
+ * When a market closes, in epoch milliseconds, or null.
+ *
+ * One helper because the field drifted and cost a day of live trading. The
+ * board reader used `close_time ?? expiration_time`; ten other places read
+ * `close_time` alone. On a series where the exchange populates only the
+ * expiration field, that split is invisible and catastrophic: the board comes
+ * back full of contracts — the reader has its fallback — and every one of them
+ * is then handed a `secondsLeft` of null.
+ *
+ * `null` is not "lots of time", it fails `secondsLeft > 0`, so the engine
+ * refused every single market as `too_late`. A paper account ran for an hour
+ * against a live market and reported "5 contracts, 5× too late", which reads as
+ * a market with no time on the clock and was really a field name.
+ *
+ * Every candidate the API is known to use, in the order they should be trusted:
+ * `close_time` is when trading stops, which is the deadline that matters;
+ * expiration is when it settles, which is the same instant or later.
+ */
+export function closeTimeOf(market) {
+  for (const field of [
+    'close_time',
+    'expiration_time',
+    'expected_expiration_time',
+    'latest_expiration_time',
+  ]) {
+    const raw = market?.[field];
+    if (raw === null || raw === undefined || raw === '') continue;
+    const parsed = typeof raw === 'number' ? raw : Date.parse(raw);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+/** Seconds until a market closes, or null when the feed did not say. */
+export function secondsUntilClose(market, now = Date.now()) {
+  const closes = closeTimeOf(market);
+  return closes === null ? null : (closes - now) / 1000;
+}
+
 /** Markets still open for trading, soonest to close first. */
 export function openMarkets(markets, now = Date.now()) {
   return (markets ?? [])
     .filter((market) => market?.status === 'active' || market?.status === 'open')
     .filter((market) => {
-      const closes = Date.parse(market.close_time ?? market.expiration_time ?? '');
-      return Number.isNaN(closes) ? true : closes > now;
+      const closes = closeTimeOf(market);
+      return closes === null ? true : closes > now;
     })
-    .sort((a, b) => Date.parse(a.close_time ?? 0) - Date.parse(b.close_time ?? 0));
+    .sort((a, b) => (closeTimeOf(a) ?? Infinity) - (closeTimeOf(b) ?? Infinity));
 }
 
 /**
@@ -172,7 +212,7 @@ export function marketForClose(markets, closesAt = null, now = Date.now()) {
   if (open.length === 0) return null;
   if (!closesAt) return open[0];
 
-  const closeOf = (market) => Date.parse(market.close_time ?? market.expiration_time ?? '');
+  const closeOf = closeTimeOf;
   let best = null;
   let bestDistance = Infinity;
   for (const market of open) {
@@ -240,7 +280,7 @@ export function boardForClose(markets, { closesAt = null, now = Date.now(), wind
   const open = openMarkets(markets, now);
   if (open.length === 0) return [];
 
-  const closeOf = (market) => Date.parse(market.close_time ?? market.expiration_time ?? '');
+  const closeOf = closeTimeOf;
 
   // Which bell. Without an explicit one, the next bell to ring — the same rule
   // a single contract used, applied to the whole ladder behind it.

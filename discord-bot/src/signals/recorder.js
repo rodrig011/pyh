@@ -19,6 +19,7 @@
  */
 
 import { logReturns } from './math.js';
+import { closeTimeOf } from '../picks/kalshi.js';
 import {
   bipowerVolatility,
   ewmaVolatility,
@@ -219,7 +220,7 @@ export function observeOnce(
       sigmas = allVolatilityReadings(logReturns(pricesFrom(store.listSamples(asset), now - historyMs)));
     }
     if (market && typeof evaluateModel === 'function') {
-      const closesAt = Date.parse(market.close_time ?? '');
+      const closesAt = closeTimeOf(market);
       const read = evaluateModel({
         prices: pricesFrom(store.listSamples(asset), now - historyMs),
         spot,
@@ -266,7 +267,7 @@ export function recordOnce(
       return n > 0 && n <= 1 ? n * 100 : n;
     };
 
-    const closesAt = Date.parse(market.close_time ?? '');
+    const closesAt = closeTimeOf(market);
     const observation = makeObservation({
       at: now,
       ticker: market.ticker,

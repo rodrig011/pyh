@@ -18,6 +18,7 @@ import { VERDICTS, calibration, evaluate } from '../signals/engine.js';
 import { parseMarkets, planScan } from '../signals/scanner.js';
 import { SCALP_ACTIONS, scalpDecision } from '../signals/scalp.js';
 import { oddsBar } from '../picks/panel.js';
+import { closeTimeOf } from '../picks/kalshi.js';
 
 const log = createLogger('signal');
 
@@ -214,7 +215,7 @@ export function createSignalBot(config = loadSignalConfig()) {
         continue;
       }
 
-      const closesAt = Date.parse(contract.market.close_time ?? '');
+      const closesAt = closeTimeOf(contract.market);
       const spot = await fetchSpotPrice(asset);
 
       inputs.push({

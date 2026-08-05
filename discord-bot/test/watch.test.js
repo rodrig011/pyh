@@ -406,3 +406,41 @@ test('a feed that throws does not take down the sweep', async () => {
   });
   assert.equal(result.ran, false);
 });
+
+test('a board quoted with expiration_time only is NOT refused as too late', async () => {
+  // End to end, through the real sweep. The unit test above proves the helper;
+  // this proves the sweep uses it — which is the half that was broken, and the
+  // half no pure-function test could have caught.
+  const store = paperStore({ ...newAccount(), userId: 'u1' });
+  const markets = [70, 55, 40].map((price, i) => ({
+    price,
+    market: {
+      ticker: `KXBTC-${65_000 + i * 200}`,
+      floor_strike: 65_000 + i * 200,
+      status: 'active',
+      // No close_time at all. This is what the live feed was doing.
+      expiration_time: new Date(Date.now() + 600_000).toISOString(),
+      yes_bid_dollars: String((price - 1) / 100),
+      yes_ask_dollars: String((price + 1) / 100),
+      liquidity_dollars: '4000',
+    },
+  }));
+
+  await sweepPaper(noClient, store, paperConfig, {
+    openBoard: async () => ({ contracts: markets }),
+    fetchSpotPrice: async () => ({ price: 65_000 }),
+  });
+
+  // Roll the window so the contracts are counted and their reasons booked.
+  await sweepPaper(noClient, store, paperConfig, {
+    openBoard: async () => ({
+      contracts: markets.map((c) => ({
+        ...c,
+        market: { ...c.market, ticker: `${c.market.ticker}-NEXT` },
+      })),
+    }),
+    fetchSpotPrice: async () => ({ price: 65_000 }),
+  });
+
+  assert.equal(store.current.census.too_late ?? 0, 0, 'a live market was called out of time');
+});

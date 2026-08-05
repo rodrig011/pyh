@@ -296,3 +296,63 @@ test('a tie picks one rather than none', () => {
   const contracts = [{ price: 45, market: { ticker: 'a' } }, { price: 55, market: { ticker: 'b' } }];
   assert.ok(['a', 'b'].includes(nearestTheMoneyContract(contracts).market.ticker));
 });
+
+/**
+ * The field that cost a day of live trading.
+ *
+ * The board reader used `close_time ?? expiration_time`; ten other places read
+ * `close_time` alone. On a series where the exchange populates only the
+ * expiration field, that split is invisible and total: the board comes back
+ * FULL of contracts, because the reader has its fallback, and every one is then
+ * handed a secondsLeft of null. null is not "lots of time" — it fails
+ * `secondsLeft > 0` — so the engine refused every market as `too_late`.
+ *
+ * A paper account ran an hour against a live market and reported "5 contracts,
+ * 5× too late", which reads as a market with no clock and was really a name.
+ */
+
+import { closeTimeOf, secondsUntilClose } from '../src/picks/kalshi.js';
+
+test('close_time is preferred, because it is when trading actually stops', () => {
+  const at = closeTimeOf({
+    close_time: '2026-01-01T00:15:00Z',
+    expiration_time: '2026-01-01T00:20:00Z',
+  });
+  assert.equal(at, Date.parse('2026-01-01T00:15:00Z'));
+});
+
+test('a market with ONLY expiration_time still has a clock', () => {
+  // This is the whole bug, in one assertion.
+  const at = closeTimeOf({ expiration_time: '2026-01-01T00:15:00Z' });
+  assert.equal(at, Date.parse('2026-01-01T00:15:00Z'));
+});
+
+test('the other expiration spellings are read too', () => {
+  assert.ok(closeTimeOf({ expected_expiration_time: '2026-01-01T00:15:00Z' }) > 0);
+  assert.ok(closeTimeOf({ latest_expiration_time: '2026-01-01T00:15:00Z' }) > 0);
+});
+
+test('an empty string is absent, not a date', () => {
+  assert.equal(closeTimeOf({ close_time: '', expiration_time: '2026-01-01T00:15:00Z' }), Date.parse('2026-01-01T00:15:00Z'));
+  assert.equal(closeTimeOf({ close_time: '' }), null);
+  assert.equal(closeTimeOf({}), null);
+  assert.equal(closeTimeOf(null), null);
+});
+
+test('an unparseable timestamp does not become NaN downstream', () => {
+  assert.equal(closeTimeOf({ close_time: 'not a date' }), null);
+  assert.equal(secondsUntilClose({ close_time: 'not a date' }), null);
+});
+
+test('seconds until close is a real number when the feed said anything at all', () => {
+  const now = Date.parse('2026-01-01T00:00:00Z');
+  const left = secondsUntilClose({ expiration_time: '2026-01-01T00:10:00Z' }, now);
+  assert.equal(left, 600);
+});
+
+test('openMarkets keeps a market whose clock cannot be read rather than hiding it', () => {
+  // Dropping it would turn a parsing problem into an empty board, which is the
+  // harder failure to diagnose of the two.
+  const kept = openMarkets([{ ticker: 'A', status: 'active' }], Date.parse('2026-01-01T00:00:00Z'));
+  assert.equal(kept.length, 1);
+});

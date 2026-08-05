@@ -65,6 +65,7 @@ import {
   currentContract,
   fetchMarkets,
   openBoard,
+  closeTimeOf,
   formatCents,
   gradeByContract,
   openMarkets,
@@ -651,7 +652,7 @@ export async function quoteFor(config, asset, { direction = null, ticker = null,
           : Number.isFinite(Number(market.cap_strike))
             ? Number(market.cap_strike)
             : null,
-        marketClosesAt: Date.parse(market.close_time ?? '') || null,
+        marketClosesAt: closeTimeOf(market),
         label: formatCents(contract.price),
       };
     }
@@ -1320,7 +1321,7 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
       .filter((sample) => sample?.at >= Date.now() - 60 * 60 * 1000 && sample?.price > 0)
       .map((sample) => sample.price);
 
-    const closesAt = Date.parse(board.contracts[0].market.close_time ?? '');
+    const closesAt = closeTimeOf(board.contracts[0].market);
     const ladder = readBoard(board.contracts, {
       prices,
       spot: quote.price,
