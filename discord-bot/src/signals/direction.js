@@ -116,6 +116,15 @@ export function exitPlan(entryCents, winProbability, { feeRate = 0.07, marginCen
  * side becomes a buy by getting cheaper, and the down side by the up side
  * getting dearer.
  */
+/**
+ * The refusals a price move would actually fix.
+ *
+ * Everything else — an empty book, a spread wider than the edge, no time left,
+ * a market trending too cleanly for the model — stays refused at any price,
+ * and offering a price target for those is offering a contradiction.
+ */
+export const PRICE_BLOCKED = new Set(['no_edge', 'fee_eats_it', 'priced_out']);
+
 export function triggerPrices(probability, { minimumEdgeCents = 6 } = {}) {
   if (!Number.isFinite(probability)) return null;
 
@@ -213,6 +222,16 @@ export function directionalRead(input, options = {}) {
     call,
     // The side more likely to happen. Informative only.
     leaning,
+    // The leaning's OWN odds and price. `winProbability` below belongs to
+    // `call`, and when the two sides differ pairing one with the other's number
+    // produces a line like "leaning DOWN — model 18%" for a side the model
+    // thinks is worth 82. Two different sides need two different numbers.
+    leaningWinProbability: leaning === VERDICTS.UP ? probability : 1 - probability,
+    leaningMarketProbability: Number.isFinite(result.marketProbability)
+      ? leaning === VERDICTS.UP
+        ? result.marketProbability
+        : 1 - result.marketProbability
+      : null,
     // The moment worth teaching: the likely side and the cheap side are not
     // the same, and paying up for the likely one is how a high win rate
     // becomes a losing account. Only ever true when the cheap side is
@@ -233,9 +252,17 @@ export function directionalRead(input, options = {}) {
     exit: exitPlan(entryCents, winProbability),
     // What would have to happen for a refusal to become a call. A "no" that
     // does not say what it is waiting for is a dead end.
-    triggers: triggerPrices(probability, {
-      minimumEdgeCents: options.minimumEdgeCents ?? 6,
-    }),
+    //
+    // Only when PRICE is what is missing. A market refused for an empty book or
+    // a wide spread already has all the edge it needs, and telling somebody to
+    // "buy DOWN if it drops to 63" when it is trading at 40 and the real
+    // problem is that nothing is resting on the book is worse than saying
+    // nothing — it reads as a contradiction, because it is one.
+    triggers: PRICE_BLOCKED.has(result.reason)
+      ? triggerPrices(probability, { minimumEdgeCents: options.minimumEdgeCents ?? 6 })
+      : null,
+    // When something other than price is in the way, say that instead.
+    blockedBy: tradeable || PRICE_BLOCKED.has(result.reason) ? null : result.reason,
     marketWinProbability,
     // How far the model is from the market on this side, in cents. Positive
     // means the model likes it more than the price does. This is an opinion

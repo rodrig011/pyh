@@ -1142,12 +1142,32 @@ export async function handlePicks(interaction, { store, config }) {
           const out = [
             `⚪ **NO TRADE yet** · ${asset}`,
             '',
-            `Leaning **${read.leaning === 'up' ? 'UP' : 'DOWN'}** — model **${pct(read.winProbability)}**` +
-              ` vs market **${pct(read.marketWinProbability)}**.`,
+            `Leaning **${read.leaning === 'up' ? 'UP' : 'DOWN'}** — model **${pct(read.leaningWinProbability)}**` +
+              ` vs market **${pct(read.leaningMarketProbability)}**.`,
             `⛔ ${read.whyNotTradeable}`,
           ];
 
-          if (t && (t.upAt || t.downAt)) {
+          if (read.blockedBy) {
+            // Price is not the problem, so a price target would be a
+            // contradiction. Say what is actually in the way.
+            out.push(
+              '',
+              {
+                thin_book: '**The edge is there — the book is not.** Nothing is resting on it, so a ' +
+                  'fill would move the price against you. This clears when volume arrives, ' +
+                  'usually closer to the close.',
+                wide_spread: '**The edge is there — the spread eats it.** You would pay it getting ' +
+                  'in and again getting out. This clears when the quotes tighten.',
+                too_late: '**Out of time**, whatever the price does.',
+                trending: '**Moving too cleanly for the model.** A random-walk read is least ' +
+                  'reliable exactly here, so the honest answer is no read rather than a bad one.',
+                vol_uncertain: '**The edge only exists if the volatility read is exactly right.** ' +
+                  'Too thin to bet on being lucky.',
+                no_vol: '**Not enough price history yet** to measure how fast this is moving.',
+                no_price: '**No usable price on this market right now.**',
+              }[read.blockedBy] ?? `Blocked by \`${read.blockedBy}\`.`,
+            );
+          } else if (t && (t.upAt || t.downAt)) {
             out.push('', '**What would make it a buy:**');
             if (t.upAt) {
               out.push(`🟢 **UP** if it drops to **${Math.round(t.upAt)}%** or lower`);

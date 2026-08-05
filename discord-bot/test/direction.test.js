@@ -287,3 +287,55 @@ test('every read carries its triggers, so a no is always actionable', () => {
   assert.ok(read.triggers, 'a refusal must still say what it is waiting for');
   assert.ok(read.triggers.upAt !== null || read.triggers.downAt !== null);
 });
+
+test('the leaning is quoted with its OWN odds, not the other side\'s', () => {
+  // Straight from a live message: "Leaning DOWN — model 18%". If it leans
+  // DOWN, DOWN cannot be worth 18 — it is worth 82. The line was pairing the
+  // leaning with the probability belonging to the side worth buying, which is
+  // a different side whenever those two disagree.
+  const read = directionalRead(
+    market({
+      spot: 64_400,
+      marketPriceCents: 17,
+      market: { yes_bid_dollars: '0.16', yes_ask_dollars: '0.18', liquidity_dollars: '1000' },
+    }),
+  );
+
+  const leaningIsUp = read.leaning === VERDICTS.UP;
+  const expected = leaningIsUp ? read.result.probability : 1 - read.result.probability;
+
+  assert.ok(Math.abs(read.leaningWinProbability - expected) < 1e-9);
+  // The leaning is by definition the more likely side, so its own odds are
+  // never under a half. That single check would have caught it.
+  assert.ok(read.leaningWinProbability >= 0.5, `leaning quoted at ${read.leaningWinProbability}`);
+});
+
+test('no price target is offered when price is not the problem', () => {
+  // "Buy DOWN if it drops to 63%" — while DOWN traded at 40 and the actual
+  // refusal was an empty book. The edge was already there; a price target for
+  // a market blocked on liquidity is a contradiction in print.
+  const read = directionalRead(
+    market({
+      marketPriceCents: 40,
+      market: { yes_bid_dollars: '0.39', yes_ask_dollars: '0.41', liquidity_dollars: '2' },
+    }),
+  );
+
+  assert.equal(read.tradeable, false);
+  assert.equal(read.result.reason, 'thin_book');
+  assert.equal(read.triggers, null, 'a price target here contradicts the refusal');
+  assert.equal(read.blockedBy, 'thin_book');
+});
+
+test('a price target IS offered when price is exactly the problem', () => {
+  const read = directionalRead(
+    market({
+      marketPriceCents: 60,
+      market: { yes_bid_dollars: '0.59', yes_ask_dollars: '0.61', liquidity_dollars: '1000' },
+    }),
+  );
+
+  assert.equal(read.result.reason, 'no_edge');
+  assert.ok(read.triggers, 'price is the blocker, so the price that fixes it belongs here');
+  assert.equal(read.blockedBy, null);
+});
