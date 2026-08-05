@@ -29,7 +29,7 @@ import { promptDueSettlements, publishVoteResults, syncKalshiAccount } from '../
 import { collectOnce } from '../signals/collector.js';
 import { observeOnce } from '../signals/recorder.js';
 import { evaluate } from '../signals/engine.js';
-import { currentContract, openBoard } from '../picks/kalshi.js';
+import { currentContract, nearestTheMoneyContract, openBoard } from '../picks/kalshi.js';
 import { sweepPaper, sweepWatches } from '../picks/watch.js';
 import { fetchSpotPrice } from '../picks/price.js';
 
@@ -243,7 +243,22 @@ export function createVipBot(config = loadVipConfig()) {
             // rather than whenever the signal bot gets its own application —
             // weeks of history that cannot be collected retroactively.
             if (kalshi?.enabled && kalshi.seriesTicker) {
-              const contract = await currentContract(kalshi).catch(() => null);
+              // The strike nearest a coin flip, not whichever the exchange
+              // listed first. A dozen strikes share a close time, so "the one
+              // closing soonest" was a fixed position on the ladder rather than
+              // a fixed distance from the money — and it filled the edge log
+              // with contracts priced at 3¢ and 96¢, whose outcomes are nearly
+              // decided and which the engine refuses on sight. Measuring the
+              // edge on a population the bot never trades answers a question
+              // nobody asked.
+              //
+              // Still ONE strike per sample, deliberately. Recording the whole
+              // board would multiply the writes by twelve for observations that
+              // share a spot, a volatility and a window — nowhere near twelve
+              // independent facts, and the log has a fixed capacity, so the
+              // reliable purchase would be twelve times less history.
+              const board = await openBoard(kalshi).catch(() => null);
+              const contract = nearestTheMoneyContract(board?.contracts);
               if (contract) {
                 // The model's read goes down beside the quote. Recording the
                 // quote alone would only ever answer "is Kalshi biased"; the

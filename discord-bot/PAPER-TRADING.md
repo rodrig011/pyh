@@ -510,3 +510,92 @@ only thing widening it would reliably buy is ten times less history.
 Running total: eight ideas built and measured, two shipped. Neither of the two
 was a cleverer model. One came from reading the contract's settlement rules,
 and one from noticing the engine was only being shown a twelfth of the market.
+
+---
+
+## Reading the first real edge measurement, and three ways it was lying
+
+85 settled markets, 2404 observations. The output:
+
+```
+Market's forecast score: 0.1903
+Model's forecast score:  0.1907
+❌ The market is the better forecaster. There is no edge here to trade.
+Gross per contract taken: +1.84¢ across 1721 trade(s).
+```
+
+Read literally that says: stop. All three of those lines were misleading, and
+none of the fixes make the news better — they make it *honest*, which at 85
+markets means "not yet known" rather than "no".
+
+### 1. A defeat was declared on a sign, with no error bar
+
+The gap is **0.0004**. The branch printing "the market is the better
+forecaster" fired on `mean <= 0` with no interval attached — while the branch
+directly above it correctly refused to call a *positive* gap a win without one.
+
+Demanding proof for good news and taking bad news for free is not caution. It
+is a bias, and at four ten-thousandths over 85 clustered markets it retires a
+strategy on a coin flip. Both verdicts now require the same significance test,
+and a genuine defeat is still printed in exactly those words.
+
+The regression test for the old behaviour was passing for the wrong reason. Its
+fixture packed forty markets into forty seconds, so their 60-second settlement
+windows all overlapped, every market graded identically, and model and market
+scored **0.4100 each — a gap of exactly zero**. The assertion matched because
+an exact tie counted as a defeat. Fixture repaired to encode what its name
+claims; a second test now pins the tie case explicitly.
+
+### 2. "+1.84¢ across 1721 trades" describes a strategy the bot will not run
+
+The gate on that figure was `edge > 0` — any positive edge, down to a
+hundredth of a cent. It fired on **1721 of 1805** rows, 95% of everything
+observed. The engine requires **6¢**, plus a worst-case volatility edge, plus a
+spread and book test. It takes about 4%.
+
+So the number was being compared against the ~2¢ fee to conclude "a loss in a
+nice hat" — comparing the fee against the wrong population entirely. Both bars
+are now reported side by side, and the engine's own threshold is imported from
+`DEFAULTS` rather than restated, because a measurement of "what would this have
+made" that uses a different threshold from the thing being measured is not a
+measurement of it.
+
+It remains an **upper bound**: the quote log stores no book depth and no trend
+fit, so `thin_book`, `wide_spread` and `trending` cannot be replayed from it.
+
+### 3. The evidence was collected from strikes the engine refuses on sight
+
+The worst of the three. The recorder called `currentContract()`, which returns
+the market closing soonest — and a dozen strikes in one window all close at the
+same instant, so it returned whichever the exchange listed *first*. That is a
+fixed position on the ladder, not a fixed distance from the money.
+
+The tell was in the numbers all along: a Brier of 0.19 is *low*. Near-the-money
+contracts sit near 50/50 and score around 0.25. A population scoring 0.19 is
+one where the outcomes are already mostly decided — strikes quoted at 3¢ and
+96¢, which the engine rejects as `priced_out` without a second thought.
+
+So 85 markets of evidence had been gathered about contracts the bot does not
+trade, to answer the question of whether the contracts it *does* trade are
+mispriced. The recorder now takes the strike nearest a coin flip.
+
+Deliberately still **one** strike per sample. Recording the whole board would
+multiply the writes by twelve for observations sharing a spot, a volatility and
+a window — nowhere near twelve independent facts, by the same clustering
+argument used everywhere else in this document — and the quote log has a fixed
+capacity of 20,000, so the reliable purchase would be twelve times less history.
+
+### What the measurement actually says right now
+
+Nothing, and that is the correct answer at this sample size. The model and the
+market are separated by 0.0004 with an interval that swallows it whole; the
+market shows no significant bias; and the population sampled so far was the
+wrong one. The counter effectively restarts against near-the-money strikes.
+
+Both forecasters scoring under 0.25 does mean neither is worse than a coin.
+That is the only claim the data supports.
+
+Running total: eight ideas built and measured, two shipped — and one
+measurement that had to be repaired three times before it was worth reading.
+The recurring lesson is unchanged: the bugs are in what gets measured and what
+gets shown, not in the arithmetic.

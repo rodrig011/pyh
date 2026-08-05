@@ -1388,11 +1388,28 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
           : measured.modelBeatsMarket
             ? `✅ **The model is the better forecaster**, by more than the noise ` +
               `(${measured.comparison.mean.toFixed(4)} ± ${(2 * measured.comparison.standardError).toFixed(4)}).`
-            : measured.comparison.mean > 0
-              ? `⏳ **The model is ahead but not provably so** ` +
-                `(${measured.comparison.mean.toFixed(4)} ± ${(2 * measured.comparison.standardError).toFixed(4)}).\n` +
-                `_That range still crosses zero. Keep recording._`
-              : '❌ **The market is the better forecaster.** There is no edge here to trade.',
+            : // Both verdicts now demand the same proof.
+              //
+              // "The market is the better forecaster, there is no edge here"
+              // used to be printed on a negative SIGN alone, with no interval
+              // attached, while the branch above it correctly refused to call a
+              // positive sign a win without one. Demanding evidence for good
+              // news and taking bad news for free is not caution, it is a bias
+              // — and at a gap of 0.0004 over 85 markets it retires a strategy
+              // on a coin flip. A real defeat still gets said, in those words.
+              measured.comparison.significant
+              ? `❌ **The market is the better forecaster**, by more than the noise ` +
+                `(${measured.comparison.mean.toFixed(4)} ± ${(2 * measured.comparison.standardError).toFixed(4)}). ` +
+                `There is no edge here to trade.`
+              : `⏳ **Too close to call** — the gap is ` +
+                `${measured.comparison.mean.toFixed(4)} ± ${(2 * measured.comparison.standardError).toFixed(4)}, ` +
+                `which crosses zero.\n` +
+                `_${
+                  measured.comparison.mean > 0
+                    ? 'The model is nominally ahead'
+                    : 'The market is nominally ahead'
+                }, but not by more than the noise between them. Neither "there is an edge" ` +
+                `nor "there is no edge" is supported yet. Keep recording._`,
         '',
         bias
           ? [
@@ -1404,10 +1421,28 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
             ].join('\n')
           : null,
         '',
+        // Two bars, and the gap between them is the point.
+        //
+        // Only the first used to be shown, labelled "taking only what it
+        // liked". It takes anything with a positive edge down to a hundredth
+        // of a cent, so it fires on about 95% of all observations — a strategy
+        // the bot has never run and would refuse to. Reading it as the engine's
+        // expected profit compares the fee against the wrong number entirely.
         measured.centsPerTrade !== null
-          ? `**Gross per contract taken:** ${cents(measured.centsPerTrade)} across ${measured.taken} trade(s).\n` +
-            '_The fee is roughly 2¢ at mid prices. Under that, this is a loss in a nice hat._'
+          ? `**Any positive edge:** ${cents(measured.centsPerTrade)} gross per contract, ` +
+            `${measured.taken} of ${measured.scored} row(s).\n` +
+            '_Nearly every observation. This says the model has direction, not that it has a trade._'
           : null,
+        '',
+        measured.centsPerTradeAtBar !== null
+          ? `**At the engine's own bar (${measured.minimumEdgeCents}¢):** ` +
+            `${cents(measured.centsPerTradeAtBar)} gross per contract, ` +
+            `${measured.takenAtBar} of ${measured.scored} row(s).\n` +
+            '_The fee is roughly 2¢ at mid prices. Under that, this is a loss in a nice hat._\n' +
+            '_Still an upper bound: the quote log has no book depth or trend fit, so ' +
+            '`thin_book`, `wide_spread` and `trending` cannot be replayed from it._'
+          : `**At the engine's own bar (${measured.minimumEdgeCents}¢):** nothing cleared it yet.\n` +
+            '_That is the honest state of it — the row above counts trades the bot would refuse._',
         '',
         `_Roughly 96 markets settle per day. Detecting a small edge takes weeks, ` +
           `not days — at ${measured.markets} market(s) so far, treat anything ` +

@@ -256,3 +256,43 @@ test('the live market is open and matched to its own window', () => {
     'KXBTC15M-26AUG030230-30',
   );
 });
+
+/**
+ * Which strike gets recorded decides what the edge measurement is even about.
+ *
+ * `currentContract()` returns whichever market closes soonest, and a dozen
+ * strikes in one window all close at the same instant — so it returned
+ * whichever the exchange listed first, a fixed position on the ladder rather
+ * than a fixed distance from the money. The edge log filled up with contracts
+ * priced at 3¢ and 96¢: nearly decided, easy to forecast, and refused by the
+ * engine on sight. That measures a population the bot does not trade.
+ */
+
+import { nearestTheMoneyContract } from '../src/picks/kalshi.js';
+
+test('the recorded strike is the one nearest a coin flip', () => {
+  const contracts = [
+    { price: 96, market: { ticker: 'deep-itm' } },
+    { price: 47, market: { ticker: 'near-money' } },
+    { price: 4, market: { ticker: 'deep-otm' } },
+  ];
+  assert.equal(nearestTheMoneyContract(contracts).market.ticker, 'near-money');
+});
+
+test('nearest the money ignores strikes with no usable price', () => {
+  const contracts = [
+    { price: null, market: { ticker: 'unquoted' } },
+    { price: 80, market: { ticker: 'quoted' } },
+  ];
+  assert.equal(nearestTheMoneyContract(contracts).market.ticker, 'quoted');
+});
+
+test('an empty board has no nearest strike rather than throwing', () => {
+  assert.equal(nearestTheMoneyContract([]), null);
+  assert.equal(nearestTheMoneyContract(null), null);
+});
+
+test('a tie picks one rather than none', () => {
+  const contracts = [{ price: 45, market: { ticker: 'a' } }, { price: 55, market: { ticker: 'b' } }];
+  assert.ok(['a', 'b'].includes(nearestTheMoneyContract(contracts).market.ticker));
+});

@@ -16,6 +16,15 @@
  * measures whether it does.
  */
 
+import { DEFAULTS } from './engine.js';
+
+/**
+ * The bar the live engine holds a trade to. Imported rather than repeated: a
+ * measurement of "what would this have made" that uses a different threshold
+ * from the thing being measured is not a measurement of it.
+ */
+export const ENGINE_MINIMUM_EDGE_CENTS = DEFAULTS.minimumEdgeCents;
+
 /**
  * Brier score: mean squared error of a probability against a 0/1 outcome.
  *
@@ -177,7 +186,10 @@ export function brierComparison(observations) {
 /**
  * Everything, from a recorded log. The one function worth calling.
  */
-export function measureEdge(observations, { spreadAware = true } = {}) {
+export function measureEdge(
+  observations,
+  { spreadAware = true, minimumEdgeCents = ENGINE_MINIMUM_EDGE_CENTS } = {},
+) {
   const settled = (observations ?? []).filter((row) => row?.outcome === 0 || row?.outcome === 1);
   if (settled.length === 0) {
     return { ready: false, reason: 'nothing has settled yet', settled: 0 };
@@ -209,28 +221,52 @@ export function measureEdge(observations, { spreadAware = true } = {}) {
     settled.map((row) => ({ probability: (row.bid + row.ask) / 200, outcome: row.outcome })),
   );
 
-  // What the model would have made per contract, taking only what it liked and
-  // paying the ask to get it. Not a backtest — no sizing, no exits — but it is
-  // computed from prices that really existed, which is more than any
-  // simulation in this repository can say.
-  let takenCount = 0;
-  let takenCents = 0;
-  for (const row of settled) {
-    if (!Number.isFinite(row.model)) continue;
-    const upCost = spreadAware ? row.ask : (row.bid + row.ask) / 2;
-    const downCost = 100 - (spreadAware ? row.bid : (row.bid + row.ask) / 2);
+  // What the model would have made per contract, paying the ask to get in.
+  // Not a backtest — no sizing, no exits — but it is computed from prices that
+  // really existed, which is more than any simulation in this repository can
+  // say.
+  //
+  // Counted at TWO bars, and the difference between them is the point.
+  //
+  // The first takes anything with a positive edge, down to a hundredth of a
+  // cent. That was the only figure reported, under the label "taking only what
+  // it liked", and it fired on 95% of all observations — a strategy the bot has
+  // never run and would refuse to. It is kept because it measures something
+  // real (is the model's direction worth anything at all) but it must never be
+  // read as the engine's expected profit.
+  //
+  // The second applies the engine's actual edge threshold, which is the bar a
+  // live trade has to clear. It is still not the whole gate — the quote log has
+  // no book depth and no trend fit, so `thin_book`, `wide_spread` and
+  // `trending` cannot be replayed from it — so this is an UPPER bound on how
+  // often the engine would have traded, and the trades it would have taken are
+  // a subset of these.
+  const count = (minimumEdgeCents) => {
+    let taken = 0;
+    let cents = 0;
+    for (const row of settled) {
+      if (!Number.isFinite(row.model)) continue;
+      const upCost = spreadAware ? row.ask : (row.bid + row.ask) / 2;
+      const downCost = 100 - (spreadAware ? row.bid : (row.bid + row.ask) / 2);
 
-    const upEdge = row.model * 100 - upCost;
-    const downEdge = (1 - row.model) * 100 - downCost;
+      const upEdge = row.model * 100 - upCost;
+      const downEdge = (1 - row.model) * 100 - downCost;
 
-    if (upEdge >= downEdge && upEdge > 0) {
-      takenCount += 1;
-      takenCents += row.outcome * 100 - upCost;
-    } else if (downEdge > 0) {
-      takenCount += 1;
-      takenCents += (1 - row.outcome) * 100 - downCost;
+      if (upEdge >= downEdge && upEdge >= minimumEdgeCents) {
+        taken += 1;
+        cents += row.outcome * 100 - upCost;
+      } else if (downEdge >= minimumEdgeCents) {
+        taken += 1;
+        cents += (1 - row.outcome) * 100 - downCost;
+      }
     }
-  }
+    return { taken, centsPerTrade: taken > 0 ? cents / taken : null };
+  };
+
+  // Anything positive, which is almost everything.
+  const anyEdge = count(Number.MIN_VALUE);
+  // The bar the engine actually holds trades to.
+  const atBar = count(minimumEdgeCents);
 
   // Paired, clustered, and therefore the number to believe. The raw gap below
   // is kept for display, but it has no error bar and must never be reported
@@ -253,10 +289,16 @@ export function measureEdge(observations, { spreadAware = true } = {}) {
     mispricing: mispricing(settled),
     calibration: calibrationBuckets(modelPairs),
     marketCalibration: calibrationBuckets(marketPairs),
-    taken: takenCount,
-    // Gross cents per contract taken, before fees. The fee is roughly 2¢ at mid
-    // prices, so anything under that is a loss wearing a nice hat.
-    centsPerTrade: takenCount > 0 ? takenCents / takenCount : null,
+    // Any positive edge at all. Fires on nearly every observation, so it says
+    // whether the model's direction is worth anything — NOT what the bot makes.
+    taken: anyEdge.taken,
+    centsPerTrade: anyEdge.centsPerTrade,
+    // The engine's own bar, which is the number that decides whether this is a
+    // business. Gross cents per contract, before fees; the fee is roughly 2¢ at
+    // mid prices, so anything under that is a loss wearing a nice hat.
+    minimumEdgeCents,
+    takenAtBar: atBar.taken,
+    centsPerTradeAtBar: atBar.centsPerTrade,
   };
 }
 

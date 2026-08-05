@@ -289,6 +289,35 @@ export async function openBoard(settings, options = {}) {
 }
 
 /**
+ * The strike nearest a coin flip.
+ *
+ * Which strike gets measured turns out to matter as much as what is measured.
+ * `currentContract()` returns whichever market closes soonest, and a dozen
+ * strikes in one window all close at the same instant — so it returns whichever
+ * the exchange happened to list first, which is a fixed position on the ladder
+ * rather than a fixed distance from the money. The edge log was therefore built
+ * almost entirely from strikes far from the money, whose outcomes are nearly
+ * decided: easy to forecast, priced at 3¢ or 96¢, and refused by the engine as
+ * `priced_out` on sight.
+ *
+ * That is a measurement of a population the bot does not trade. The engine
+ * trades near the money, so that is where the evidence has to come from.
+ */
+export function nearestTheMoneyContract(contracts) {
+  let best = null;
+  let bestDistance = Infinity;
+  for (const contract of contracts ?? []) {
+    if (!isPriceCents(contract?.price)) continue;
+    const distance = Math.abs(contract.price - 50);
+    if (distance < bestDistance) {
+      best = contract;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+/**
  * The market a call should be priced against, and its price right now.
  *
  * `ticker` pins it to a contract already chosen; `closesAt` picks the one

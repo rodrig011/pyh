@@ -433,17 +433,29 @@ test('/picks edge reports the market winning, rather than hiding it', async () =
   // The result nobody wants and everybody needs. A market that forecasts
   // better than the model means there is no business here, and the command
   // has to say so in those words rather than burying it in a score.
+  //
+  // The markets are spaced two minutes apart on purpose. An earlier version of
+  // this fixture packed forty of them into forty seconds, so their 60-second
+  // settlement windows all overlapped and every one graded the same way — which
+  // made the model and the market score IDENTICALLY, 0.4100 each, gap 0.0000.
+  // The assertion passed anyway, because the command used to print "the market
+  // is the better forecaster" on any non-positive sign, an exact tie included.
   const store = freshStore();
   const now = Date.now();
   const log = [];
+  const samples = [];
+
+  const SPACING = 120_000;
+  const closeOf = (i) => now - 120_000 - (39 - i) * SPACING;
 
   for (let i = 0; i < 40; i += 1) {
-    const ticker = `KXBTC15M-${i}`;
     const finishedAbove = i % 2 === 0;
+    const closesAt = closeOf(i);
+
     // The market is right and the model is confidently backwards.
     log.push({
-      at: now - 600_000 + i * 1000,
-      ticker,
+      at: closesAt,
+      ticker: `KXBTC15M-${i}`,
       asset: 'BTC',
       spot: finishedAbove ? 65_100 : 64_800,
       strike: 65_000,
@@ -453,15 +465,16 @@ test('/picks edge reports the market winning, rather than hiding it', async () =
       model: finishedAbove ? 0.1 : 0.9,
       outcome: null,
     });
+
+    // Spot across this market's own settlement window, so it grades the way
+    // the fixture claims rather than the way the neighbours' prices decide.
+    for (let t = 90_000; t >= 0; t -= 10_000) {
+      samples.push({ at: closesAt - t, price: finishedAbove ? 65_100 : 64_800 });
+    }
   }
+
   store.putQuotes('BTC', log);
-  // Spot samples spanning each market's close, which is what grading needs now
-  // that a market settles on its clock rather than on an observed zero.
-  const samples = [];
-  for (let i = 0; i < 200; i += 1) {
-    samples.push({ at: now - 700_000 + i * 3000, price: i % 2 === 0 ? 65_100 : 64_800 });
-  }
-  store.putSamples('BTC', samples);
+  store.putSamples('BTC', samples.sort((a, b) => a.at - b.at));
 
   const interaction = fakeInteraction('edge');
   await handlePicks(interaction, { store, config });
@@ -473,6 +486,97 @@ test('/picks edge reports the market winning, rather than hiding it', async () =
   // And the grading must have been written back, or every run regrades from
   // scratch and the log never settles.
   assert.ok(store.listQuotes('BTC').every((row) => row.outcome !== null));
+});
+
+test('/picks edge refuses to call a tie a defeat', async () => {
+  // A gap of zero is the definition of "too close to call", and the command
+  // used to print it as "the market is the better forecaster, there is no edge
+  // here to trade" — retiring a strategy on a coin flip. Both verdicts now
+  // demand the same proof.
+  const store = freshStore();
+  const now = Date.now();
+  const log = [];
+  const samples = [];
+  const closeOf = (i) => now - 120_000 - (39 - i) * 120_000;
+
+  for (let i = 0; i < 40; i += 1) {
+    const finishedAbove = i % 2 === 0;
+    const closesAt = closeOf(i);
+    // Model and market mirror each other, so neither can win.
+    log.push({
+      at: closesAt,
+      ticker: `TIE-${i}`,
+      asset: 'BTC',
+      spot: finishedAbove ? 65_100 : 64_800,
+      strike: 65_000,
+      bid: 49,
+      ask: 51,
+      secondsLeft: 0,
+      model: 0.5,
+      outcome: null,
+    });
+    for (let t = 90_000; t >= 0; t -= 10_000) {
+      samples.push({ at: closesAt - t, price: finishedAbove ? 65_100 : 64_800 });
+    }
+  }
+
+  store.putQuotes('BTC', log);
+  store.putSamples('BTC', samples.sort((a, b) => a.at - b.at));
+
+  const interaction = fakeInteraction('edge');
+  await handlePicks(interaction, { store, config });
+
+  const reply = String(interaction.replies.at(-1));
+  assert.match(reply, /Too close to call/);
+  assert.doesNotMatch(reply, /is the better forecaster/);
+});
+
+test('/picks edge separates any-positive-edge from the bar the engine holds', async () => {
+  // "+1.84¢ across 1721 trades" was reported under the label "taking only what
+  // it liked", and it fired on 95% of all observations — a strategy the bot has
+  // never run. Compared against a 2¢ fee it says "no business"; the engine's
+  // own bar is a different, much smaller set of rows.
+  const store = freshStore();
+  const now = Date.now();
+  const log = [];
+  const samples = [];
+  const closeOf = (i) => now - 120_000 - (39 - i) * 120_000;
+
+  for (let i = 0; i < 40; i += 1) {
+    const finishedAbove = i % 2 === 0;
+    const closesAt = closeOf(i);
+    // A one-cent lean on most markets, a fat one on a few.
+    const fat = i % 10 === 0;
+    log.push({
+      at: closesAt,
+      ticker: `BAR-${i}`,
+      asset: 'BTC',
+      spot: finishedAbove ? 65_100 : 64_800,
+      strike: 65_000,
+      bid: 49,
+      ask: 51,
+      secondsLeft: 0,
+      model: fat ? 0.72 : 0.52,
+      outcome: null,
+    });
+    for (let t = 90_000; t >= 0; t -= 10_000) {
+      samples.push({ at: closesAt - t, price: finishedAbove ? 65_100 : 64_800 });
+    }
+  }
+
+  store.putQuotes('BTC', log);
+  store.putSamples('BTC', samples.sort((a, b) => a.at - b.at));
+
+  const interaction = fakeInteraction('edge');
+  await handlePicks(interaction, { store, config });
+
+  const reply = String(interaction.replies.at(-1));
+  assert.match(reply, /Any positive edge/);
+  assert.match(reply, /engine's own bar \(6¢\)/);
+  // The two counts are different, which is the whole point of showing both.
+  const any = /Any positive edge:.*?(\d+) of (\d+) row/s.exec(reply);
+  const bar = /own bar \(6¢\):.*?(\d+) of (\d+) row/s.exec(reply);
+  if (any && bar) assert.notEqual(any[1], bar[1]);
 });
 
 test('/picks read says what is missing before anyone hunts for a bug', async () => {
