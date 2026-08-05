@@ -1,5 +1,6 @@
 import { expectedValue, logReturns, probabilityAbove, scaleVolatility } from './math.js';
 import { executablePrices, netEdgeCents } from './cost.js';
+import { effectiveSecondsLeft } from './settlement.js';
 import { volatilityEstimate } from './volatility.js';
 import { flipProbability } from './exit.js';
 import { bookQuality, distanceInSigma, largePrints, momentum, rsi, trendFit } from './indicators.js';
@@ -54,6 +55,11 @@ export const DEFAULTS = {
   maximumTrendFit: 0.85,
   feeRate: 0.07,
   sampleSeconds: 30,
+  // Kalshi settles crypto contracts on a 60-second average of the CME CF
+  // Real-Time Index. Switchable so the correction can be measured rather than
+  // believed, but it is a fact about the contract, not a modelling taste.
+  settlementAveraging: true,
+  settlementWindowSeconds: 60,
 };
 
 /**
@@ -111,9 +117,19 @@ export function evaluate(input, options = {}) {
   const vol = volatilityEstimate(returns);
   if (!vol || !(vol.sigma > 0)) return skip('no_vol');
 
-  const sigma = scaleVolatility(vol.sigma, config.sampleSeconds, secondsLeft);
-  const sigmaLow = scaleVolatility(vol.low, config.sampleSeconds, secondsLeft);
-  const sigmaHigh = scaleVolatility(vol.high, config.sampleSeconds, secondsLeft);
+  // Kalshi settles crypto on the AVERAGE of the final sixty seconds, not on the
+  // price at the bell. An average-settled contract has the same variance as a
+  // point-settled one with forty seconds less on the clock, so scaling the
+  // volatility by the raw clock overstates how far the price can still travel —
+  // by 2% at the open and 18% with two minutes left, which is around five cents
+  // of probability exactly where this engine trades.
+  const horizonSeconds = config.settlementAveraging
+    ? effectiveSecondsLeft(secondsLeft, config.settlementWindowSeconds)
+    : secondsLeft;
+
+  const sigma = scaleVolatility(vol.sigma, config.sampleSeconds, horizonSeconds);
+  const sigmaLow = scaleVolatility(vol.low, config.sampleSeconds, horizonSeconds);
+  const sigmaHigh = scaleVolatility(vol.high, config.sampleSeconds, horizonSeconds);
   if (!(sigma > 0)) return skip('no_vol');
 
   const probability = probabilityAbove(price, strike, sigma);

@@ -12,14 +12,32 @@
  * can be checked against fixtures rather than against the internet.
  */
 
+/**
+ * Ordered to match what Kalshi actually settles against.
+ *
+ * Kalshi resolves every crypto contract on the CME CF Real-Time Index, which is
+ * a volume-weighted MEDIAN across a fixed set of constituent exchanges —
+ * Bitstamp, Coinbase, Gemini, itBit/Paxos, Kraken, Bullish, Crypto.com and
+ * LMAX Digital. Reading a price from outside that set means grading the
+ * contract against a number the exchange never looks at.
+ *
+ * `constituent` marks the sources that are actually in the index. Binance is
+ * not one of them, and its pair is BTC against a stablecoin rather than
+ * against dollars, so it carries a basis of its own on top. It stays as a last
+ * resort — a slightly wrong price beats no price when the alternative is
+ * grading a member's call by hand — but it is never preferred and it is
+ * labelled so a wrong read can be traced.
+ */
 export const PRICE_SOURCES = [
   {
     name: 'coinbase',
+    constituent: true,
     url: (asset) => `https://api.coinbase.com/v2/prices/${asset}-USD/spot`,
     parse: (body) => Number.parseFloat(body?.data?.amount),
   },
   {
     name: 'kraken',
+    constituent: true,
     url: (asset) => `https://api.kraken.com/0/public/Ticker?pair=${asset}USD`,
     parse: (body) => {
       const pairs = body?.result ?? {};
@@ -28,7 +46,20 @@ export const PRICE_SOURCES = [
     },
   },
   {
+    name: 'bitstamp',
+    constituent: true,
+    url: (asset) => `https://www.bitstamp.net/api/v2/ticker/${asset.toLowerCase()}usd/`,
+    parse: (body) => Number.parseFloat(body?.last),
+  },
+  {
+    name: 'gemini',
+    constituent: true,
+    url: (asset) => `https://api.gemini.com/v1/pubticker/${asset.toLowerCase()}usd`,
+    parse: (body) => Number.parseFloat(body?.last),
+  },
+  {
     name: 'binance',
+    constituent: false,
     url: (asset) => `https://api.binance.com/api/v3/ticker/price?symbol=${asset}USDT`,
     parse: (body) => Number.parseFloat(body?.price),
   },

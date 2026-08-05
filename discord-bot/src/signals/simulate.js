@@ -2,6 +2,7 @@ import { evaluate } from './engine.js';
 import { SCALP_ACTIONS, roundTripReturn, scalpDecision } from './scalp.js';
 import { recommendSize } from './sizing.js';
 import { probabilityAbove } from './math.js';
+import { effectiveSecondsLeft } from './settlement.js';
 
 /**
  * Paper trading, run against markets whose true behaviour is known.
@@ -148,17 +149,22 @@ export function priceMarket({
   biasCents = 0,
   lagSteps = 3,
   fairProbabilities = null,
+  sampleSeconds = 30,
+  settlementWindowSeconds = 60,
 }) {
   const spotIndex = mode === 'lag' ? Math.max(0, index - lagSteps) : index;
   // A simulated true probability when one was worked out, the closed form when
   // the world is simple enough for it to be exact.
+  // The contract settles on an average, so even a market that is never wrong
+  // prices the shorter effective horizon — otherwise the simulated opponent is
+  // wrong about the instrument and the engine gets free edge for being right.
+  const effectiveSteps = Math.max(
+    1e-9,
+    effectiveSecondsLeft(stepsLeft * sampleSeconds, settlementWindowSeconds) / sampleSeconds,
+  );
   const fair = fairProbabilities
     ? fairProbabilities[spotIndex]
-    : probabilityAbove(
-        prices[spotIndex],
-        strike,
-        trueVolPerStep * Math.sqrt(Math.max(1e-9, stepsLeft)),
-      );
+    : probabilityAbove(prices[spotIndex], strike, trueVolPerStep * Math.sqrt(effectiveSteps));
   if (fair === null || !Number.isFinite(fair)) return null;
 
   const cents = fair * 100 + (mode === 'bias' ? biasCents : 0);
@@ -173,6 +179,17 @@ export function priceMarket({
  * out is a real cost and, at the two- to three-cent spreads these markets
  * actually quote, it is comparable to the entire edge being hunted.
  */
+/**
+ * What the contract actually settles at: the average of the final sixty
+ * seconds of index, not the last print. Getting this wrong in the simulator
+ * would let the engine be graded on an instrument nobody trades.
+ */
+export function settlementValue(prices, sampleSeconds = 30, windowSeconds = 60) {
+  const samples = Math.max(1, Math.round(windowSeconds / sampleSeconds));
+  const tail = prices.slice(-samples);
+  return tail.reduce((total, price) => total + price, 0) / tail.length;
+}
+
 export function bookAround(midCents, spreadCents = 0) {
   if (!(midCents > 0)) return null;
   const half = Math.max(0, spreadCents) / 2;
@@ -206,6 +223,9 @@ export function runMarket({
   orderMode = 'taker',
   quoteNoiseCents = 0,
   noiseRandom = () => 0.5,
+  // Kalshi settles crypto on the average of the final sixty seconds. Modelling
+  // it as the last print would grade the engine on an instrument nobody trades.
+  settlementWindowSeconds = 60,
   bankroll = 100,
   engine = {},
   sizing = {},
@@ -236,6 +256,8 @@ export function runMarket({
       mode,
       biasCents,
       fairProbabilities,
+      sampleSeconds,
+      settlementWindowSeconds,
     });
     if (marketCents === null) continue;
 
@@ -348,7 +370,7 @@ export function runMarket({
 
   // Anything still open settles at the truth, fees already paid on entry.
   if (position) {
-    const finishedAbove = prices.at(-1) > strike;
+    const finishedAbove = settlementValue(prices, sampleSeconds, settlementWindowSeconds) > strike;
     const won = position.side === 'up' ? finishedAbove : !finishedAbove;
     const exitCents = won ? 100 : 0;
     const trip = roundTripReturn(position.entryCents, Math.max(1, exitCents));
@@ -391,6 +413,7 @@ export function runBacktest({
   // How far the quoted mid wanders from fair for reasons unrelated to
   // settlement. This is the parameter the maker-versus-taker answer turns on.
   quoteNoiseCents = 0,
+  settlementWindowSeconds = 60,
   seed = 7,
   bankroll = 100,
   engine = {},
@@ -467,6 +490,7 @@ export function runBacktest({
       orderMode,
       quoteNoiseCents,
       noiseRandom,
+      settlementWindowSeconds,
       bankroll: cash,
       engine,
       sizing,

@@ -258,3 +258,69 @@ quality, not model complexity — above all, whether the spot feed being read is
 the same index Kalshi settles against. A persistent basis between the two puts
 a constant error into `ln(S/K)` on every single read, and no amount of
 distribution theory fixes it.
+
+## Reading the contract's own rules beat every model change
+
+The three model upgrades above all failed. Then the settlement rules were
+looked up, and two things turned out to be wrong that had nothing to do with
+mathematics.
+
+**Kalshi does not settle on the final price. It settles on the average of the
+final sixty seconds** of the CME CF Real-Time Index, sampled once per second.
+The engine had been pricing a contract that settles on the last print. Those
+are different instruments.
+
+The correction is derivable, not fitted. With `h` the averaging window and
+`tau` the seconds remaining, using Var(time-average of a Brownian path over h)
+= σ²h/3:
+
+```
+tau > h:   Var(settlement) = σ²(tau − h) + σ²h/3 = σ²(tau − 2h/3)
+```
+
+So an average-settled contract has the same variance as a point-settled one
+with **forty seconds less on the clock**:
+
+| Time left | Effective | σ overstated by |
+|---|---|---|
+| 15 min | 860s | 2% |
+| 5 min | 260s | 7% |
+| 2 min | 80s | 18% |
+
+Eighteen percent of σ, one sigma from the strike, is about five cents of
+probability — the size of the entire edge threshold, and it was being given
+away in one direction: the model thought the price had more time to come back
+than it did, so it called fairly priced contracts overpriced.
+
+The formula is checked against a Monte Carlo of the actual average rather than
+believed, and scored against 4,000 simulated markets per seed with outcomes
+settled the way Kalshi settles them. It wins **5 seeds out of 5**, and the
+calibration shows where:
+
+| Bucket | Ignoring the average | Knowing about it |
+|---|---|---|
+| 70–80% | says 74.9 → **79.0** happens | says 75.0 → **75.8** happens |
+| 80–90% | says 84.9 → **87.2** happens | says 85.0 → **86.2** happens |
+
+A 4.1-point error becomes 0.8, in the bucket where the engine actually trades.
+The Brier gain is small in aggregate (~0.00035) because most observations sit
+far from any decision, but it is perfectly consistent across seeds — unlike the
+sampling-rate result, which flipped sign and was noise.
+
+**The spot feed was reading venues outside the settlement index.** The CME CF
+index is a volume-weighted median across Bitstamp, Coinbase, Gemini,
+itBit/Paxos, Kraken, Bullish, Crypto.com and LMAX. The fallback chain included
+Binance, which is not a constituent and quotes against a stablecoin rather than
+dollars — a basis on top of a basis. Constituent venues are now preferred and
+the others are labelled, with a test that fails if a non-constituent is ever
+ordered ahead of one.
+
+**The lesson worth keeping.** Three sophisticated model upgrades produced
+nothing. Twenty minutes reading what the contract actually settles against
+produced the only consistent improvement in this document. When a model is
+wrong, the fault is more often in what is being modelled than in the
+mathematics used to model it.
+
+Sources: [Kalshi crypto settlement](https://help.kalshi.com/en/articles/13823838-crypto-markets),
+[CME CF BRTI methodology](https://docs.cfbenchmarks.com/CME%20CF%20Real%20Time%20Indices%20Methodology.pdf),
+[constituent exchanges](https://docs.cfbenchmarks.com/CME%20CF%20Constituent%20Exchanges.pdf).
