@@ -1031,20 +1031,53 @@ export async function handlePicks(interaction, { store, config }) {
     const up = read.call === 'up';
     const pct = (value) => (Number.isFinite(value) ? `${Math.round(value * 100)}%` : '—');
     const minutes = Number.isFinite(read.secondsLeft) ? Math.floor(read.secondsLeft / 60) : null;
+    const entry = Math.round(read.entryCents);
 
     const lines = [
-      `${up ? '🟢' : '🔴'} **${up ? 'UP' : 'DOWN'} · ${asset}** — _${read.confidence}_`,
-      '',
-      `**Model** ${pct(read.winProbability)}  ·  **Market** ${pct(read.marketWinProbability)}` +
-        `  ·  **Entry** ${Math.round(read.entryCents)}¢`,
+      // What to do, at what price, first — this is read on a phone.
+      `${up ? '🟢' : '🔴'} **BUY ${up ? 'UP' : 'DOWN'} @ ${entry}¢** · ${asset}`,
     ];
 
+    // Where to get out. "Go in now" without this is half a call, and the
+    // position ends up held to settlement — a different bet from the one sized.
+    if (read.exit) {
+      const target = Math.round(read.exit.targetCents);
+      const floor = read.exit.minimumExitCents;
+      lines.push(
+        `🎯 **Target ${target}¢**` +
+          (Number.isFinite(floor)
+            ? ` · ⚠️ below **${Math.round(floor)}¢** the round trip LOSES` +
+              ' (the exchange is paid both ways)'
+            : ''),
+      );
+      if (!read.exit.targetClearsCosts) {
+        lines.push(
+          `_Even if the model is right, ${target}¢ does not cover the round trip from ${entry}¢. ` +
+            'There is no exit here that pays._',
+        );
+      }
+    }
+
+    lines.push(
+      '',
+      `**Model** ${pct(read.winProbability)}  ·  **Market** ${pct(read.marketWinProbability)}`,
+      // The line that stops "strong" from meaning "likely".
+      `**Wins ${pct(read.winProbability)} of the time — ${read.likelihood}.** ` +
+        `_Edge is ${read.confidence}, which is a different thing._`,
+    );
+
+    if (read.winProbability < 0.45) {
+      lines.push(
+        '_This is a cheap ticket that is slightly underpriced — a good buy AND a probable loss. ' +
+          'Size it like one._',
+      );
+    }
+
     if (read.disagrees) {
-      // The line worth more than any indicator on the panel.
       lines.push(
         '',
         `⚠️ **${read.leaning === 'up' ? 'UP' : 'DOWN'} is the more likely side, but ${up ? 'UP' : 'DOWN'} is the one worth buying.**`,
-        `_The likely side costs too much for how likely it is. Paying up for the favourite is how a high win rate loses money._`,
+        '_The likely side costs too much for how likely it is._',
       );
     }
 
@@ -1057,7 +1090,7 @@ export async function handlePicks(interaction, { store, config }) {
 
     if (!read.tradeable && Number.isFinite(read.valueCents)) {
       lines.push(
-        `_The model still likes this side by **${read.valueCents.toFixed(1)}¢** — just not enough to pay the costs._`,
+        `_The model likes this side by **${read.valueCents.toFixed(1)}¢** — the round trip costs more than that._`,
       );
     }
 

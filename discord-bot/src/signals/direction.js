@@ -1,4 +1,5 @@
 import { VERDICTS, evaluate } from './engine.js';
+import { minimumProfitableMoveCents } from './scalp.js';
 
 /**
  * A directional read on every market, whether or not it is worth trading.
@@ -47,6 +48,59 @@ export function confidenceOf(winProbability) {
   if (distance >= 0.15) return CONFIDENCE.STRONG;
   if (distance >= 0.05) return CONFIDENCE.LEAN;
   return CONFIDENCE.COIN_FLIP;
+}
+
+/**
+ * How likely the called side is to win, in words.
+ *
+ * Separate from confidence, and the separation is the fix for a message that
+ * confused the room: it printed "UP — strong" on a call whose model
+ * probability was 25%. Both statements were true and together they were
+ * nonsense. The call WAS the right side to buy — up cost 24¢ and was worth 25 —
+ * and it also loses three times out of four.
+ *
+ * Confidence measures how far the model is from a coin flip. Likelihood
+ * measures whether the thing being bought usually happens. A cheap ticket that
+ * is slightly underpriced is a good buy and a probable loss, and anyone acting
+ * on one has to be told the second part in the same breath as the first.
+ */
+export function likelihoodOf(winProbability) {
+  if (!Number.isFinite(winProbability)) return null;
+  if (winProbability >= 0.75) return 'usually wins';
+  if (winProbability >= 0.55) return 'wins more often than not';
+  if (winProbability >= 0.45) return 'a coin flip';
+  if (winProbability >= 0.25) return 'usually loses';
+  return 'rarely wins';
+}
+
+/**
+ * The price to aim to get out at, and the price that merely breaks even.
+ *
+ * "Go in now" is half a call. Without somewhere to go the position is held
+ * until something forces the issue, which on a fifteen-minute contract means
+ * held to settlement — a completely different bet from the one that was sized.
+ *
+ * `target` is what the model says the side is worth: the price it should reach
+ * if the model is right. `minimumExit` is the far more important number, and
+ * the one nobody publishes: below it the round trip loses money even though
+ * the screen shows a gain, because the exchange is paid on the way in AND on
+ * the way out.
+ */
+export function exitPlan(entryCents, winProbability, { feeRate = 0.07, marginCents = 0.5 } = {}) {
+  if (!(entryCents > 0) || entryCents >= 100 || !Number.isFinite(winProbability)) return null;
+
+  const target = winProbability * 100;
+  const needed = minimumProfitableMoveCents(entryCents, { feeRate, marginCents });
+
+  return {
+    targetCents: target,
+    minimumExitCents: needed === null ? null : entryCents + needed,
+    // Whether the model's own target is even far enough to pay for the trip.
+    // When it is not, there is no exit that works and the honest answer is not
+    // to enter — which is a different reason from "no edge" and worth saying.
+    targetClearsCosts: needed !== null && target >= entryCents + needed,
+    neededMoveCents: needed,
+  };
 }
 
 /**
@@ -138,6 +192,12 @@ export function directionalRead(input, options = {}) {
     // to pay for the spread and the fee, which is what `tradeable` reports.
     valueCents: call === VERDICTS.UP ? upValue : downValue,
     confidence: confidenceOf(winProbability),
+    // Said alongside the confidence, always. "Strong" on a 25% call was true
+    // and useless without this.
+    likelihood: likelihoodOf(winProbability),
+    // Where to aim to get out, and the price below which getting out loses
+    // money however green the screen looks.
+    exit: exitPlan(entryCents, winProbability),
     marketWinProbability,
     // How far the model is from the market on this side, in cents. Positive
     // means the model likes it more than the price does. This is an opinion

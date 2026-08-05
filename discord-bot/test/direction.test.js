@@ -209,3 +209,42 @@ test('a fairly priced market has no cheap side, and does not pretend to', () => 
   assert.equal(read.call, read.leaning);
   assert.equal(read.tradeable, false);
 });
+
+test('a 25% call is never described as strong without saying it usually loses', async () => {
+  // The message that confused the room: "UP · strong" with the model at 25%.
+  // Both true, together nonsense. The call WAS the right side to buy — up cost
+  // 24¢ and was worth 25 — and it also loses three times in four.
+  const { likelihoodOf } = await import('../src/signals/direction.js');
+
+  assert.equal(confidenceOf(0.25), CONFIDENCE.STRONG, 'far from a coin flip');
+  assert.equal(likelihoodOf(0.25), 'usually loses', 'and usually loses');
+
+  // The two must never be the same axis, or one keeps being read as the other.
+  assert.equal(likelihoodOf(0.75), 'usually wins');
+  assert.equal(confidenceOf(0.75), CONFIDENCE.STRONG);
+  assert.equal(likelihoodOf(0.5), 'a coin flip');
+});
+
+test('every call carries somewhere to get out, and a floor below which it loses', async () => {
+  const { exitPlan } = await import('../src/signals/direction.js');
+
+  // Bought at 40¢, model says it is worth 55¢.
+  const plan = exitPlan(40, 0.55);
+
+  assert.ok(Math.abs(plan.targetCents - 55) < 1e-9);
+  // The floor is above the entry, always: the exchange is paid both ways.
+  assert.ok(plan.minimumExitCents > 40);
+  assert.equal(plan.targetClearsCosts, true);
+});
+
+test('a target that cannot cover the round trip is called out, not printed as a plan', async () => {
+  const { exitPlan } = await import('../src/signals/direction.js');
+
+  // Bought at 50¢, model says 51¢. One cent does not pay for two fees, so
+  // there is no exit here that works — a different problem from "no edge", and
+  // one a member would otherwise discover by taking the trade.
+  const plan = exitPlan(50, 0.51);
+
+  assert.equal(plan.targetClearsCosts, false);
+  assert.ok(plan.minimumExitCents > plan.targetCents);
+});
