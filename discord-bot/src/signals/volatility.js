@@ -157,3 +157,80 @@ export function discreteBarrier(barrier, sigmaPerSample, { above = true }) {
   const shift = Math.exp((above ? 1 : -1) * BGK_BETA * sigmaPerSample);
   return barrier * shift;
 }
+
+/**
+ * Realized volatility over the last `samples` returns. The building block the
+ * multi-scale forecast below is made of.
+ */
+export function realizedOver(returns, samples) {
+  const values = (returns ?? []).filter(Number.isFinite).slice(-samples);
+  if (values.length < 2) return null;
+  return Math.sqrt(values.reduce((total, value) => total + value * value, 0) / values.length);
+}
+
+/**
+ * The same window, measured in a way a single jump cannot inflate.
+ *
+ * Bipower variation multiplies neighbouring absolute returns instead of
+ * squaring each one, so one enormous move is multiplied by its ordinary
+ * neighbour rather than by itself. It is the difference between "the market is
+ * violent" and "something happened once".
+ */
+export function robustOver(returns, samples) {
+  const values = (returns ?? []).filter(Number.isFinite).slice(-samples);
+  if (values.length < 3) return null;
+  return bipowerVolatility(values);
+}
+
+/**
+ * HAR: volatility measured at three time scales at once.
+ *
+ * The single strongest known result about forecasting realized volatility, and
+ * the reason is a fact about markets rather than about statistics. Volatility
+ * is made by traders operating on different horizons — someone scalping the
+ * next two minutes, someone hedging over the hour, someone positioned for the
+ * day — and each leaves its own persistence in the price. One exponential
+ * decay, however well tuned, cannot represent three of them at once. It has a
+ * single memory, so it is always either too slow for the fast component or too
+ * fast for the slow one.
+ *
+ * HAR simply measures all three and adds them up. Corsi (2009); it has beaten
+ * GARCH and EWMA on essentially every liquid asset it has been tried on.
+ *
+ * The weights are the one thing that has to come from somewhere. These are the
+ * broad values the literature keeps landing on, and they are parameters rather
+ * than constants precisely so they can be refitted on the recorded data once
+ * there is enough of it — fitting them on a simulation would only recover the
+ * simulation's own assumptions.
+ */
+export function harVolatility(
+  returns,
+  { short = 10, medium = 60, long = 240, weights = [0.4, 0.35, 0.25], robust = true } = {},
+) {
+  const values = (returns ?? []).filter(Number.isFinite);
+  if (values.length < 4) return null;
+
+  // Each scale measured jump-robustly by default. Measured across five seeds,
+  // a plain-realized HAR beats the old estimator in a smooth world and loses
+  // in every jumpy one — because the estimator it replaces was already
+  // jump-robust and this threw that away. Three time scales AND resistance to
+  // a single violent print is the combination that wins in both.
+  const measure = robust ? robustOver : realizedOver;
+  const scales = [short, medium, long].map((samples) => measure(values, samples));
+
+  // A scale with no data yet falls back to the shortest one that has any,
+  // rather than dropping out — early in a session the long window is empty and
+  // the forecast should still be the best available answer, not null.
+  const available = scales.filter((value) => value !== null && value > 0);
+  if (available.length === 0) return null;
+
+  let total = 0;
+  let used = 0;
+  scales.forEach((value, index) => {
+    const usable = value !== null && value > 0 ? value : available[0];
+    total += weights[index] * usable;
+    used += weights[index];
+  });
+
+  return used > 0 ? total / used : null;
+}

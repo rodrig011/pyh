@@ -18,7 +18,36 @@
  * on the box that is already running, alongside everything else, for weeks.
  */
 
+import { logReturns } from './math.js';
+import {
+  bipowerVolatility,
+  ewmaVolatility,
+  harVolatility,
+  plainVolatility,
+  volatilityEstimate,
+} from './volatility.js';
+
 export const DEFAULT_CAPACITY = 20000;
+
+/**
+ * What every candidate estimator says, right now.
+ *
+ * Cheap — a few dozen arithmetic operations on an array already in memory —
+ * and it turns "which estimator is better" from an argument into a
+ * measurement that a fortnight of real markets will settle.
+ */
+export function allVolatilityReadings(returns) {
+  const clean = (value) => (Number.isFinite(value) && value > 0 ? value : null);
+  const readings = {
+    blend: clean(volatilityEstimate(returns)?.sigma),
+    ewma: clean(ewmaVolatility(returns)),
+    realized: clean(plainVolatility(returns)),
+    bipower: clean(bipowerVolatility(returns)),
+    har: clean(harVolatility(returns, { robust: false })),
+    harRobust: clean(harVolatility(returns, { robust: true })),
+  };
+  return Object.values(readings).some((value) => value !== null) ? readings : null;
+}
 
 /**
  * One observation: what was quoted, what the model thought, what the state of
@@ -34,6 +63,7 @@ export function makeObservation({
   yesAskCents,
   secondsLeft,
   modelProbability = null,
+  sigmas = null,
 }) {
   if (!(at > 0) || !ticker || !(spot > 0) || !(strike > 0)) return null;
   if (!(secondsLeft >= 0)) return null;
@@ -55,6 +85,17 @@ export function makeObservation({
     // observation is still worth keeping without it — the market's own score
     // can be computed from the quote alone.
     model: Number.isFinite(modelProbability) ? modelProbability : null,
+    // Every volatility estimator's reading, side by side.
+    //
+    // Which estimator is best is a genuinely open question that simulation
+    // cannot answer: a simulated world's volatility reverts to whatever level
+    // its author chose, which quietly favours whichever estimator matches that
+    // choice. Real bitcoin has regimes that persist for hours without
+    // reverting to anything. So instead of arguing, record what each one said
+    // at the moment it said it, and let a fortnight of settled markets pick
+    // the winner. Sigmas rather than probabilities, because any probability
+    // can be recomputed from these and a probability cannot be undone.
+    sigmas: sigmas ?? null,
     // Filled in later, once the market has settled.
     outcome: null,
   };
@@ -132,9 +173,13 @@ export function observeOnce(
   { asset = 'BTC', contract, spot, evaluateModel, historyMs = 60 * 60 * 1000, now = Date.now() } = {},
 ) {
   let modelProbability = null;
+  let sigmas = null;
 
   try {
     const market = contract?.market;
+    if (market) {
+      sigmas = allVolatilityReadings(logReturns(pricesFrom(store.listSamples(asset), now - historyMs)));
+    }
     if (market && typeof evaluateModel === 'function') {
       const closesAt = Date.parse(market.close_time ?? '');
       const read = evaluateModel({
@@ -153,7 +198,7 @@ export function observeOnce(
     modelProbability = null;
   }
 
-  return recordOnce(store, { asset, contract, spot, modelProbability, now });
+  return recordOnce(store, { asset, contract, spot, modelProbability, sigmas, now });
 }
 
 /** Prices from stored samples, newest last, from `since` onward. */
@@ -169,7 +214,10 @@ function pricesFrom(samples, since) {
  * Returns rather than throws: this runs beside the part of the system that
  * handles people's money, and a bad quote must never be able to stop it.
  */
-export function recordOnce(store, { asset = 'BTC', contract, spot, modelProbability = null, now = Date.now() } = {}) {
+export function recordOnce(
+  store,
+  { asset = 'BTC', contract, spot, modelProbability = null, sigmas = null, now = Date.now() } = {},
+) {
   try {
     const market = contract?.market;
     if (!market) return { recorded: false, reason: contract?.error ?? 'no market' };
@@ -191,6 +239,7 @@ export function recordOnce(store, { asset = 'BTC', contract, spot, modelProbabil
       yesAskCents: toCents(market.yes_ask_dollars ?? market.yes_ask),
       secondsLeft: Number.isFinite(closesAt) ? Math.max(0, (closesAt - now) / 1000) : null,
       modelProbability,
+      sigmas,
     });
 
     if (!observation) return { recorded: false, reason: 'incomplete quote' };

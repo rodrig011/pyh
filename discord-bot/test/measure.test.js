@@ -371,3 +371,55 @@ test('the model must beat the market by more than the noise before it is believe
   assert.equal(result.modelBeatsMarket, false, 'a coin flip dressed as an edge');
   assert.ok(result.comparison.ci95[0] < 0, 'the interval must still cross zero');
 });
+
+test('the estimators are ranked by settled markets, not by argument', async () => {
+  const { rankEstimators } = await import('../src/signals/measure.js');
+
+  // Two estimators recorded side by side. One is right, one is backwards.
+  // Which is which must fall out of the outcomes, with no help.
+  const rows = [];
+  for (let m = 0; m < 40; m += 1) {
+    const outcome = m % 2;
+    for (let i = 0; i < 20; i += 1) {
+      rows.push({
+        ticker: `M${m}`,
+        bid: 49,
+        ask: 51,
+        outcome,
+        sigmas: { good: outcome ? 0.9 : 0.1, bad: outcome ? 0.1 : 0.9 },
+      });
+    }
+  }
+
+  // The "sigma" here stands in for whatever the estimator implies; the ranker
+  // only needs a way to turn one into a probability.
+  const ranked = rankEstimators(rows, { probabilityFrom: (row, sigma) => sigma });
+
+  assert.equal(ranked.best.name, 'good');
+  assert.ok(ranked.ranked.find((x) => x.name === 'bad').brier > ranked.best.brier);
+  assert.ok(ranked.best.versusMarket.mean > 0, 'the good one must beat the market');
+});
+
+test('a tie between estimators is reported as a tie, not as a winner', async () => {
+  const { rankEstimators } = await import('../src/signals/measure.js');
+
+  // Six estimators that are all the same. Picking one would be picking the
+  // luckiest of six coin flips, and the whole point of the error bar is to
+  // refuse to do that.
+  const rows = [];
+  for (let m = 0; m < 40; m += 1) {
+    const outcome = m % 2;
+    for (let i = 0; i < 20; i += 1) {
+      rows.push({
+        ticker: `M${m}`,
+        bid: 49,
+        ask: 51,
+        outcome,
+        sigmas: { a: 0.55, b: 0.55, c: 0.55 },
+      });
+    }
+  }
+
+  const ranked = rankEstimators(rows, { probabilityFrom: (row, sigma) => sigma });
+  assert.equal(ranked.decisive, false);
+});

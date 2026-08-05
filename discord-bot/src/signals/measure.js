@@ -267,3 +267,68 @@ export function dailyGrowth({ centsPerTrade, entryCents = 50, tradesPerDay, feeC
     assumesStakeFraction: 0.05,
   };
 }
+
+/**
+ * Which volatility estimator was actually right, decided by settled markets.
+ *
+ * Simulation cannot answer this. A simulated world's volatility reverts to
+ * whatever level its author picked, which silently rewards whichever estimator
+ * happens to match that choice — in this repository's own runs the plainest
+ * estimator won every simulated world, and that is exactly the result a
+ * mean-reverting simulator is built to produce. Real bitcoin volatility holds a
+ * regime for hours without reverting to anything.
+ *
+ * So the recorder stores what every candidate said at the moment it said it,
+ * and this scores them against what happened. Clustered by market, because
+ * thirty readings of one contract share one outcome.
+ */
+export function rankEstimators(observations, { probabilityFrom }) {
+  const settled = (observations ?? []).filter(
+    (row) => (row?.outcome === 0 || row?.outcome === 1) && row?.sigmas,
+  );
+  if (settled.length < 2) return null;
+
+  const names = [...new Set(settled.flatMap((row) => Object.keys(row.sigmas)))];
+  const scored = [];
+
+  for (const name of names) {
+    const rows = [];
+    for (const row of settled) {
+      const sigma = row.sigmas?.[name];
+      if (!(sigma > 0)) continue;
+      const probability = probabilityFrom(row, sigma);
+      if (!Number.isFinite(probability)) continue;
+      rows.push({ ...row, probability });
+    }
+    if (rows.length < 2) continue;
+
+    const score = brier(rows.map((row) => ({ probability: row.probability, outcome: row.outcome })));
+    // Paired against the market on the same rows, clustered by market, so the
+    // ranking carries an error bar rather than an ordering of noise.
+    const versusMarket = clusteredMean(
+      rows,
+      (row) => {
+        const market = (row.bid + row.ask) / 200;
+        return (market - row.outcome) ** 2 - (row.probability - row.outcome) ** 2;
+      },
+      (row) => row.ticker ?? "all",
+    );
+
+    scored.push({ name, brier: score, n: rows.length, versusMarket });
+  }
+
+  scored.sort((a, b) => a.brier - b.brier);
+
+  return {
+    ranked: scored,
+    best: scored[0] ?? null,
+    // Only worth switching to if it beats the incumbent by more than the noise
+    // between them — otherwise it is picking the luckiest of six coin flips.
+    decisive:
+      scored.length > 1 &&
+      scored[0].versusMarket &&
+      scored[1].versusMarket &&
+      scored[0].versusMarket.mean - scored[1].versusMarket.mean >
+        2 * (scored[0].versusMarket.standardError + scored[1].versusMarket.standardError),
+  };
+}

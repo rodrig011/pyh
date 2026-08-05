@@ -324,3 +324,52 @@ mathematics used to model it.
 Sources: [Kalshi crypto settlement](https://help.kalshi.com/en/articles/13823838-crypto-markets),
 [CME CF BRTI methodology](https://docs.cfbenchmarks.com/CME%20CF%20Real%20Time%20Indices%20Methodology.pdf),
 [constituent exchanges](https://docs.cfbenchmarks.com/CME%20CF%20Constituent%20Exchanges.pdf).
+
+## A fourth attempt, and what it actually taught
+
+**HAR: volatility at three time scales.** The strongest known result in
+realized-volatility forecasting (Corsi 2009), and for a good reason — volatility
+is made by traders on different horizons, and one exponential decay cannot
+represent three of them at once. Built, and scored across five seeds:
+
+| World | HAR (plain) | HAR (jump-robust) |
+|---|---|---|
+| Smooth | wins 4/5 | loses 5/5 |
+| Vol clustering | wins 4/5 | loses 4/5 |
+| Clustering + jumps | **loses 5/5** | loses 5/5 |
+
+Neither version wins everywhere, and the pattern is the interesting part.
+
+Plain HAR loses whenever jumps are present, because the estimator it replaces
+was already jump-robust and switching threw that away. So make HAR jump-robust
+— and it gets *worse*, while its estimate of σ gets measurably *better*
+(15.1 vs 16.7 of error).
+
+Better estimate, worse forecast. That combination is the finding:
+
+**Jump-robust estimation is the wrong tool for pricing a digital.** Bipower
+variation deliberately excludes jump variance, so it measures the *diffusive*
+volatility well — and the contract's outcome includes the jumps. For "will it
+finish above the strike" you need the total variance the price will actually
+experience, not the well-behaved part of it. The error metric was measuring the
+wrong target and the Brier score was right.
+
+**And the honest place to stop.** That insight raises a real question: is the
+incumbent estimator's use of bipower hurting it? Measured, the plainest
+realized volatility beat every alternative in all four simulated worlds. It was
+not adopted, because that result is almost certainly an artefact: this
+simulator's volatility reverts to a level its author chose, which
+mechanically rewards a long average. Real bitcoin holds a regime for hours
+without reverting to anything. Changing production on that basis would be
+fitting the model to the simulator's assumptions, which is the exact error
+every other section of this document was written to avoid.
+
+So the question is handed to the data instead. The recorder now stores what
+**all six** estimators said at the moment they said it — blend, EWMA, plain
+realized, bipower, HAR, robust HAR — and `rankEstimators` scores them against
+settled markets, clustered by market, refusing to name a winner unless it beats
+the runner-up by more than the noise between them. A fortnight of real contracts
+decides it, not an argument.
+
+Running total: seven ideas built and measured, one shipped. The one that
+shipped came from reading the contract's rules.
