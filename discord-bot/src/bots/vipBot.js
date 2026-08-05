@@ -30,6 +30,7 @@ import { collectOnce } from '../signals/collector.js';
 import { observeOnce } from '../signals/recorder.js';
 import { evaluate } from '../signals/engine.js';
 import { currentContract } from '../picks/kalshi.js';
+import { sweepWatches } from '../picks/watch.js';
 import { fetchSpotPrice } from '../picks/price.js';
 
 const log = createLogger('vip');
@@ -271,6 +272,22 @@ export function createVipBot(config = loadVipConfig()) {
         `Collecting ${asset} price every ${signals.sampleSeconds ?? 30}s for the signal engine ` +
           `(${store.listSamples(asset).length} sample(s) already stored)`,
       );
+    }
+
+    // Exit alerts for anyone who registered a position. Faster than the price
+    // collector on purpose: an exit is worth less every second it is late, and
+    // one small read shared by everybody watching the same market is cheap.
+    if (kalshi?.enabled && kalshi.seriesTicker) {
+      const watchMs = Math.max(5000, (signals.watchSeconds ?? 10) * 1000);
+      setInterval(() => {
+        sweepWatches(client, store, config, { currentContract, fetchSpotPrice, log })
+          .then((result) => {
+            if (result.alerted > 0) log.info(`Sent ${result.alerted} cash-out DM(s)`);
+          })
+          .catch((error) => log.debug(`Watch sweep failed: ${error.message}`));
+      }, watchMs).unref();
+
+      log.info(`Watching positions for cash-out alerts every ${watchMs / 1000}s`);
     }
 
     const pollMs = Math.max(1000, (config.picks?.kalshi?.account?.pollSeconds ?? 3) * 1000);

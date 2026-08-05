@@ -103,11 +103,23 @@ export function evaluate(input, options = {}) {
   const book = bookQuality(market);
 
   if (!(price > 0) || !(strike > 0) || !Number.isFinite(marketPriceCents)) return skip('no_price');
-  if (!(secondsLeft > 0)) return skip('too_late');
-  if (secondsLeft < config.minimumSecondsLeft) return skip('too_late');
+
+  // The tradeable prices, worked out before any refusal can return.
+  //
+  // These come from the book alone — no volatility, no history — so there is
+  // no reason for an early refusal to withhold them, and one very good reason
+  // not to: the refusals below fire close to the bell and at extreme prices,
+  // which is exactly when somebody holding a position needs to know what it is
+  // worth. Computing them late meant a cash-out alert could not be priced at
+  // the moment it mattered most.
+  const quotes = executablePrices(market, marketPriceCents);
+  const prices_ = { quotes, marketProbability: marketPriceCents / 100 };
+
+  if (!(secondsLeft > 0)) return skip('too_late', prices_);
+  if (secondsLeft < config.minimumSecondsLeft) return skip('too_late', prices_);
 
   if (marketPriceCents > config.maximumEntryCents || marketPriceCents < config.minimumEntryCents) {
-    return skip('priced_out');
+    return skip('priced_out', prices_);
   }
 
   // How fast it is moving, and therefore how far it can plausibly travel in the
@@ -152,13 +164,6 @@ export function evaluate(input, options = {}) {
   // The market's own probability is its price. The whole question is whether
   // ours is far enough from it to be worth acting on.
   const marketProbability = marketPriceCents / 100;
-
-  // The prices that can actually be traded, not the mid between them. Buying
-  // YES costs the ask; buying NO costs a hundred minus the YES BID. Measuring
-  // edge against the mid quietly claimed half the spread as profit on every
-  // trade — up to 1.5¢ of a 6¢ threshold, and always in the flattering
-  // direction.
-  const quotes = executablePrices(market, marketPriceCents);
 
   // What every refusal from here on still knows. A position already open is
   // judged on this, not on the verdict — and so is a directional read on a

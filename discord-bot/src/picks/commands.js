@@ -11,6 +11,7 @@ import {
 import { COLORS } from '../lib/brand.js';
 import { measureEdge } from '../signals/measure.js';
 import { directionalRead } from '../signals/direction.js';
+import { addWatch, makeWatch, removeWatches } from './watch.js';
 import { settleObservations } from '../signals/recorder.js';
 import { postPermissionHelp } from '../lib/channelAccess.js';
 import {
@@ -241,6 +242,29 @@ export function buildPickCommands(config) {
     )
     .addSubcommand((sub) =>
       sub.setName('kalshi').setDescription('Check the Kalshi contract feed and show what it returned'),
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('watch')
+        .setDescription('Tell the bot you are in — it DMs you, and only you, when to cash out')
+        .addStringOption((option) =>
+          option
+            .setName('side')
+            .setDescription('Which side you bought')
+            .setRequired(true)
+            .addChoices({ name: 'UP', value: 'up' }, { name: 'DOWN', value: 'down' }),
+        )
+        .addIntegerOption((option) =>
+          option
+            .setName('entry')
+            .setDescription('What you paid, as a percentage (e.g. 34)')
+            .setRequired(true)
+            .setMinValue(1)
+            .setMaxValue(99),
+        ),
+    )
+    .addSubcommand((sub) =>
+      sub.setName('unwatch').setDescription('Stop watching your position'),
     )
     .addSubcommand((sub) =>
       sub
@@ -981,6 +1005,50 @@ export async function handlePicks(interaction, { store, config }) {
   // The response shape was never verified against a live account, so this
   // prints what came back rather than only whether it worked. That raw body is
   // what turns a guess into a fix.
+  if (sub === 'watch' || sub === 'unwatch') {
+    const settings = pickSettings(config);
+
+    if (sub === 'unwatch') {
+      const before = store.listWatches();
+      store.putWatches(removeWatches(before, interaction.user.id));
+      const dropped = before.length - store.listWatches().length;
+      return interaction.editReply(
+        dropped > 0 ? `Stopped watching ${dropped} position(s).` : 'You had nothing being watched.',
+      );
+    }
+
+    if (!settings.kalshi?.enabled || !settings.kalshi.seriesTicker) {
+      return interaction.editReply(
+        '❌ **The contract feed is off**, so there is nothing to watch. `KALSHI_ENABLED` must be `true`.',
+      );
+    }
+
+    const contract = await currentContract(settings.kalshi).catch(() => null);
+    if (!contract?.market?.ticker) {
+      return interaction.editReply('❌ **No open market right now**, so there is nothing to watch.');
+    }
+
+    const watch = makeWatch({
+      userId: interaction.user.id,
+      ticker: contract.market.ticker,
+      side: interaction.options.getString('side'),
+      entryCents: interaction.options.getInteger('entry'),
+    });
+    if (!watch) return interaction.editReply('That does not describe a position I can watch.');
+
+    store.putWatches(addWatch(store.listWatches(), watch));
+
+    return interaction.editReply(
+      [
+        `👁️ **Watching your ${watch.side === 'up' ? 'UP' : 'DOWN'} at ${watch.entryCents}%** ` +
+          `on \`${contract.market.ticker}\`.`,
+        '',
+        'I will **DM you — and only you —** the moment it is time to cash out.',
+        'It fires once. `/picks unwatch` stops it.',
+      ].join('\n'),
+    );
+  }
+
   if (sub === 'read') {
     const settings = pickSettings(config);
     const asset = settings.defaultAsset ?? 'BTC';
@@ -1035,7 +1103,7 @@ export async function handlePicks(interaction, { store, config }) {
 
     const lines = [
       // What to do, at what price, first — this is read on a phone.
-      `${up ? '🟢' : '🔴'} **BUY ${up ? 'UP' : 'DOWN'} @ ${entry}¢** · ${asset}`,
+      `${up ? '🟢' : '🔴'} **BUY ${up ? 'UP' : 'DOWN'} @ ${entry}%** · ${asset}`,
     ];
 
     // Where to get out. "Go in now" without this is half a call, and the
@@ -1044,15 +1112,15 @@ export async function handlePicks(interaction, { store, config }) {
       const target = Math.round(read.exit.targetCents);
       const floor = read.exit.minimumExitCents;
       lines.push(
-        `🎯 **Target ${target}¢**` +
+        `🎯 **Target ${target}%**` +
           (Number.isFinite(floor)
-            ? ` · ⚠️ below **${Math.round(floor)}¢** the round trip LOSES` +
+            ? ` · ⚠️ below **${Math.round(floor)}%** the round trip LOSES` +
               ' (the exchange is paid both ways)'
             : ''),
       );
       if (!read.exit.targetClearsCosts) {
         lines.push(
-          `_Even if the model is right, ${target}¢ does not cover the round trip from ${entry}¢. ` +
+          `_Even if the model is right, ${target}% does not cover the round trip from ${entry}%. ` +
             'There is no exit here that pays._',
         );
       }
@@ -1084,13 +1152,13 @@ export async function handlePicks(interaction, { store, config }) {
     lines.push(
       '',
       read.tradeable
-        ? `✅ **Worth trading** — **+${(read.netEdgeCents ?? 0).toFixed(1)}¢** net after the spread and the fee.`
+        ? `✅ **Worth trading** — **+${(read.netEdgeCents ?? 0).toFixed(1)}%** net after the spread and the fee.`
         : `⛔ **Not worth trading.** ${read.whyNotTradeable}`,
     );
 
     if (!read.tradeable && Number.isFinite(read.valueCents)) {
       lines.push(
-        `_The model likes this side by **${read.valueCents.toFixed(1)}¢** — the round trip costs more than that._`,
+        `_The model likes this side by **${read.valueCents.toFixed(1)}%** — the round trip costs more than that._`,
       );
     }
 
