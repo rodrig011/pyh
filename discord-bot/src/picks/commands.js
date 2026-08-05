@@ -1043,8 +1043,15 @@ export async function handlePicks(interaction, { store, config }) {
         `👁️ **Watching your ${watch.side === 'up' ? 'UP' : 'DOWN'} at ${watch.entryCents}%** ` +
           `on \`${contract.market.ticker}\`.`,
         '',
-        'I will **DM you — and only you —** the moment it is time to cash out.',
-        'It fires once. `/picks unwatch` stops it.',
+        'I will **DM you — and only you —** the moment it is time to cash out,',
+        'and once on the way down if it goes deeply against you.',
+        '',
+        '⚠️ **The bot will not cut a loser for you.** Cutting binaries at a fixed',
+        'loss was measured and it turns a winning strategy into a losing one —',
+        'these prices rebound. **What bounds your risk is SIZE:** at 5% of your',
+        'account, a total loss costs 5%. Nothing else here protects you from that.',
+        '',
+        '`/picks unwatch` stops it.',
       ].join('\n'),
     );
   }

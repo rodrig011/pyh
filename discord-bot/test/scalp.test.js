@@ -287,3 +287,100 @@ test('a losing exit says so plainly', async () => {
   assert.match(exit.content, /-20\.0%/);
   assert.match(JSON.stringify(exit.embeds[0]), /stopped defending/);
 });
+
+test('an automatic stop is OFF, because measuring it showed it destroys the edge', () => {
+  // The obvious answer to a 95% loss, and the wrong one on this instrument.
+  // Across six seeds in a six-cent mispriced market: +68% with no stop, −58%
+  // with a stop at −35%. The price of a binary IS a probability and
+  // probabilities rebound, so cutting means closing the ones about to recover
+  // and paying to re-enter.
+  //
+  // It still gets flagged, so a human can override on any single trade.
+  const call = scalpDecision({
+    position: { entryCents: 28, side: 'up' },
+    nowCents: 15,
+    signal: edge('up', 20, 0.9),
+    secondsLeft: 400,
+  });
+
+  assert.equal(call.action, SCALP_ACTIONS.WAIT);
+  assert.equal(call.deeplyDown, true, 'held, but the holder is told');
+});
+
+test('the stop can be switched on by anyone who wants it', () => {
+  // The failure that cost real money: a position ran from 28% to 4%, a 95%
+  // loss, while the model insisted the whole way down that the side was worth
+  // more than it cost. The cut rule asked the model first, the model kept
+  // defending, and it never fired.
+  //
+  // That is not a rare failure. "The model still likes it" is exactly what a
+  // wrong model says. A stop that can be argued with is not a stop.
+  const call = scalpDecision(
+    {
+      position: { entryCents: 28, side: 'up' },
+      nowCents: 15,
+      // The model is enthusiastic. It is also wrong, and with the stop on it
+      // does not get a vote.
+      signal: edge('up', 20, 0.9),
+      secondsLeft: 400,
+    },
+    { maximumLossPercent: 35 },
+  );
+
+  assert.equal(call.action, SCALP_ACTIONS.EXIT);
+  assert.equal(call.reason, 'stop loss');
+});
+
+test('the stop outranks holding to settlement', () => {
+  // Settlement is free and that is a real saving — but a position already down
+  // two thirds is not something to carry to expiry because the exit is cheap.
+  const call = scalpDecision(
+    {
+      position: { entryCents: 28, side: 'up' },
+      nowCents: 8,
+      signal: edge('up', 15, 0.85),
+      secondsLeft: 30,
+    },
+    { maximumLossPercent: 35 },
+  );
+
+  assert.equal(call.action, SCALP_ACTIONS.EXIT);
+  assert.equal(call.reason, 'stop loss');
+});
+
+test('an ordinary drawdown is still allowed to breathe', () => {
+  // The stop must not fire on noise, or it becomes a machine for locking in
+  // small losses. Down about a fifth, model still behind it: hold.
+  const call = scalpDecision({
+    position: { entryCents: 50, side: 'up' },
+    nowCents: 44,
+    signal: edge('up', 12, 0.62),
+    secondsLeft: 400,
+  });
+
+  assert.equal(call.action, SCALP_ACTIONS.WAIT);
+});
+
+test('the worst case is bounded by the stop, whatever the model says', () => {
+  // Walking a position down one point at a time with a model that never stops
+  // defending it. Something has to fire, and well before it is worthless.
+  let firedAt = null;
+  for (let price = 27; price >= 1; price -= 1) {
+    const call = scalpDecision(
+      {
+        position: { entryCents: 28, side: 'up' },
+        nowCents: price,
+        signal: edge('up', 20, 0.95),
+        secondsLeft: 400,
+      },
+      { maximumLossPercent: 35 },
+    );
+    if (call.action === SCALP_ACTIONS.EXIT) {
+      firedAt = price;
+      break;
+    }
+  }
+
+  assert.ok(firedAt !== null, 'it never fired at all');
+  assert.ok(firedAt >= 15, `only fired at ${firedAt}%, which is most of the money gone`);
+});

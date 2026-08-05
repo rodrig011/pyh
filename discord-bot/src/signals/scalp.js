@@ -115,6 +115,27 @@ export function scalpDecision({ position = null, nowCents, signal, secondsLeft }
     noEntryWithinSeconds: 120,
     // When a held position has to be decided: sell, or let it settle.
     bellSeconds: 45,
+    // An automatic stop, as a percentage of the stake. OFF by default, and
+    // that is a measured decision rather than an oversight.
+    //
+    // A stop is the obvious answer to a position that ran from 28% to 4%, and
+    // on this instrument it is the wrong one. Measured across six seeds: in a
+    // market mispriced by six cents the engine returns +68% with no stop and
+    // −58% with a stop at −35%. Every level tested was catastrophic, and
+    // tighter was worse.
+    //
+    // The reason is what these contracts are. The price IS a probability, and
+    // probabilities on a fifteen-minute binary rebound violently — a position
+    // down 35% at the midpoint recovers often enough that cutting it means
+    // systematically closing the ones about to come back, then paying to get
+    // in again. Trade count went from 218 to 340 doing exactly that.
+    //
+    // What actually bounds the damage is SIZE, not stops: at 5% of a bankroll,
+    // a total loss costs 5%. The warning below exists so a human can override
+    // this on any individual trade, which is the right place for that decision.
+    maximumLossPercent: null,
+    // Losing this much gets somebody told, without anything being closed.
+    warnLossPercent: 40,
     ...options,
   };
 
@@ -154,6 +175,9 @@ export function scalpDecision({ position = null, nowCents, signal, secondsLeft }
     // This is the opposite of the usual "always flatten before expiry" advice,
     // and on a fee-per-leg exchange the usual advice is simply wrong.
     if (secondsLeft <= config.bellSeconds) {
+      if (config.maximumLossPercent !== null && trip && trip.percent <= -config.maximumLossPercent) {
+        return say(SCALP_ACTIONS.EXIT, 'stop loss', { trip, favoured });
+      }
       if (favoured === null || favoured >= 0) {
         return say(SCALP_ACTIONS.WAIT, 'settling', { trip, favoured });
       }
@@ -172,12 +196,30 @@ export function scalpDecision({ position = null, nowCents, signal, secondsLeft }
       return say(SCALP_ACTIONS.EXIT, 'move banked', { trip, favoured });
     }
 
-    // Bleeding, and the model has stopped defending it.
+    // The hard stop. Checked before anything else that could override it, and
+    // it does not consult the model.
+    //
+    // This is here because the version that did consult it let a position run
+    // from 28% to 4% — a 95% loss — while the model insisted the whole way
+    // down that the side was worth more than it cost. That is not a rare
+    // failure, it is the normal one: "the model still likes it" is exactly
+    // what a wrong model says, and a stop that can be talked out of stopping
+    // is not a stop.
+    if (config.maximumLossPercent !== null && trip && trip.percent <= -config.maximumLossPercent) {
+      return say(SCALP_ACTIONS.EXIT, 'stop loss', { trip, favoured });
+    }
+
+    // Bleeding, and the model has stopped defending it. A softer exit than the
+    // stop above and, unlike it, one the model gets a say in.
     if (trip && trip.netCents < -config.marginCents * 4 && !defended) {
       return say(SCALP_ACTIONS.EXIT, 'cut', { trip, favoured });
     }
 
-    return say(SCALP_ACTIONS.WAIT, 'holding', { trip, favoured });
+    // Deeply underwater and being held anyway. Nothing is closed — the numbers
+    // say closing is worse — but the person holding it gets to know, and gets
+    // to disagree. "The model still likes it" is also what a wrong model says.
+    const deeplyDown = trip !== null && trip.percent <= -config.warnLossPercent;
+    return say(SCALP_ACTIONS.WAIT, 'holding', { trip, favoured, deeplyDown });
   }
 
   if (secondsLeft < config.noEntryWithinSeconds) {

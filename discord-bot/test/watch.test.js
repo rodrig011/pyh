@@ -267,3 +267,20 @@ test('"do nothing" is sent too, because impatience is what costs the fee', () =>
   assert.match(message, /Do NOT sell/);
   assert.match(message, /settles by itself/);
 });
+
+test('a position deep underwater warns without closing, and warns only once', () => {
+  const message = cashOutMessage({
+    watch: { side: 'up', entryCents: 28 },
+    nowCents: 15,
+    action: 'warn',
+    trip: { percent: -52.4, netCents: -14 },
+  });
+
+  assert.match(message, /DOWN 52%/);
+  assert.match(message, /NOT telling you to sell/);
+  // And it says the uncomfortable half out loud.
+  assert.match(message, /exactly what a wrong model says/);
+  assert.match(message, /Your call/);
+  // The position is still live, so the exit alert is still coming.
+  assert.match(message, /still get the CASH OUT/);
+});

@@ -62,6 +62,22 @@ export function pruneWatches(watches, { now = Date.now(), maxAgeMs = 2 * 60 * 60
 export function cashOutMessage({ watch, nowCents, reason, trip, action = 'cash_out', asset = 'BTC' }) {
   const side = watch.side === 'up' ? 'UP' : 'DOWN';
 
+  if (action === 'warn') {
+    const down = trip?.percent;
+    return [
+      `⚠️ **DOWN ${Number.isFinite(down) ? Math.abs(down).toFixed(0) : '?'}% — ${asset} ${side}**`,
+      '',
+      `In at **${Math.round(watch.entryCents)}%**, now **${Math.round(nowCents)}%**.`,
+      '',
+      'The model still likes this side, so the bot is NOT telling you to sell — ' +
+        'cutting binaries at a fixed loss was measured and it turns a winning ' +
+        'strategy into a losing one, because these prices rebound.',
+      '**But that is also exactly what a wrong model says. Your call.**',
+      '',
+      '_You will still get the CASH OUT when it comes. Sent only to you._',
+    ].join('\n');
+  }
+
   if (action === 'settle') {
     return [
       `⏳ **HOLD — ${asset} ${side} @ ${Math.round(nowCents)}%**`,
@@ -132,6 +148,14 @@ export function checkWatch(watch, input, options = {}) {
     return { action: 'settle', reason: call.reason, nowCents };
   }
 
+  // Deeply underwater, and the numbers say closing it is worse than holding.
+  // The person holding it still gets told, once, and gets to disagree — a stop
+  // measured at −58% against +68% is not a decision a bot should make for
+  // somebody, and "the model still likes it" is also what a wrong model says.
+  if (call.deeplyDown) {
+    return { action: 'warn', reason: call.reason, nowCents, trip: call.trip };
+  }
+
   if (call.action !== SCALP_ACTIONS.EXIT) {
     return { action: 'wait', reason: call.reason, nowCents };
   }
@@ -200,7 +224,20 @@ export async function sweepWatches(client, store, config, deps = {}) {
         secondsLeft: Number.isFinite(closesAt) ? (closesAt - now) / 1000 : null,
       });
 
-      if (result.action !== 'cash_out' && result.action !== 'settle') continue;
+      if (
+        result.action !== 'cash_out' &&
+        result.action !== 'settle' &&
+        result.action !== 'warn'
+      ) {
+        continue;
+      }
+
+      // A warning is not the end of the position, so the watch stays live and
+      // the eventual cash-out still arrives. Sending it twice would be nagging.
+      if (result.action === 'warn') {
+        if (watch.warned) continue;
+        watch.warned = true;
+      }
 
       const user = await client.users.fetch(watch.userId).catch(() => null);
       if (user) {
@@ -212,7 +249,7 @@ export async function sweepWatches(client, store, config, deps = {}) {
       // Marked whether or not the DM landed. A person with DMs closed cannot
       // be reached, and retrying every few seconds for the rest of the market
       // helps nobody and floods the log.
-      watch.alerted = true;
+      if (result.action !== 'warn') watch.alerted = true;
       alerted += 1;
     } catch (error) {
       log.debug(`Watch on ${watch.ticker} failed: ${error.message}`);

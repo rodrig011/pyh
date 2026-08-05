@@ -229,6 +229,8 @@ export function runMarket({
   bankroll = 100,
   engine = {},
   sizing = {},
+  // Exit rules: the stop, the margin, when the bell forces a decision.
+  scalp = {},
   history = [],
   fairProbabilities = null,
 }) {
@@ -300,7 +302,10 @@ export function runMarket({
         : 100 - book.askCents
       : (result.entryCents ?? noisyCents);
 
-    const call = scalpDecision({ position, nowCents: heldCents, signal: result, secondsLeft });
+    const call = scalpDecision(
+      { position, nowCents: heldCents, signal: result, secondsLeft },
+      scalp,
+    );
 
     // A resting order is filled by somebody crossing to it, which only happens
     // when the price comes to us — and that is exactly when we were wrong.
@@ -414,6 +419,7 @@ export function runBacktest({
   // settlement. This is the parameter the maker-versus-taker answer turns on.
   quoteNoiseCents = 0,
   settlementWindowSeconds = 60,
+  scalp = {},
   seed = 7,
   bankroll = 100,
   engine = {},
@@ -491,6 +497,7 @@ export function runBacktest({
       quoteNoiseCents,
       noiseRandom,
       settlementWindowSeconds,
+      scalp,
       bankroll: cash,
       engine,
       sizing,
