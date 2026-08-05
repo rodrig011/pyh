@@ -69,7 +69,13 @@ import {
 } from './kalshiAccount.js';
 import { createLogger } from '../lib/logger.js';
 import { sendLog } from '../vip/notify.js';
-import { fetchSpotPrice, formatChange, formatPrice, gradeByPrice } from './price.js';
+import {
+  fetchSpotPrice,
+  formatChange,
+  formatPrice,
+  gradeByPrice,
+  gradeByStrike,
+} from './price.js';
 import {
   DIRECTIONS,
   DIRECTION_LABEL,
@@ -592,9 +598,25 @@ export function priceLabel(pick, value) {
 /** Grades a call the same way it was priced. */
 export function gradeQuote(pick, exitPrice) {
   if (pick.entry == null || exitPrice == null) return null;
-  return pick.priceUnit === 'cents'
-    ? gradeByContract(pick.entry, exitPrice)
-    : gradeByPrice(pick.direction, pick.entry, exitPrice);
+
+  // Priced in contract cents: the profit is the price difference, full stop.
+  // Bought at 39c, sold at 50c, that is a win whichever way bitcoin went.
+  if (pick.priceUnit === 'cents') return gradeByContract(pick.entry, exitPrice);
+
+  // Priced in dollars, but the call belongs to a Kalshi contract with a known
+  // strike. Grade it against the question the contract actually asks — did it
+  // finish above THAT level — and not against the price when somebody clicked.
+  // Those differ by however far spot had drifted from the strike at entry, and
+  // every call where they straddled the finish was being graded backwards.
+  if (Number.isFinite(pick.strike) && pick.strike > 0) {
+    return gradeByStrike(pick.direction, pick.strike, exitPrice);
+  }
+
+  // No strike recorded — an older call, or one opened while the contract feed
+  // was down. Entry-relative is the only thing left, and it is the weakest of
+  // the three, so it is labelled rather than passed off as equivalent.
+  const graded = gradeByPrice(pick.direction, pick.entry, exitPrice);
+  return graded ? { ...graded, against: 'entry' } : null;
 }
 
 /**

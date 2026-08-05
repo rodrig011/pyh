@@ -1593,3 +1593,57 @@ test('the odds bar is a picture of the price, and never lies about it', () => {
   assert.equal(oddsBar(50, 10), '█████░░░░░');
   assert.equal(oddsBar(null), '');
 });
+
+test('a Kalshi call is graded against the strike, not against the entry price', async () => {
+  // The analyst's own bug report, and he was right: "Bitcoin price it's going
+  // off of, not Kalshi odds — so it says we lost if bitcoin moves higher then
+  // when we entered."
+  //
+  // A Kalshi contract does not ask "did bitcoin go up from where you clicked".
+  // It asks "did it finish above THIS LEVEL", fixed when the market opened and
+  // almost never equal to the price at entry.
+  const { gradeQuote } = await import('../src/picks/commands.js');
+
+  // Entered UP at 65,050 on a contract whose strike is 65,000. Bitcoin drifts
+  // up to 65,120: it finished above the strike, so the contract pays.
+  const call = { direction: 'up', entry: 65_050, strike: 65_000, priceUnit: 'usd' };
+  const graded = gradeQuote(call, 65_120);
+
+  assert.equal(graded.outcome, 'win');
+  assert.equal(graded.against, 'strike');
+});
+
+test('the entry price and the strike straddling the finish is the case that was backwards', async () => {
+  const { gradeQuote } = await import('../src/picks/commands.js');
+
+  // Entered DOWN at 65,050, strike 65,000, finished at 65,020.
+  // Against the entry: bitcoin fell, so DOWN "won" — wrong.
+  // Against the strike: it finished ABOVE 65,000, so DOWN lost. Correct.
+  const graded = gradeQuote(
+    { direction: 'down', entry: 65_050, strike: 65_000, priceUnit: 'usd' },
+    65_020,
+  );
+
+  assert.equal(graded.outcome, 'loss');
+  assert.equal(graded.against, 'strike');
+});
+
+test('a contract-priced call is graded on the contract, whichever way bitcoin went', async () => {
+  const { gradeQuote } = await import('../src/picks/commands.js');
+
+  // Bought at 39c, out at 50c. That is a win, and bitcoin's direction is not
+  // part of the question.
+  const graded = gradeQuote({ direction: 'down', entry: 39, priceUnit: 'cents' }, 50);
+  assert.equal(graded.outcome, 'win');
+});
+
+test('with no strike on record it falls back, and says which rule it used', async () => {
+  const { gradeQuote } = await import('../src/picks/commands.js');
+
+  // Older calls have no strike. Entry-relative is all that is left, and it is
+  // the weakest of the three — so it is labelled rather than passed off as
+  // equivalent to the others.
+  const graded = gradeQuote({ direction: 'up', entry: 65_000, priceUnit: 'usd' }, 65_500);
+  assert.equal(graded.outcome, 'win');
+  assert.equal(graded.against, 'entry');
+});

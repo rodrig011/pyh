@@ -156,3 +156,43 @@ export function formatChange(percent) {
   if (!Number.isFinite(percent)) return '—';
   return `${percent > 0 ? '+' : ''}${percent.toFixed(1)}%`;
 }
+
+/**
+ * Grades a Kalshi call against the STRIKE, which is what the contract asks.
+ *
+ * The bug this exists to end, reported by the analyst himself: "Bitcoin price
+ * it's going off of, not Kalshi odds — so it says we lost if bitcoin moves
+ * higher than when we entered."
+ *
+ * He was right, and the mistake is worth stating precisely because it looks
+ * like a rounding difference and is not. A Kalshi contract does not ask "did
+ * bitcoin go up from where you clicked?". It asks "did bitcoin finish above
+ * THIS LEVEL?" — a level fixed when the market opened, which is almost never
+ * the price at the moment somebody entered.
+ *
+ * So a call entered at 65,050 against a strike of 65,000, held while bitcoin
+ * drifts up to 65,120, is graded a LOSS by the entry-price rule and is in fact
+ * a WIN: it finished above the strike, the contract pays a dollar. And the
+ * mirror case marks real losses as wins. Every call where the entry and the
+ * strike sat on opposite sides of the finish was graded backwards.
+ */
+export function gradeByStrike(direction, strike, exit, deadBandPercent = 0.02) {
+  if (!Number.isFinite(strike) || !Number.isFinite(exit) || strike <= 0) return null;
+
+  const changePercent = ((exit - strike) / strike) * 100;
+
+  // Settling exactly on the strike is not a win for either side. Kalshi's own
+  // rules resolve it, but from outside the only honest answer is "too close to
+  // call" — better than picking a side and being wrong half the time.
+  if (Math.abs(changePercent) < deadBandPercent) {
+    return { outcome: 'break_even', changePercent, against: 'strike' };
+  }
+
+  const finishedAbove = changePercent > 0;
+  const calledUp = direction === 'up';
+  return {
+    outcome: finishedAbove === calledUp ? 'win' : 'loss',
+    changePercent,
+    against: 'strike',
+  };
+}
