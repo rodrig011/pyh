@@ -1100,16 +1100,29 @@ export async function handlePicks(interaction, { store, config }) {
     const pct = (value) => (Number.isFinite(value) ? `${Math.round(value * 100)}%` : '—');
     const minutes = Number.isFinite(read.secondsLeft) ? Math.floor(read.secondsLeft / 60) : null;
     const entry = Math.round(read.entryCents);
+    const target = read.exit ? Math.round(read.exit.targetCents) : null;
 
-    const lines = [
-      // What to do, at what price, first — this is read on a phone.
-      `${up ? '🟢' : '🔴'} **BUY ${up ? 'UP' : 'DOWN'} @ ${entry}%** · ${asset}`,
-    ];
+    // Is there anything here worth buying at all?
+    //
+    // The headline is the only line most people read, so it must never say BUY
+    // when nothing is cheap. It once printed "BUY at 62%, target 61%" — buy
+    // this in order to sell it lower — because the model still had a direction
+    // and the message reached for it. A direction is not an instruction.
+    const worthBuying = Number.isFinite(read.valueCents) && read.valueCents > 0;
 
-    // Where to get out. "Go in now" without this is half a call, and the
-    // position ends up held to settlement — a different bet from the one sized.
-    if (read.exit) {
-      const target = Math.round(read.exit.targetCents);
+    const lines = worthBuying
+      ? [`${up ? '🟢' : '🔴'} **BUY ${up ? 'UP' : 'DOWN'} @ ${entry}%** · ${asset}`]
+      : [
+          `⚪ **NO TRADE** · ${asset} — leaning **${up ? 'UP' : 'DOWN'} ${pct(read.winProbability)}**`,
+          '',
+          `${up ? 'UP' : 'DOWN'} costs **${entry}%** and the model says it is worth ` +
+            `**${target ?? '—'}%**. Nothing here is cheap enough to buy.`,
+        ];
+
+    // A target only means something when there is a trade to have one. Printed
+    // beside a refusal it reads as a plan, and a plan whose target sits below
+    // its entry is worse than no plan.
+    if (worthBuying && read.exit) {
       const floor = read.exit.minimumExitCents;
       lines.push(
         `🎯 **Target ${target}%**` +
@@ -1129,16 +1142,19 @@ export async function handlePicks(interaction, { store, config }) {
     lines.push(
       '',
       `**Model** ${pct(read.winProbability)}  ·  **Market** ${pct(read.marketWinProbability)}`,
-      // The line that stops "strong" from meaning "likely".
-      `**Wins ${pct(read.winProbability)} of the time — ${read.likelihood}.** ` +
-        `_Edge is ${read.confidence}, which is a different thing._`,
     );
 
-    if (read.winProbability < 0.45) {
+    if (worthBuying) {
       lines.push(
-        '_This is a cheap ticket that is slightly underpriced — a good buy AND a probable loss. ' +
-          'Size it like one._',
+        `**Wins ${pct(read.winProbability)} of the time — ${read.likelihood}.** ` +
+          `_Edge is ${read.confidence}, which is a different thing._`,
       );
+      if (read.winProbability < 0.45) {
+        lines.push(
+          '_A cheap ticket that is slightly underpriced — a good buy AND a probable loss. ' +
+            'Size it like one._',
+        );
+      }
     }
 
     if (read.disagrees) {
@@ -1153,10 +1169,10 @@ export async function handlePicks(interaction, { store, config }) {
       '',
       read.tradeable
         ? `✅ **Worth trading** — **+${(read.netEdgeCents ?? 0).toFixed(1)}%** net after the spread and the fee.`
-        : `⛔ **Not worth trading.** ${read.whyNotTradeable}`,
+        : `⛔ ${read.whyNotTradeable}`,
     );
 
-    if (!read.tradeable && Number.isFinite(read.valueCents)) {
+    if (worthBuying && !read.tradeable) {
       lines.push(
         `_The model likes this side by **${read.valueCents.toFixed(1)}%** — the round trip costs more than that._`,
       );

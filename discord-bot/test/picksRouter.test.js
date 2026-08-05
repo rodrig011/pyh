@@ -651,3 +651,43 @@ test('without replace_all the live calls survive, and it says how to change that
   assert.ok(store.listPicks().some((pick) => pick.id === 'live-1'), 'live call must survive');
   assert.match(String(interaction.replies.at(-1)), /replace_all/);
 });
+
+test('/picks read never says BUY when nothing is cheap enough to buy', async () => {
+  // Reported from the room: "buy at 62, target 61%". Buy this in order to sell
+  // it lower. It happened because the model still had a direction and the
+  // headline reached for it — but a direction is not an instruction, and the
+  // headline is the only line most people read.
+  const store = freshStore();
+  const now = Date.now();
+  const samples = [];
+  let price = 65_000;
+  let state = 777;
+  for (let i = 120; i > 0; i -= 1) {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    price *= Math.exp((state / 4294967296 - 0.5) * 0.0028);
+    samples.push({ at: now - i * 30_000, price });
+  }
+  store.putSamples('BTC', samples);
+
+  const interaction = fakeInteraction('read');
+  await handlePicks(interaction, {
+    store,
+    config: {
+      ...config,
+      picks: { ...config.picks, kalshi: { enabled: true, seriesTicker: 'KXBTC15M', side: 'yes' } },
+    },
+  });
+
+  const reply = String(interaction.replies.at(-1));
+
+  // Whatever it decided, a BUY headline and a target below the entry can never
+  // appear together.
+  const buy = reply.match(/BUY (?:UP|DOWN) @ (\d+)%/);
+  const target = reply.match(/Target (\d+)%/);
+  if (buy && target) {
+    assert.ok(
+      Number(target[1]) > Number(buy[1]),
+      `headline says buy at ${buy[1]}% with target ${target[1]}%`,
+    );
+  }
+});
