@@ -516,3 +516,81 @@ test('/picks read runs end to end with the feed on', async () => {
     `unexpected reply: ${reply.slice(0, 200)}`,
   );
 });
+
+test('/picks backfill run twice leaves the same record, not double', async () => {
+  // The bug as reported from the room: running it again adds instead of
+  // replacing, and a 7-0 record becomes 14-0, then 21-0. A restore states what
+  // the record IS, so running it twice must leave exactly what running it once
+  // left.
+  const store = freshStore();
+  const analyst = { id: 'kingt', tag: 'kingt_67', username: 'kingt_67' };
+
+  for (let run = 0; run < 3; run += 1) {
+    const interaction = fakeInteraction('backfill', { analyst, wins: 7, losses: 2 });
+    await handlePicks(interaction, { store, config });
+  }
+
+  const picks = store.listPicks().filter((pick) => pick.analystId === 'kingt');
+  assert.equal(picks.length, 9, `three runs of 7W-2L left ${picks.length} calls`);
+
+  const wins = picks.filter((pick) => pick.outcome === 'win').length;
+  assert.equal(wins, 7);
+});
+
+test('/picks backfill leaves live-graded calls alone', async () => {
+  // Only the restored ones are replaceable. A call the bot actually graded is
+  // real history and must survive a restore.
+  const store = freshStore();
+  store.putPick({
+    id: 'live-1',
+    analystId: 'kingt',
+    guildId: 'g',
+    outcome: 'win',
+    direction: 'up',
+    asset: 'BTC',
+  });
+
+  for (let run = 0; run < 2; run += 1) {
+    const interaction = fakeInteraction('backfill', {
+      analyst: { id: 'kingt', tag: 'kingt_67', username: 'kingt_67' },
+      wins: 3,
+      losses: 1,
+    });
+    await handlePicks(interaction, { store, config });
+  }
+
+  const picks = store.listPicks().filter((pick) => pick.analystId === 'kingt');
+  assert.ok(picks.some((pick) => pick.id === 'live-1'), 'the live call was deleted');
+  assert.equal(picks.length, 5, '4 restored + 1 live');
+});
+
+test('/picks backfill says which part of the record came from where', async () => {
+  // The reason a working restore was reported as broken: the reply quoted the
+  // TOTAL record, which also holds every call the bot graded live — and with
+  // Kalshi auto-publish on, those arrive by themselves all day. The total grew
+  // between restores and it looked exactly like adding up.
+  const store = freshStore();
+  for (let i = 0; i < 4; i += 1) {
+    store.putPick({
+      id: `live-${i}`,
+      analystId: 'kingt',
+      guildId: 'g',
+      outcome: 'win',
+      direction: 'up',
+      asset: 'BTC',
+    });
+  }
+
+  const interaction = fakeInteraction('backfill', {
+    analyst: { id: 'kingt', tag: 'kingt_67', username: 'kingt_67' },
+    wins: 7,
+    losses: 2,
+  });
+  await handlePicks(interaction, { store, config });
+
+  const reply = String(interaction.replies.at(-1));
+  assert.match(reply, /7W 2L\*\* restored by hand/);
+  assert.match(reply, /graded live by the bot/);
+  // And it says plainly that running it again does not stack.
+  assert.match(reply, /never adds/);
+});

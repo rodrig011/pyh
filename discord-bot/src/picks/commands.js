@@ -1265,12 +1265,37 @@ export async function handlePicks(interaction, { store, config }) {
         .setTimestamp(),
     );
 
+    // Where every number in that record came from.
+    //
+    // The restore replaces correctly and has done for a while, but the reply
+    // quoted the analyst's TOTAL record — which also contains every call the
+    // bot graded live, and with Kalshi auto-publish on those arrive by
+    // themselves all day. So the total grew between restores and it looked
+    // exactly like the restore was adding up. Reporting one number that comes
+    // from two places is how a working thing gets reported as broken.
+    const mine = store.listPicks().filter((pick) => pick.analystId === user.id);
+    const liveGraded = mine.filter((pick) => !pick.backfilled && pick.outcome);
+    const liveRecord = computeRecord(liveGraded, { analystId: user.id });
+
     return interaction.editReply(
-      `Restored **${entries.length}** call(s) for <@${user.id}>. ` +
-        `They now show **${formatWinRate(record.winRate)}** (${record.wins}W ${record.losses}L).` +
-        (replaced > 0
-          ? `\n_Replaced ${replaced} previously restored call(s). Calls the bot graded live were left alone._`
-          : ''),
+      [
+        `Restored **${entries.length}** call(s) for <@${user.id}>.`,
+        '',
+        `**Record: ${formatWinRate(record.winRate)}** — ${record.wins}W ${record.losses}L`,
+        liveGraded.length > 0
+          ? `↳ **${wins}W ${losses}L** restored by hand` +
+            `\n↳ **${liveRecord.wins}W ${liveRecord.losses}L** graded live by the bot ` +
+            `(${liveGraded.length} call(s) — these keep arriving on their own while Kalshi ` +
+            'auto-publish is on, which is why the total grows between restores)'
+          : null,
+        // Always said, including on the first run. This line is the answer to
+        // the confusion, so it cannot be conditional on the confusion having
+        // already happened.
+        `\n_${replaced > 0 ? `Replaced ${replaced} previously restored call(s). ` : ''}` +
+          'Running this again replaces the restored calls — it never adds to them._',
+      ]
+        .filter((line) => line !== null)
+        .join('\n'),
     );
   }
 
