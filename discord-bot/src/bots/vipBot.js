@@ -14,6 +14,7 @@ import { COLORS } from '../lib/brand.js';
 import { sendLog } from '../vip/notify.js';
 import { createLogger } from '../lib/logger.js';
 import { createStore } from '../lib/store.js';
+import { buildLine } from '../lib/build.js';
 import { ZelleWatcher } from '../payments/zelleWatcher.js';
 import { createStripeClient, interpretStripeEvent } from '../payments/stripe.js';
 import { startStripeWebhookServer } from '../payments/stripeWebhook.js';
@@ -104,6 +105,10 @@ export function createVipBot(config = loadVipConfig()) {
 
   client.once(Events.ClientReady, async (ready) => {
     log.info(`Logged in as ${ready.user.tag}`);
+    // Which build this actually is. A restart that silently comes back on the
+    // previous image is otherwise indistinguishable from a fix that did not
+    // work, and that ambiguity has cost more time than any bug in this file.
+    log.info(buildLine());
 
     // Data loss on a host with no persistent volume is completely silent: the
     // bot starts clean, and open calls and memberships from before the deploy

@@ -24,6 +24,7 @@ import {
 import { COLORS } from '../lib/brand.js';
 import { postPermissionHelp } from '../lib/channelAccess.js';
 import { createLogger } from '../lib/logger.js';
+import { buildMessage } from '../lib/build.js';
 import { createSubscriptionCheckout } from '../payments/stripe.js';
 import { buildEvidence, formatEvidence, money } from './evidence.js';
 import { normalizeCode } from '../lib/codes.js';
@@ -192,6 +193,13 @@ export function buildCommands(config) {
     )
     .addSubcommand((sub) =>
       withShare(sub.setName('stats').setDescription('Members, revenue and who is about to expire')),
+    )
+    .addSubcommand((sub) =>
+      withShare(
+        sub
+          .setName('version')
+          .setDescription('Which build is actually running — check a deploy landed without a dashboard'),
+      ),
     )
     .addSubcommand((sub) =>
       withShare(sub
@@ -909,6 +917,20 @@ async function handleAdminPanel(interaction, { config }) {
     'Panel posted — members buy and check their membership from the buttons, no commands needed. Pin it. ' +
       'The bot needs "Manage Channels" for the ticket button to work.',
   );
+}
+
+/**
+ * "Did my fix actually ship?", answered from a phone.
+ *
+ * A push and a deploy are separate events, and from inside Discord they look
+ * identical: a bug fixed an hour ago behaves exactly like a bug never fixed if
+ * the container is still running last week's image. Answering that used to mean
+ * opening a dashboard on a laptop, which is a strange dependency for a system
+ * whose whole interface is a phone.
+ */
+async function handleAdminVersion(interaction) {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  return interaction.editReply(buildMessage());
 }
 
 async function handleAdminStats(interaction, { store, config }) {
@@ -1804,6 +1826,7 @@ export async function handleInteraction(interaction, context) {
     if (sub === 'evidence') return handleAdminEvidence(interaction, context);
     if (sub === 'members') return handleAdminMembers(interaction, context);
     if (sub === 'stats') return handleAdminStats(interaction, context);
+    if (sub === 'version') return handleAdminVersion(interaction, context);
     if (sub === 'panel') return handleAdminPanel(interaction, context);
     if (sub === 'preview') return handleAdminPreview(interaction, context);
     if (sub === 'grant') return handleAdminGrant(interaction, context);
