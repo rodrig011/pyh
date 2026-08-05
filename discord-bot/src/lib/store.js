@@ -27,6 +27,7 @@ const EMPTY = {
   samples: {},
   quotes: {},
   watches: [],
+  paper: null,
 };
 
 /**
@@ -296,6 +297,16 @@ export function createStore(filePath) {
      * same reason: this writes all day, on the volume that also holds the
      * payments, and one write per observation is not a trade worth making.
      */
+    paperAccount() {
+      return data.paper ?? null;
+    },
+
+    putPaperAccount(account, { flush = true } = {}) {
+      data.paper = account;
+      if (flush) save();
+      return account;
+    },
+
     listWatches() {
       return data.watches ?? [];
     },

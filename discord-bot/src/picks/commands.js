@@ -12,6 +12,7 @@ import { COLORS } from '../lib/brand.js';
 import { measureEdge } from '../signals/measure.js';
 import { directionalRead } from '../signals/direction.js';
 import { addWatch, makeWatch, removeWatches } from './watch.js';
+import { START_BANKROLL, newAccount, report } from './paper.js';
 import { roundTripCostCents } from '../signals/scalp.js';
 import { settleObservations } from '../signals/recorder.js';
 import { postPermissionHelp } from '../lib/channelAccess.js';
@@ -243,6 +244,21 @@ export function buildPickCommands(config) {
     )
     .addSubcommand((sub) =>
       sub.setName('kalshi').setDescription('Check the Kalshi contract feed and show what it returned'),
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('paper')
+        .setDescription('Start the bot trading imaginary money on the real market, and DM you the result')
+        .addNumberOption((option) =>
+          option
+            .setName('bankroll')
+            .setDescription('Starting balance in dollars (default: 70)')
+            .setMinValue(5)
+            .setMaxValue(100000),
+        )
+        .addBooleanOption((option) =>
+          option.setName('reset').setDescription('Wipe the run and start over'),
+        ),
     )
     .addSubcommand((sub) =>
       sub
@@ -1006,6 +1022,48 @@ export async function handlePicks(interaction, { store, config }) {
   // The response shape was never verified against a live account, so this
   // prints what came back rather than only whether it worked. That raw body is
   // what turns a guess into a fix.
+  if (sub === 'paper') {
+    const settings = pickSettings(config);
+    if (!settings.kalshi?.enabled || !settings.kalshi.seriesTicker) {
+      return interaction.editReply(
+        '❌ **The contract feed is off**, so there is no market to trade. `KALSHI_ENABLED` must be `true`.',
+      );
+    }
+
+    const existing = store.paperAccount();
+    const reset = interaction.options.getBoolean('reset') ?? false;
+    const bankroll = interaction.options.getNumber('bankroll') ?? START_BANKROLL;
+
+    if (existing?.userId && !reset) {
+      const contract = await currentContract(settings.kalshi).catch(() => null);
+      return interaction.editReply(
+        [
+          report(existing, { markCents: contract?.price ?? null }),
+          '',
+          '_Already running. `reset:True` starts it over._',
+        ].join('\n'),
+      );
+    }
+
+    const account = { ...newAccount({ bankroll }), userId: interaction.user.id };
+    store.putPaperAccount(account);
+
+    return interaction.editReply(
+      [
+        `📝 **Paper trading started — $${bankroll.toFixed(2)}**`,
+        '',
+        'The engine now trades the real BTC 15-minute market with imaginary money:',
+        'it buys at the **ask**, sells at the **bid**, and pays both fees, exactly as the',
+        'exchange charges them. No hindsight — it only takes what it would have called live.',
+        '',
+        '**I will DM you the result every 6 hours.** Only you.',
+        '',
+        '_Expect long stretches with no trades. Refusing is the normal state, and a report',
+        'saying "0 trades, refused 41 markets" is the engine working, not the engine broken._',
+      ].join('\n'),
+    );
+  }
+
   if (sub === 'watch' || sub === 'unwatch') {
     const settings = pickSettings(config);
 

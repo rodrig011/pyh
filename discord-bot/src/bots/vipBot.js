@@ -30,7 +30,7 @@ import { collectOnce } from '../signals/collector.js';
 import { observeOnce } from '../signals/recorder.js';
 import { evaluate } from '../signals/engine.js';
 import { currentContract } from '../picks/kalshi.js';
-import { sweepWatches } from '../picks/watch.js';
+import { sweepPaper, sweepWatches } from '../picks/watch.js';
 import { fetchSpotPrice } from '../picks/price.js';
 
 const log = createLogger('vip');
@@ -285,6 +285,14 @@ export function createVipBot(config = loadVipConfig()) {
             if (result.alerted > 0) log.info(`Sent ${result.alerted} cash-out DM(s)`);
           })
           .catch((error) => log.debug(`Watch sweep failed: ${error.message}`));
+
+        // Paper trading rides the same sweep, so it sees the market exactly as
+        // often as somebody watching it would.
+        sweepPaper(client, store, config, { currentContract, fetchSpotPrice, log })
+          .then((result) => {
+            if (result.event) log.info(`Paper: ${result.event}`);
+          })
+          .catch((error) => log.debug(`Paper sweep failed: ${error.message}`));
       }, watchMs).unref();
 
       log.info(`Watching positions for cash-out alerts every ${watchMs / 1000}s`);

@@ -1,5 +1,6 @@
 import { SCALP_ACTIONS, roundTripReturn, scalpDecision } from '../signals/scalp.js';
 import { directionalRead } from '../signals/direction.js';
+import { newAccount, paperTick, report, reportDue, equity } from './paper.js';
 
 /**
  * Watching a position somebody actually holds, and telling them when to leave.
@@ -258,4 +259,71 @@ export async function sweepWatches(client, store, config, deps = {}) {
 
   store.putWatches(pruneWatches(watches, { now }));
   return { checked: watches.length, alerted };
+}
+
+
+/**
+ * One pass of the paper account against the live market, plus the six-hourly
+ * report.
+ *
+ * Runs on the same sweep as the exit alerts, so it sees the market exactly as
+ * often as a person watching would. Never throws: this shares a process with
+ * the part that handles real payments.
+ */
+export async function sweepPaper(client, store, config, deps = {}) {
+  const {
+    currentContract,
+    fetchSpotPrice,
+    now = Date.now(),
+    log = { debug() {}, info() {} },
+  } = deps;
+
+  const settings = config.picks ?? {};
+  if (!settings.kalshi?.enabled || !settings.kalshi.seriesTicker) return { ran: false };
+
+  let account = store.paperAccount();
+  if (!account?.userId) return { ran: false };
+
+  try {
+    const asset = settings.defaultAsset ?? 'BTC';
+    const [contract, quote] = await Promise.all([
+      currentContract(settings.kalshi).catch(() => null),
+      fetchSpotPrice(asset),
+    ]);
+    if (!contract?.market || !(quote?.price > 0)) return { ran: false };
+
+    const closesAt = Date.parse(contract.market.close_time ?? '');
+    const input = {
+      prices: store
+        .listSamples(asset)
+        .filter((s) => s?.at >= now - 60 * 60 * 1000 && s?.price > 0)
+        .map((s) => s.price),
+      spot: quote.price,
+      strike: Number(contract.market.floor_strike ?? contract.market.cap_strike),
+      marketPriceCents: contract.price,
+      market: contract.market,
+      secondsLeft: Number.isFinite(closesAt) ? (closesAt - now) / 1000 : null,
+    };
+
+    const stepped = paperTick(account, input, { now, ticker: contract.market.ticker });
+    account = stepped.account;
+
+    if (reportDue(account, { now })) {
+      const user = await client.users.fetch(account.userId).catch(() => null);
+      if (user) {
+        await user
+          .send(report(account, { now, markCents: contract.price }))
+          .catch((error) => log.debug(`Paper report DM failed: ${error.message}`));
+      }
+      // Marked whether or not it was delivered, so a closed inbox does not
+      // produce a report attempt every ten seconds for the rest of the day.
+      account = { ...account, lastReportAt: now };
+    }
+
+    store.putPaperAccount(account, { flush: stepped.event !== null || reportDue(account, { now }) });
+    return { ran: true, event: stepped.event?.kind ?? null };
+  } catch (error) {
+    log.debug(`Paper sweep failed: ${error.message}`);
+    return { ran: false };
+  }
 }
