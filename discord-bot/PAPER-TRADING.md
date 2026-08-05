@@ -197,3 +197,64 @@ written into the code as well: the outcome is graded against the bot's own spot
 feed, not Kalshi's settlement index. The disagreement is symmetric so it biases
 nothing, but it adds noise, and it lands hardest exactly where the contracts sit
 — near the money.
+
+## Making it "more accurate": three attempts, three negatives
+
+The instinct is to add indicators. The engine's decision already ignores the
+ones it computes — `rsi` and `momentum` are displayed and nothing more, which
+is correct: both are functions of the same price series the model already
+reads, so they add parameters rather than information. The only inputs that
+change a digital's fair value are the spot, the strike, the time left and the
+volatility. Everything else is decoration.
+
+So instead, three real upgrades were built and measured.
+
+**Fat tails (Student-t), scored against 15,000 simulated observations.** Real
+bitcoin returns are leptokurtic, so a normal model ought to be wrong. It is —
+but not in the direction anyone expects, and correcting it makes things worse:
+
+| Model | No jumps | Jumps 3% | Jumps + clustering |
+|---|---|---|---|
+| Normal | **0.16238** | **0.16085** | **0.17358** |
+| t(10) | 0.16259 | 0.16115 | 0.17416 |
+| t(6) | 0.16296 | 0.16159 | 0.17484 |
+| t(4) | 0.16397 | 0.16267 | 0.17635 |
+| t(3) | 0.16636 | 0.16511 | 0.17943 |
+
+The normal model wins in every world, including the ones with jumps, and the
+fatter the assumed tail the worse it gets. Two reasons, both instructive. The
+volatility estimator already absorbs the jumps — when one lands, measured
+volatility rises and the distribution widens by itself, so fat tails count the
+same effect twice. And a variance-matched t is fatter in the tails only by
+being *narrower* in the middle: below about two sigma it is MORE confident than
+the normal, by up to 4¢ at one sigma. Since a 15-minute contract's strike sits
+at the opening price, essentially every observation lives inside two sigma. It
+would have manufactured four cents of confidence — the size of the whole edge
+threshold — out of a modelling choice.
+
+The code is kept, tested, and switched off, with a test that fails if anyone
+turns it on without explaining what changed.
+
+**Sampling faster.** The standard error of a volatility estimate falls as
+1/√(2n), so sampling three times as often should tighten it by 1.7×. Measured
+across five seeds:
+
+| Sampling | Mean Brier |
+|---|---|
+| 60s | 0.16262 |
+| 30s | 0.16113 |
+| 15s | 0.16076 |
+| 10s | 0.16542 |
+
+15s edges out 30s by 0.00038 — against a seed-to-seed spread of ±0.007. That
+is noise, not signal, and a single-seed run showing an eight-times-larger
+"improvement" is exactly how this kind of change gets shipped on nothing. Left
+at 30s.
+
+**What this actually means.** Three sophisticated upgrades, none of which
+helped, is itself a finding: the model is already extracting close to
+everything a price series contains. The accuracy left on the table is in data
+quality, not model complexity — above all, whether the spot feed being read is
+the same index Kalshi settles against. A persistent basis between the two puts
+a constant error into `ln(S/K)` on every single read, and no amount of
+distribution theory fixes it.
