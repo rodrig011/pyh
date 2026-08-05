@@ -183,16 +183,31 @@ export function measureEdge(observations, { spreadAware = true } = {}) {
     return { ready: false, reason: 'nothing has settled yet', settled: 0 };
   }
 
-  const marketPairs = settled.map((row) => ({
+  // Both scores on IDENTICAL rows, always.
+  //
+  // They used to be computed on different sets — the market's over every
+  // settled row, the model's over only the rows it had an opinion on — and the
+  // two then told opposite stories from the paired comparison beside them:
+  // market 0.1558, model 0.2008, and "the model is ahead". Both were correct
+  // arithmetic on different data, which is the most misleading kind of number
+  // there is. A forecaster can only be compared where the other one also spoke.
+  const scored = settled.filter((row) => Number.isFinite(row.model));
+
+  const marketPairs = scored.map((row) => ({
     probability: (row.bid + row.ask) / 200,
     outcome: row.outcome,
   }));
-  const modelPairs = settled
-    .filter((row) => Number.isFinite(row.model))
-    .map((row) => ({ probability: row.model, outcome: row.outcome }));
+  const modelPairs = scored.map((row) => ({ probability: row.model, outcome: row.outcome }));
 
   const marketBrier = brier(marketPairs);
   const modelBrier = brier(modelPairs);
+
+  // What the market scored on everything, including where the model was
+  // silent. Reported separately and never against the model's, because the
+  // rows are not the same.
+  const marketBrierAll = brier(
+    settled.map((row) => ({ probability: (row.bid + row.ask) / 200, outcome: row.outcome })),
+  );
 
   // What the model would have made per contract, taking only what it liked and
   // paying the ask to get it. Not a backtest — no sizing, no exits — but it is
@@ -229,6 +244,7 @@ export function measureEdge(observations, { spreadAware = true } = {}) {
     scored: modelPairs.length,
     marketBrier,
     modelBrier,
+    marketBrierAll,
     // The only comparison that decides whether any of this is a business, and
     // only once its interval stops crossing zero.
     comparison,

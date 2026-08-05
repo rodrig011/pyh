@@ -1268,6 +1268,7 @@ export async function handlePicks(interaction, { store, config }) {
         '',
         `**Market's forecast score:** \`${score(measured.marketBrier)}\``,
         `**Model's forecast score:** \`${score(measured.modelBrier)}\``,
+        `_Both on the same ${measured.scored} row(s) — the only rows where both had something to say._`,
         measured.comparison === null
           ? '_The model has not scored enough of these to compare yet._'
           : measured.modelBeatsMarket

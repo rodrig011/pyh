@@ -467,3 +467,37 @@ test('a tie between estimators is reported as a tie, not as a winner', async () 
   const ranked = rankEstimators(rows, { probabilityFrom: (row, sigma) => sigma });
   assert.equal(ranked.decisive, false);
 });
+
+test('the two scores are computed on identical rows, or they are not a comparison', () => {
+  // Straight from a live report: market 0.1558, model 0.2008, and beside them
+  // "the model is ahead". All three were correct arithmetic — on two different
+  // sets of rows. The market was being scored on every settled observation
+  // while the model was scored only on the ones it had an opinion about, and
+  // the model happens to go quiet exactly on the markets that are hardest to
+  // call. That is the most misleading kind of number there is.
+  const rows = [];
+  for (let m = 0; m < 40; m += 1) {
+    const outcome = m % 2;
+    for (let i = 0; i < 10; i += 1) {
+      rows.push({
+        ticker: `M${m}`,
+        bid: outcome ? 89 : 9,
+        ask: outcome ? 91 : 11,
+        outcome,
+        // The model only speaks on the easy half.
+        model: m < 20 ? (outcome ? 0.9 : 0.1) : null,
+      });
+    }
+  }
+
+  const result = measureEdge(rows);
+
+  // The headline pair must agree in direction with the paired comparison,
+  // because they are now the same rows.
+  const modelAhead = result.modelBrier < result.marketBrier;
+  assert.equal(modelAhead, result.comparison.mean > 0);
+
+  // And the all-rows market score is still available, just never opposite it.
+  assert.ok(Number.isFinite(result.marketBrierAll));
+  assert.notEqual(result.marketBrierAll, result.marketBrier);
+});
