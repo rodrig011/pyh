@@ -333,6 +333,12 @@ export function buildPickCommands(config) {
             .setDescription('Spread them over the last N days (default: 30)')
             .setRequired(false)
             .setMinValue(1),
+        )
+        .addBooleanOption((option) =>
+          option
+            .setName('replace_all')
+            .setDescription('Set the record to EXACTLY this, wiping the bot’s live-graded calls too')
+            .setRequired(false),
         ),
     );
 
@@ -1243,6 +1249,19 @@ export async function handlePicks(interaction, { store, config }) {
       return interaction.editReply(error.message);
     }
 
+    // Setting the record outright, live calls included.
+    //
+    // Without this, "change the record to 5W-1L" cannot be done: the restore
+    // replaces the restored calls correctly, and the analyst's total still
+    // carries every call the bot graded live — which, with Kalshi auto-publish
+    // on, keeps growing by itself. Two commands could do it (`/picks reset`
+    // then this one) and asking someone to remember that order, under
+    // pressure, in front of the room, is how records get wiped by accident.
+    const replaceAll = interaction.options.getBoolean('replace_all') ?? false;
+    const wipedLive = replaceAll
+      ? store.removePicks((pick) => !pick.backfilled && pick.analystId === user.id)
+      : 0;
+
     // Replace, never append. Adding on every run turned "their record is 7-0",
     // repeated a few times while testing, into 83-18 — the bot recording
     // exactly what it was told, over and over. A restore states what the record
@@ -1282,11 +1301,19 @@ export async function handlePicks(interaction, { store, config }) {
         `Restored **${entries.length}** call(s) for <@${user.id}>.`,
         '',
         `**Record: ${formatWinRate(record.winRate)}** — ${record.wins}W ${record.losses}L`,
+        wipedLive > 0
+          ? `_Wiped ${wipedLive} call(s) the bot had graded live, as asked. This record is now ` +
+            'exactly what you typed._'
+          : null,
         liveGraded.length > 0
           ? `↳ **${wins}W ${losses}L** restored by hand` +
             `\n↳ **${liveRecord.wins}W ${liveRecord.losses}L** graded live by the bot ` +
             `(${liveGraded.length} call(s) — these keep arriving on their own while Kalshi ` +
             'auto-publish is on, which is why the total grows between restores)'
+          : null,
+        liveGraded.length > 0 && !replaceAll
+          ? '\n💡 _To make the record EXACTLY what you typed, run it again with ' +
+            '`replace_all:True` — that clears the live-graded ones too._'
           : null,
         // Always said, including on the first run. This line is the answer to
         // the confusion, so it cannot be conditional on the confusion having

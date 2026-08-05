@@ -594,3 +594,60 @@ test('/picks backfill says which part of the record came from where', async () =
   // And it says plainly that running it again does not stack.
   assert.match(reply, /never adds/);
 });
+
+test('/picks backfill with replace_all makes the record EXACTLY what was typed', async () => {
+  // The thing that was actually being asked for: change the record, not add
+  // to it. Without this the restore is correct and the total is still wrong,
+  // because the calls the bot graded live are untouchable and keep arriving.
+  const store = freshStore();
+  for (let i = 0; i < 20; i += 1) {
+    store.putPick({
+      id: `live-${i}`,
+      analystId: 'kingt',
+      guildId: 'g',
+      outcome: 'win',
+      direction: 'up',
+      asset: 'BTC',
+    });
+  }
+
+  const first = fakeInteraction('backfill', {
+    analyst: { id: 'kingt', tag: 'kingt_67', username: 'kingt_67' },
+    wins: 5,
+    losses: 1,
+    replace_all: true,
+  });
+  await handlePicks(first, { store, config });
+
+  const picks = store.listPicks().filter((pick) => pick.analystId === 'kingt');
+  assert.equal(picks.length, 6, `expected exactly 5W+1L, got ${picks.length}`);
+  assert.equal(picks.filter((pick) => pick.outcome === 'win').length, 5);
+
+  // And changing it again lands on the new number, not the sum of both.
+  const second = fakeInteraction('backfill', {
+    analyst: { id: 'kingt', tag: 'kingt_67', username: 'kingt_67' },
+    wins: 3,
+    losses: 2,
+    replace_all: true,
+  });
+  await handlePicks(second, { store, config });
+
+  const after = store.listPicks().filter((pick) => pick.analystId === 'kingt');
+  assert.equal(after.length, 5, `expected exactly 3W+2L, got ${after.length}`);
+  assert.equal(after.filter((pick) => pick.outcome === 'win').length, 3);
+});
+
+test('without replace_all the live calls survive, and it says how to change that', async () => {
+  const store = freshStore();
+  store.putPick({ id: 'live-1', analystId: 'kingt', guildId: 'g', outcome: 'win', direction: 'up', asset: 'BTC' });
+
+  const interaction = fakeInteraction('backfill', {
+    analyst: { id: 'kingt', tag: 'kingt_67', username: 'kingt_67' },
+    wins: 4,
+    losses: 0,
+  });
+  await handlePicks(interaction, { store, config });
+
+  assert.ok(store.listPicks().some((pick) => pick.id === 'live-1'), 'live call must survive');
+  assert.match(String(interaction.replies.at(-1)), /replace_all/);
+});
