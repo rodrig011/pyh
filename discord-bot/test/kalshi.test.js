@@ -311,7 +311,7 @@ test('a tie picks one rather than none', () => {
  * 5× too late", which reads as a market with no clock and was really a name.
  */
 
-import { closeTimeOf, secondsUntilClose } from '../src/picks/kalshi.js';
+import { boardForClose, closeTimeOf, fetchMarkets, secondsUntilClose } from '../src/picks/kalshi.js';
 
 test('close_time is preferred, because it is when trading actually stops', () => {
   const at = closeTimeOf({
@@ -355,4 +355,93 @@ test('openMarkets keeps a market whose clock cannot be read rather than hiding i
   // harder failure to diagnose of the two.
   const kept = openMarkets([{ ticker: 'A', status: 'active' }], Date.parse('2026-01-01T00:00:00Z'));
   assert.equal(kept.length, 1);
+});
+
+/**
+ * The filter mismatch that collapsed a whole board to one contract.
+ *
+ * The query asked for `status=open`. A live KXBTC15M market reports
+ * `status: "active"`. The exchange answered with ONE market for the entire
+ * series, so the bot spent days forming an opinion about a single contract —
+ * usually one already at a cent with nothing resting on it — and refused.
+ *
+ * The board looked like a board. It was a filter reading a field it disagreed
+ * with, which is why every test of the board logic passed throughout.
+ */
+
+import { TRADEABLE_STATUS } from '../src/picks/kalshi.js';
+
+test('a market reporting status "active" is tradeable', () => {
+  assert.ok(TRADEABLE_STATUS.has('active'));
+  assert.ok(TRADEABLE_STATUS.has('open'));
+});
+
+test('openMarkets keeps active markets, not only ones saying "open"', () => {
+  const now = Date.parse('2026-08-06T02:28:00Z');
+  const markets = [
+    { ticker: 'A', status: 'active', close_time: '2026-08-06T02:30:00Z' },
+    { ticker: 'B', status: 'open', close_time: '2026-08-06T02:30:00Z' },
+    { ticker: 'C', status: 'settled', close_time: '2026-08-06T02:30:00Z' },
+  ];
+  const open = openMarkets(markets, now);
+  assert.deepEqual(open.map((m) => m.ticker).sort(), ['A', 'B']);
+});
+
+test('the request no longer filters on a status the markets do not use', async () => {
+  let seen = null;
+  await fetchMarkets(
+    { seriesTicker: 'KXBTC15M' },
+    {
+      fetchImpl: async (url) => {
+        seen = url;
+        return { ok: true, json: async () => ({ markets: [] }) };
+      },
+    },
+  );
+  assert.doesNotMatch(seen, /status=/);
+  assert.match(seen, /series_ticker=KXBTC15M/);
+  // And it asks for enough of them that a full ladder is not truncated.
+  assert.match(seen, /limit=200/);
+});
+
+test('a window is every strike sharing the event, exactly', () => {
+  // KXBTC15M-26AUG052230 is the 22:30 window; -30 is one strike inside it.
+  // Grouping on the event is exact where grouping on a timestamp is a guess.
+  const now = Date.parse('2026-08-06T02:28:00Z');
+  const markets = [
+    { ticker: 'KXBTC15M-26AUG052230-30', event_ticker: 'KXBTC15M-26AUG052230', status: 'active', close_time: '2026-08-06T02:30:00Z' },
+    { ticker: 'KXBTC15M-26AUG052230-31', event_ticker: 'KXBTC15M-26AUG052230', status: 'active', close_time: '2026-08-06T02:30:00Z' },
+    { ticker: 'KXBTC15M-26AUG052230-32', event_ticker: 'KXBTC15M-26AUG052230', status: 'active', close_time: '2026-08-06T02:30:01Z' },
+    { ticker: 'KXBTC15M-26AUG052245-30', event_ticker: 'KXBTC15M-26AUG052245', status: 'active', close_time: '2026-08-06T02:45:00Z' },
+  ];
+
+  const board = boardForClose(markets, { now });
+  assert.equal(board.length, 3, 'every strike of the 22:30 window, including the odd second');
+  assert.ok(board.every((m) => m.event_ticker === 'KXBTC15M-26AUG052230'));
+});
+
+test('without an event ticker the clock still groups the window', () => {
+  const now = Date.parse('2026-08-06T02:28:00Z');
+  const markets = [
+    { ticker: 'A', status: 'active', close_time: '2026-08-06T02:30:00Z' },
+    { ticker: 'B', status: 'active', close_time: '2026-08-06T02:30:00Z' },
+    { ticker: 'C', status: 'active', close_time: '2026-08-06T02:45:00Z' },
+  ];
+  assert.equal(boardForClose(markets, { now }).length, 2);
+});
+
+test('one event can be asked for directly', async () => {
+  let seen = null;
+  await fetchMarkets(
+    { seriesTicker: 'KXBTC15M' },
+    {
+      eventTicker: 'KXBTC15M-26AUG052230',
+      fetchImpl: async (url) => {
+        seen = url;
+        return { ok: true, json: async () => ({ markets: [] }) };
+      },
+    },
+  );
+  assert.match(seen, /event_ticker=KXBTC15M-26AUG052230/);
+  assert.doesNotMatch(seen, /series_ticker/);
 });

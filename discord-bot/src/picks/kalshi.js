@@ -118,9 +118,18 @@ export function secondsUntilClose(market, now = Date.now()) {
 }
 
 /** Markets still open for trading, soonest to close first. */
+/**
+ * Statuses a market can carry while still being tradeable.
+ *
+ * `active` is what KXBTC15M actually returns; `open` is what the API's own
+ * query parameter is called. Treating only one of them as tradeable is how the
+ * board collapsed to a single contract.
+ */
+export const TRADEABLE_STATUS = new Set(['active', 'open', 'initialized']);
+
 export function openMarkets(markets, now = Date.now()) {
   return (markets ?? [])
-    .filter((market) => market?.status === 'active' || market?.status === 'open')
+    .filter((market) => !market?.status || TRADEABLE_STATUS.has(market.status))
     .filter((market) => {
       const closes = closeTimeOf(market);
       return closes === null ? true : closes > now;
@@ -170,9 +179,26 @@ export function formatCents(cents) {
  *
  * Never throws: a feed that is down costs automatic grading, not the call.
  */
-export async function fetchMarkets(settings, { fetchImpl = globalThis.fetch, timeoutMs = 6000 } = {}) {
+export async function fetchMarkets(
+  settings,
+  { fetchImpl = globalThis.fetch, timeoutMs = 6000, eventTicker = null, limit = 200 } = {},
+) {
   const base = settings.apiBase ?? DEFAULT_API_BASE;
-  const url = `${base}/markets?limit=50&status=open${settings.seriesTicker ? `&series_ticker=${encodeURIComponent(settings.seriesTicker)}` : ''}`;
+
+  // No `status=open` filter, deliberately.
+  //
+  // A live KXBTC15M market reports `status: "active"`, and the query was asking
+  // for `status=open`. The exchange answered with ONE market for the whole
+  // series — so the bot spent days forming an opinion about a single contract,
+  // usually one already at a cent with nothing resting on it, and refused. The
+  // board looked like a board. It was a filter mismatch.
+  //
+  // Filtering client-side costs one comparison and cannot silently disagree
+  // with the field it is filtering on, because it reads that field.
+  const parts = [`limit=${limit}`];
+  if (eventTicker) parts.push(`event_ticker=${encodeURIComponent(eventTicker)}`);
+  else if (settings.seriesTicker) parts.push(`series_ticker=${encodeURIComponent(settings.seriesTicker)}`);
+  const url = `${base}/markets?${parts.join('&')}`;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -282,14 +308,23 @@ export function boardForClose(markets, { closesAt = null, now = Date.now(), wind
 
   const closeOf = closeTimeOf;
 
-  // Which bell. Without an explicit one, the next bell to ring — the same rule
-  // a single contract used, applied to the whole ladder behind it.
-  const target = closesAt ?? closeOf(open[0]);
+  // The window is an EVENT, and every strike in it shares the event ticker.
+  //
+  // `KXBTC15M-26AUG052230` is the 22:30 window; `KXBTC15M-26AUG052230-30` is
+  // one strike inside it. Grouping on the event is exact, where grouping on a
+  // timestamp is a guess that needs a tolerance — and a strike whose close time
+  // is written a second differently belongs to the window regardless.
+  const first = open[0];
+  const target = closesAt ?? closeOf(first);
+
+  if (first.event_ticker && closesAt === null) {
+    const sameEvent = open.filter((market) => market.event_ticker === first.event_ticker);
+    if (sameEvent.length > 0) return sameEvent;
+  }
+
   if (!Number.isFinite(target)) return [];
 
-  // A tolerance rather than an equality: the strikes of one window share a
-  // close time, but the field is a formatted timestamp and one stray second
-  // must not drop a strike off the board.
+  // Fall back to the clock when the feed does not name the event.
   return open.filter((market) => {
     const closes = closeOf(market);
     return Number.isFinite(closes) && Math.abs(closes - target) <= windowMs;
