@@ -14,6 +14,10 @@ import {
 } from './signalPanel.js';
 import { compareReport, newAccount, paperTick, report, reportDue, equity } from './paper.js';
 import { closeTimeOf } from './kalshi.js';
+import { hasCredentials } from './kalshiAccount.js';
+import { orderRecord } from './kalshiOrders.js';
+import { checkTrade } from './riskLimits.js';
+import { recommendSize } from '../signals/sizing.js';
 
 /**
  * Watching a position somebody actually holds, and telling them when to leave.
@@ -581,4 +585,265 @@ async function deliverDms(client, store, body, log, { watch = null } = {}) {
   store.putSignalDms(subs, { flush: true });
   if (watch && sent > 0) store.putWatches(watches);
   return sent;
+}
+
+/**
+ * One pass of live trading, with real money.
+ *
+ * The only function in this repository that can spend. It is deliberately the
+ * last one written and the shortest one worth reading, because everything that
+ * makes it safe lives somewhere else and is tested there: `riskLimits.js`
+ * decides whether it MAY, `kalshiOrders.js` decides HOW, and this only decides
+ * WHEN. Any temptation to put a threshold or a size in here is a mistake — a
+ * rule that lives beside the thing it restrains is a rule that gets edited
+ * whenever the thing is inconvenient.
+ *
+ * Never throws. Shares a process with the code that grants paid access.
+ */
+export async function sweepLiveTrading(client, store, config, deps = {}) {
+  const {
+    openBoard,
+    fetchSpotPrice,
+    placeOrder,
+    now = Date.now(),
+    log = { debug() {}, info() {}, error() {} },
+  } = deps;
+
+  const settings = config.picks ?? {};
+  const trading = settings.kalshi?.trading ?? {};
+  const state = store.riskState();
+
+  // Cheapest possible exit: not armed is the normal state and must cost
+  // nothing, since this runs every ten seconds forever.
+  if (!state?.armed || state.killed) return { traded: false };
+  if (!hasCredentials(trading)) return { traded: false, reason: 'no credentials' };
+
+  try {
+    const asset = settings.defaultAsset ?? 'BTC';
+    const [board, quote] = await Promise.all([
+      openBoard(settings.kalshi, { now }).catch(() => null),
+      fetchSpotPrice(asset),
+    ]);
+
+    const candidates = board?.contracts ?? [];
+    if (candidates.length === 0 || !(quote?.price > 0)) return { traded: false };
+
+    const closesAt = closeTimeOf(candidates[0].market);
+    const context = {
+      prices: store
+        .listSamples(asset)
+        .filter((s) => s?.at >= now - 60 * 60 * 1000 && s?.price > 0)
+        .map((s) => s.price),
+      spot: quote.price,
+      secondsLeft: Number.isFinite(closesAt) ? (closesAt - now) / 1000 : null,
+    };
+
+    const held = state.position ?? null;
+
+    // Holding: decide whether to sell. Letting it settle costs no fee and is
+    // the default, so only an actual EXIT places an order.
+    if (held) {
+      return await liveExit(client, store, config, {
+        held,
+        candidates,
+        context,
+        placeOrder,
+        trading,
+        now,
+        log,
+      });
+    }
+
+    // Flat: the engine picks, the rails decide, and the rails win.
+    const ladder = readBoard(candidates, context);
+    if (!ladder.best) return { traded: false };
+
+    const best = ladder.best;
+    const sized = recommendSize({
+      probability: best.read.winProbability,
+      worstProbability: best.read.result.worstWinProbability ?? best.read.winProbability,
+      priceDollars: best.read.entryCents / 100,
+    });
+
+    const check = checkTrade({
+      state,
+      orders: store.listTradeOrders(),
+      // What the model would want, before any rail sees it.
+      wantDollars: (Number(state.dailyLimitDollars) || 20) * (sized?.suggested ?? 0) * 4,
+      hasCredentials: true,
+      openPosition: null,
+      secondsLeft: context.secondsLeft,
+      now,
+    });
+
+    if (!check.allowed) return { traded: false, blocked: check.blocked };
+
+    const limitCents = Math.round(best.read.entryCents);
+    const contracts = Math.floor(check.dollars / (limitCents / 100));
+    if (contracts < 1) return { traded: false, reason: 'stake buys no contracts' };
+
+    const result = await placeOrder(
+      trading,
+      {
+        ticker: best.ticker,
+        side: best.read.call === 'up' ? 'yes' : 'no',
+        contracts,
+        limitCents,
+        action: 'buy',
+      },
+      { now },
+    );
+
+    // Recorded whatever happened, including a timeout — an order that was sent
+    // and not written down is an order the daily limit does not know about.
+    const record = orderRecord({
+      ticker: best.ticker,
+      side: best.read.call === 'up' ? 'yes' : 'no',
+      contracts,
+      limitCents,
+      result,
+      at: now,
+      reason: `model ${Math.round(best.read.winProbability * 100)}% vs market ${Math.round(
+        best.read.marketWinProbability * 100,
+      )}%`,
+    });
+    store.appendTradeOrder(record);
+
+    if (result.status === 'placed') {
+      store.putRiskState({
+        ...state,
+        position: {
+          ticker: best.ticker,
+          side: best.read.call,
+          entryCents: limitCents,
+          contracts,
+          strike: best.strike,
+          costDollars: record.costDollars,
+          clientOrderId: record.clientOrderId,
+          at: now,
+        },
+      });
+    }
+
+    await tellOwner(client, trading, liveTradeMessage({ record, check, read: best.read, asset }), log);
+    log.info(`LIVE ${result.status}: ${contracts} ${record.side} on ${best.ticker} at ${limitCents}`);
+    return { traded: result.status === 'placed', status: result.status };
+  } catch (error) {
+    log.error(`Live trading sweep failed: ${error.message}`);
+    return { traded: false };
+  }
+}
+
+/** Selling what is held, when the exit rules say to. */
+async function liveExit(client, store, config, { held, candidates, context, placeOrder, trading, now, log }) {
+  const mine = candidates.find((candidate) => candidate.market?.ticker === held.ticker) ?? null;
+  const state = store.riskState();
+
+  // The window rolled: it settled by itself, at no fee. Book the result.
+  if (!mine || !(context.secondsLeft > 0)) {
+    const won = held.side === 'up' ? context.spot > held.strike : context.spot <= held.strike;
+    const proceeds = won ? held.contracts : 0;
+    const profit = proceeds - held.costDollars;
+
+    store.updateTradeOrder(held.clientOrderId, { profitDollars: profit });
+    store.putRiskState({ ...state, position: null });
+    await tellOwner(client, trading, settledMessage({ held, won, profit }), log);
+    return { traded: false, settled: true };
+  }
+
+  const read = directionalRead({
+    ...context,
+    strike: held.strike,
+    marketPriceCents: mine.price,
+    market: mine.market,
+  });
+  const quotes = read.result?.quotes;
+  if (!quotes) return { traded: false };
+
+  const heldBid = held.side === 'up' ? quotes.yesBidCents : quotes.noBidCents;
+  const call = scalpDecision({
+    position: { entryCents: held.entryCents, side: held.side },
+    nowCents: heldBid,
+    signal: read.result,
+    secondsLeft: context.secondsLeft,
+  });
+
+  if (call.action !== SCALP_ACTIONS.EXIT || !(heldBid > 0)) return { traded: false };
+
+  const result = await placeOrder(
+    trading,
+    {
+      ticker: held.ticker,
+      side: held.side === 'up' ? 'yes' : 'no',
+      contracts: held.contracts,
+      limitCents: Math.round(heldBid),
+      action: 'sell',
+    },
+    { now },
+  );
+
+  if (result.status === 'placed') {
+    const proceeds = (held.contracts * Math.round(heldBid)) / 100;
+    store.updateTradeOrder(held.clientOrderId, { profitDollars: proceeds - held.costDollars });
+    store.putRiskState({ ...state, position: null });
+  }
+
+  await tellOwner(
+    client,
+    trading,
+    exitMessage({ held, exitCents: Math.round(heldBid), reason: call.reason, status: result.status }),
+    log,
+  );
+  return { traded: result.status === 'placed', status: result.status, exit: true };
+}
+
+/** Everything real-money goes to one person, and only that person. */
+async function tellOwner(client, trading, body, log) {
+  if (!trading?.ownerId) return;
+  const user = await client.users.fetch(trading.ownerId).catch(() => null);
+  if (!user) return;
+  await user.send(body).catch((error) => log.debug(`Live trade DM failed: ${error.message}`));
+}
+
+function liveTradeMessage({ record, check, read, asset }) {
+  const up = record.side === 'yes';
+  if (record.status !== 'placed') {
+    return [
+      `⚠️ **REAL ORDER ${record.status.toUpperCase()}** — ${asset} ${up ? 'UP' : 'DOWN'}`,
+      `${record.contracts} contracts at ${record.limitCents}%. ${record.error ?? ''}`,
+      record.status === 'unknown'
+        ? '_Its fate is unknown, so it is counted as spent. Check Kalshi before assuming it did not fill._'
+        : '_Nothing was spent._',
+    ].join('\n');
+  }
+
+  return [
+    `💵 **REAL TRADE — BUY ${up ? 'UP' : 'DOWN'} @ ${record.limitCents}%** · ${asset}`,
+    '',
+    `**${record.contracts} contracts · $${record.costDollars.toFixed(2)}** of your own money.`,
+    `Model ${Math.round(read.winProbability * 100)}% vs market ${Math.round(read.marketWinProbability * 100)}%.`,
+    '',
+    `Left today: **$${check.remainingToday.toFixed(2)}** of $${check.limit.toFixed(2)}.`,
+    '',
+    '_A limit order at that price — it cannot have filled worse._',
+    '_`/picks live kill` stops everything, now._',
+  ].join('\n');
+}
+
+function exitMessage({ held, exitCents, reason, status }) {
+  const percent = ((exitCents - held.entryCents) / held.entryCents) * 100;
+  return [
+    `💵 **REAL EXIT — SOLD ${held.side.toUpperCase()} @ ${exitCents}%** _(${status})_`,
+    `In at ${held.entryCents}%, out at ${exitCents}% — ${reason}.`,
+    `${percent >= 0 ? '💸' : '❌'} **${percent >= 0 ? '+' : ''}${percent.toFixed(1)}%** before fees.`,
+  ].join('\n');
+}
+
+function settledMessage({ held, won, profit }) {
+  return [
+    `🔔 **SETTLED — ${held.side.toUpperCase()} ${won ? 'WON' : 'LOST'}**`,
+    `${held.contracts} contracts from ${held.entryCents}%.`,
+    `${profit >= 0 ? '💸' : '❌'} **${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}**.`,
+    '_Settlement costs no fee, which is why it was not sold early._',
+  ].join('\n');
 }

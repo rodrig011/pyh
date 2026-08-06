@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createStore } from '../src/lib/store.js';
 import { handlePicks } from '../src/picks/commands.js';
+import { newRiskState } from '../src/picks/riskLimits.js';
 
 // Every subcommand here was reachable only through Discord, so a name that was
 // never imported got all the way to a mod running the command in front of the
@@ -1200,4 +1201,110 @@ test('/picks paper on an existing pair reports both, not one', async () => {
   assert.match(reply, /CAREFUL/);
   assert.match(reply, /SCALP/);
   assert.match(reply, /Already running/);
+});
+
+/**
+ * `/picks live` — the only command that can spend real money.
+ */
+
+const liveConfig = {
+  ...paperConfig,
+  picks: {
+    ...paperConfig.picks,
+    kalshi: {
+      ...paperConfig.picks.kalshi,
+      trading: { ownerId: 'mod', dailyLimitDollars: 20 },
+    },
+  },
+};
+
+test('live trading starts disarmed and stays that way until somebody arms it', async () => {
+  const store = freshStore();
+  const interaction = fakeInteraction('live', {});
+  await handlePicks(interaction, { store, config: liveConfig });
+
+  assert.match(String(interaction.replies.at(-1)), /Disarmed/);
+  assert.notEqual(store.riskState()?.armed, true);
+});
+
+test('arming is refused without trading credentials on the host', async () => {
+  const store = freshStore();
+  const interaction = fakeInteraction('live', { action: 'arm' });
+  await handlePicks(interaction, { store, config: liveConfig });
+
+  assert.match(String(interaction.replies.at(-1)), /No trading credentials/);
+  assert.notEqual(store.riskState()?.armed, true);
+});
+
+test('only the owner may touch the rails, not merely a mod', async () => {
+  // A mod is trusted with the room. This is trusted with a bank account, and
+  // those are different trusts.
+  const store = freshStore();
+  const config = {
+    ...liveConfig,
+    picks: {
+      ...liveConfig.picks,
+      kalshi: { ...liveConfig.picks.kalshi, trading: { ownerId: 'somebody-else' } },
+    },
+  };
+
+  const interaction = fakeInteraction('live', { action: 'arm' });
+  await handlePicks(interaction, { store, config });
+
+  assert.match(String(interaction.replies.at(-1)), /somebody else’s money/);
+  assert.equal(store.riskState(), null);
+});
+
+test('kill disarms and does not clear itself', async () => {
+  const store = freshStore();
+  store.putRiskState({ ...newRiskState(), armed: true });
+
+  await handlePicks(fakeInteraction('live', { action: 'kill' }), { store, config: liveConfig });
+  assert.equal(store.riskState().armed, false);
+  assert.equal(store.riskState().killed, true);
+
+  // Resume clears the kill but does NOT re-arm: arming is a separate act.
+  await handlePicks(fakeInteraction('live', { action: 'resume' }), { store, config: liveConfig });
+  assert.equal(store.riskState().killed, false);
+  assert.equal(store.riskState().armed, false);
+});
+
+test('disarm leaves an open position alone rather than dumping it', async () => {
+  const store = freshStore();
+  store.putRiskState({
+    ...newRiskState(),
+    armed: true,
+    position: { ticker: 'T', side: 'up', entryCents: 44, contracts: 10 },
+  });
+
+  await handlePicks(fakeInteraction('live', { action: 'disarm' }), { store, config: liveConfig });
+  assert.equal(store.riskState().armed, false);
+  assert.ok(store.riskState().position, 'the open position survived');
+});
+
+test('the daily limit can be changed and is reported back', async () => {
+  const store = freshStore();
+  const interaction = fakeInteraction('live', { limit: 8 });
+  await handlePicks(interaction, { store, config: liveConfig });
+  assert.match(String(interaction.replies.at(-1)), /\$8\.00/);
+});
+
+test('the status names today’s spending, read from the order ledger', async () => {
+  const store = freshStore();
+  store.putRiskState({ ...newRiskState(), armed: true });
+  store.appendTradeOrder({
+    at: Date.now(),
+    ticker: 'T',
+    costDollars: 6,
+    profitDollars: -2,
+    status: 'filled',
+    clientOrderId: 'c1',
+  });
+
+  const interaction = fakeInteraction('live', {});
+  await handlePicks(interaction, { store, config: liveConfig });
+
+  const reply = String(interaction.replies.at(-1));
+  assert.match(reply, /\*\*\$6\.00\*\* spent/);
+  assert.match(reply, /\*\*\$14\.00\*\* left/);
 });

@@ -13,6 +13,7 @@ import { measureEdge } from '../signals/measure.js';
 import { readBoard, nearestTheMoney, censusLine } from '../signals/board.js';
 import { scalpPlan } from '../signals/scalpTarget.js';
 import { historyQuality } from '../signals/collector.js';
+import { newRiskState, riskSummary } from './riskLimits.js';
 import { addWatch, makeWatch, removeWatches } from './watch.js';
 import {
   PROFILES,
@@ -278,6 +279,30 @@ export function buildPickCommands(config) {
       sub
         .setName('signals')
         .setDescription('Post the signals panel here — alerts then arrive in this channel by themselves'),
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('live')
+        .setDescription('REAL MONEY. Arm, disarm, kill, or check the live trading rails')
+        .addStringOption((option) =>
+          option
+            .setName('action')
+            .setDescription('What to do (default: show status)')
+            .addChoices(
+              { name: 'status — show the rails and today’s spending', value: 'status' },
+              { name: 'arm — ALLOW REAL TRADES', value: 'arm' },
+              { name: 'disarm — stop taking new trades', value: 'disarm' },
+              { name: 'kill — stop everything now', value: 'kill' },
+              { name: 'resume — clear a kill', value: 'resume' },
+            ),
+        )
+        .addNumberOption((option) =>
+          option
+            .setName('limit')
+            .setDescription('Daily budget in dollars (default 20)')
+            .setMinValue(1)
+            .setMaxValue(500),
+        ),
     )
     .addSubcommand((sub) =>
       sub
@@ -1101,6 +1126,89 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
 
     await interaction.channel.send(guideMessage(config, pickSettings(config)));
     return interaction.editReply('Guide posted. **Pin it** — the buttons only work if the room reads them the same way.');
+  }
+
+  if (sub === 'live') {
+    const settings = pickSettings(config);
+    const trading = settings.kalshi?.trading ?? {};
+    const action = interaction.options.getString('action') ?? 'status';
+    const limit = interaction.options.getNumber('limit');
+
+    // Only the person whose money it is. Not "a mod" — the owner, named in the
+    // environment. A mod is trusted with the room; this is trusted with a bank
+    // account, and those are different trusts.
+    if (trading.ownerId && interaction.user.id !== trading.ownerId) {
+      return interaction.editReply(
+        '🔒 **This is somebody else’s money.** Only the account owner can touch the live rails.',
+      );
+    }
+
+    let state = store.riskState() ?? newRiskState({ dailyLimitDollars: trading.dailyLimitDollars });
+    if (Number.isFinite(limit)) state = { ...state, dailyLimitDollars: limit };
+
+    if (action === 'kill') {
+      store.putRiskState({ ...state, armed: false, killed: true, killedReason: `by ${interaction.user.tag}` });
+      return interaction.editReply(
+        '🛑 **KILLED.** No new orders, and nothing will re-arm by itself. `resume` clears it.',
+      );
+    }
+
+    if (action === 'resume') {
+      store.putRiskState({ ...state, killed: false, killedReason: null });
+      return interaction.editReply('Kill cleared. Still **disarmed** — `arm` is a separate act.');
+    }
+
+    if (action === 'disarm') {
+      store.putRiskState({ ...state, armed: false });
+      return interaction.editReply('🔕 **Disarmed.** No new trades. Anything already open is left alone.');
+    }
+
+    if (action === 'arm') {
+      if (!hasCredentials(trading)) {
+        return interaction.editReply(
+          '❌ **No trading credentials.** `KALSHI_TRADING_KEY_ID` and `KALSHI_TRADING_PRIVATE_KEY` ' +
+            'must be set on the host. They are deliberately separate from the analyst account, so ' +
+            'the key that publishes calls can never sign an order.',
+        );
+      }
+      store.putRiskState({ ...state, armed: true, killed: false, armedAt: Date.now() });
+      return interaction.editReply(
+        [
+          `🔴 **ARMED — REAL MONEY, $${(state.dailyLimitDollars ?? 20).toFixed(2)} a day.**`,
+          '',
+          'The rails, none of which can be raised by the trading code itself:',
+          `· **$${((state.dailyLimitDollars ?? 20) * 0.25).toFixed(2)}** most per trade`,
+          '· **one** position at a time',
+          '· **three** losses in a row ends the day',
+          '· limit orders only, never market',
+          '· a market with no readable clock is never traded',
+          '',
+          'You get a DM on **every** order, filled or not.',
+          '**`/picks live kill` stops everything, instantly.**',
+        ].join('\n'),
+      );
+    }
+
+    const summary = riskSummary(state, store.listTradeOrders());
+    return interaction.editReply(
+      [
+        summary.killed
+          ? `🛑 **KILLED** — ${summary.killedReason ?? 'by hand'}`
+          : summary.armed
+            ? '🔴 **ARMED — trading real money**'
+            : '🔕 **Disarmed** — no real trades.',
+        '',
+        `**$${summary.spent.toFixed(2)}** spent of **$${summary.limit.toFixed(2)}** today · ` +
+          `**$${summary.remaining.toFixed(2)}** left`,
+        `**${summary.trades}** order(s) · realised **${summary.realised >= 0 ? '+' : ''}$${summary.realised.toFixed(2)}**` +
+          (summary.lossStreak > 0 ? ` · **${summary.lossStreak}** loss(es) in a row` : ''),
+        state.position
+          ? `\nHolding **${state.position.contracts} ${state.position.side.toUpperCase()}** at **${state.position.entryCents}%**.`
+          : '\n_Flat._',
+        '',
+        hasCredentials(trading) ? '_Credentials configured._' : '⚠️ _No trading credentials on the host._',
+      ].join('\n'),
+    );
   }
 
   if (sub === 'dm') {
