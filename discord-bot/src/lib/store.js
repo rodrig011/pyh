@@ -38,6 +38,15 @@ const EMPTY = {
   // failure count so a closed inbox stops being retried instead of costing a
   // write every three minutes forever.
   signalDms: null,
+  // Live trading: the rails' state, and every order ever sent. The order log
+  // IS the risk ledger — the day's spending is rebuilt from it rather than
+  // from a counter, so it has to survive restarts.
+  risk: null,
+  // NOT `orders` — that key already holds the VIP payment orders, keyed by
+  // code, and reusing the name silently replaced the payments ledger with this
+  // one. Caught by a test that had nothing to do with trading, which is the
+  // only reason it was caught at all.
+  tradeOrders: [],
 };
 
 /**
@@ -356,6 +365,41 @@ export function createStore(filePath) {
 
     signalDms() {
       return data.signalDms ?? {};
+    },
+
+    riskState() {
+      return data.risk ?? null;
+    },
+
+    putRiskState(state, { flush = true } = {}) {
+      data.risk = state;
+      if (flush) save();
+      return state;
+    },
+
+    listTradeOrders() {
+      return data.tradeOrders ?? [];
+    },
+
+    /**
+     * Appends an order and flushes IMMEDIATELY, always.
+     *
+     * The one write in this file that may never be batched. An order that was
+     * sent and not persisted is an order the daily limit does not know about,
+     * and the next restart would let it be spent again.
+     */
+    appendTradeOrder(order) {
+      data.tradeOrders = [...(data.tradeOrders ?? []), order].slice(-2000);
+      save();
+      return order;
+    },
+
+    updateTradeOrder(clientOrderId, patch) {
+      data.tradeOrders = (data.tradeOrders ?? []).map((order) =>
+        order.clientOrderId === clientOrderId ? { ...order, ...patch } : order,
+      );
+      save();
+      return data.tradeOrders;
     },
 
     putSignalDms(subs, { flush = true } = {}) {

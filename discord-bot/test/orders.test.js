@@ -373,3 +373,47 @@ test('the summary counts what a restart actually kept', (t) => {
   assert.equal(summary.subscriptions, 0);
   assert.equal(summary.picks, 0);
 });
+
+test('the trading ledger does not collide with the payments ledger', () => {
+  // It did. `orders` already held the VIP payment orders keyed by code, and a
+  // new live-trading ledger claimed the same name — silently replacing the
+  // record of who has paid with a list of Kalshi trades. Caught by a test that
+  // had nothing to do with trading, which is the only reason it was caught.
+  const store = createStore(join(mkdtempSync(join(tmpdir(), 'collide-')), 'store.json'));
+
+  createOrder(store, {
+    userId: 'u1',
+    userTag: 'u#1',
+    guildId: 'g',
+    tier: 1,
+    payerName: 'Someone',
+    config,
+  });
+
+  store.appendTradeOrder({
+    at: Date.now(),
+    ticker: 'KXBTC-1',
+    side: 'yes',
+    contracts: 5,
+    costDollars: 2,
+    status: 'placed',
+    clientOrderId: 'c1',
+  });
+
+  assert.equal(store.listOrders().length, 1, 'the payment order survived');
+  assert.equal(store.listTradeOrders().length, 1, 'the trade was recorded');
+  assert.equal(store.listOrders()[0].tier, 1);
+});
+
+test('a trade order is flushed the moment it is written', () => {
+  // The one write that may never be batched: an order that was sent and not
+  // persisted is an order the daily limit does not know about, and the next
+  // restart would let the money be spent again.
+  const path = join(mkdtempSync(join(tmpdir(), 'flush-')), 'store.json');
+  const store = createStore(path);
+  store.appendTradeOrder({ at: Date.now(), ticker: 'T', costDollars: 3, clientOrderId: 'c9' });
+
+  const reopened = createStore(path);
+  assert.equal(reopened.listTradeOrders().length, 1);
+  assert.equal(reopened.listTradeOrders()[0].costDollars, 3);
+});
