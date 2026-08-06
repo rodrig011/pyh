@@ -746,3 +746,90 @@ passed straight through. It only surfaced because a test drove the *router*
 rather than the function. Renamed to `/picks signals`.
 
 Running total: ten ideas built and measured, four shipped.
+
+---
+
+## "Scalp 10% on every market" — the arithmetic, in full
+
+Asked for directly and repeatedly: always recommend a side, always target about
+ten percent. It is a genuinely different bet from the rest of this engine, so it
+gets its own arithmetic rather than an opinion.
+
+### Why the win rate has to be so absurdly high
+
+A +10% target pays **a tenth of the stake**. A miss, on a binary held to the
+bell, costs **all of it**. That asymmetry is the whole trade:
+
+| Entry | Break-even win rate at +10% |
+|---|---|
+| 25¢ | 100% |
+| 40¢ | 100% |
+| 50¢ | 98.0% |
+| 65¢ | 96.3% |
+| 80¢ | 94.1% |
+
+Ten wins per loss just to stand still, before the exchange is paid.
+
+### What the odds actually are
+
+The chance of *touching* a target is roughly **twice** the chance of finishing
+beyond it — the reflection principle, and the most useful fact in the file. So
+scalp targets do get hit far more often than people expect. Just not enough:
+
+| Time left | Entry | Touches +10% | Needs | |
+|---|---|---|---|---|
+| 12 min | 30¢ | 66% | 100% | ❌ |
+| 12 min | 50¢ | 90% | 98% | ❌ |
+| 5 min | 50¢ | 90% | 98% | ❌ |
+
+Expected value on a 40¢ entry: **−4.74¢ per contract**, about −12% per trade.
+
+### "Then cut the loser at −10% instead of holding it to zero"
+
+This is the obvious repair and it does not work either, for a reason that is
+not a matter of tuning. **A Kalshi price IS a probability, and a probability is
+a martingale.** Optional stopping says that if you exit at either barrier, the
+probability of hitting the up one first is exactly the fraction that makes the
+expectation zero — here, exactly 50%.
+
+So symmetric ±10% is a genuine coin flip, and you pay the fee both ways:
+
+- 40¢ entry: 0.5·(+10%) + 0.5·(−10%) − 10.0% fee = **−10.0% per trade**
+- 80¢ entry: 0.5·(+10%) + 0.5·(−10%) − 3.8% fee = **−3.8% per trade**
+
+No take-profit rule, no stop, no combination of the two has positive expectancy
+on a fairly priced contract. Only being right about the price does.
+
+### The one genuinely actionable finding, and it is backwards
+
+Kalshi's fee is `0.07·P·(1−P)` per contract, so **as a share of the stake it is
+`0.07·(1−P)`** — which *falls* as the contract gets more expensive:
+
+| Price | Round-trip fee, as % of stake |
+|---|---|
+| 15¢ | **13.3%** |
+| 25¢ | 16.0% |
+| 40¢ | 10.0% |
+| 65¢ | 6.2% |
+| 80¢ | **3.8%** |
+
+A ten percent target on a 15¢ lottery ticket is under water before the price
+moves at all. The same target on an 80¢ contract clears the fee nearly three
+times over. **The instinct to scalp the cheap side — more room to run, bigger
+percentage swings — is exactly backwards once the exchange is paid.**
+`cheapestToScalp()` returns the expensive side, and the name is deliberate.
+
+### What shipped
+
+`/picks read` now gives a scalp recommendation on **every** market, whatever the
+engine decided about trading it: the side, the entry, the +10% exit, the real
+touch probability, the break-even rate, and a one-line verdict —
+
+- **worth taking** — odds clear the bar AND the model has an edge behind it
+- **coin flip** — odds clear the bar but nothing is driving it
+- **against you** — the odds do not clear the bar, and repeating this loses
+
+The recommendation is always there, which is what was asked for. The numbers are
+always next to it, which is what stops it being a lie.
+
+Running total: eleven ideas built and measured, four shipped.

@@ -11,6 +11,7 @@ import {
 import { COLORS } from '../lib/brand.js';
 import { measureEdge } from '../signals/measure.js';
 import { readBoard, nearestTheMoney, censusLine } from '../signals/board.js';
+import { scalpPlan } from '../signals/scalpTarget.js';
 import { addWatch, makeWatch, removeWatches } from './watch.js';
 import {
   PROFILES,
@@ -1487,6 +1488,50 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
             ? ` **The round trip alone costs ${Math.round((bite / read.entryCents) * 100)}% of what you put in.**`
             : '') +
           ' Size it like a lottery ticket.',
+      );
+    }
+
+    // The scalp read, on every market, whatever the engine decided.
+    //
+    // Asked for directly: always name a side and a target rather than only ever
+    // refusing. It is given with its real odds attached, because a fixed-percent
+    // scalp is a different bet from the rest of this engine and the difference
+    // is the whole thing — the price of a Kalshi contract IS a probability, and
+    // a probability is a martingale, so no take-profit rule on it has positive
+    // expectancy by itself. Only the model's edge can do that. The numbers say
+    // which case this market is.
+    const scalpSide = read.call ?? read.leaning;
+    const scalpEntry = scalpSide === 'down' ? read.result?.quotes?.noAskCents : read.result?.quotes?.yesAskCents;
+    const plan =
+      Number.isFinite(scalpEntry) && read.result?.sigma > 0
+        ? scalpPlan({
+            side: scalpSide,
+            entryCents: scalpEntry,
+            spot: quote.price,
+            strike: chosen.strike,
+            sigma: read.result.sigma,
+            targetPercent: 10,
+            edgeCents: read.tradeable ? (read.netEdgeCents ?? 0) : 0,
+          })
+        : null;
+
+    if (plan) {
+      const pctOf = (v) => (Number.isFinite(v) ? `${Math.round(v * 100)}%` : '—');
+      lines.push(
+        '',
+        `⚡ **SCALP — ${scalpSide === 'up' ? 'UP' : 'DOWN'} at ${Math.round(plan.entryCents)}% → ` +
+          `out at ${Math.round(plan.targetCents)}%** _(+${plan.targetPercent}%)_`,
+        `Reaches that target **${pctOf(plan.touchProbability)}** of the time · ` +
+          `needs **${pctOf(plan.breakEvenWinRate)}** just to break even`,
+        {
+          'worth taking': '✅ **The odds clear the bar, and the model has an edge behind it.**',
+          'coin flip':
+            '⚪ **The odds clear the bar, but only just, and there is no edge behind it** — ' +
+            'a coin flip with extra steps.',
+          'against you':
+            '❌ **The odds do NOT clear the bar.** A +10% target pays a tenth of the stake and ' +
+            'a miss costs all of it, so it needs ten wins per loss. Taking this repeatedly loses.',
+        }[plan.verdict] ?? '',
       );
     }
 
