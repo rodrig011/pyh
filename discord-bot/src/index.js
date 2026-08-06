@@ -32,8 +32,28 @@ const started = [];
 
 if (process.env.VIP_BOT_TOKEN) {
   const config = loadVipConfig();
-  const { client, watcher } = createVipBot(config);
-  started.push({ name: 'vip', client, stop: () => watcher.stop() });
+  const { client, watcher, store } = createVipBot(config);
+  started.push({
+    name: 'vip',
+    client,
+    stop: () => {
+      watcher.stop();
+      // Flush before the process dies.
+      //
+      // Price samples are written to memory on every tick and only persisted
+      // every tenth one, so a restart silently threw away up to five minutes
+      // of history — and this bot redeploys often. Eight deploys in a day is
+      // forty minutes of the volatility estimate's own input, gone, which is
+      // why the engine kept reading 91 samples out of a possible 120.
+      //
+      // Railway sends SIGTERM before killing the container, so there is time.
+      try {
+        store.save();
+      } catch (error) {
+        log.error(`Could not save the store on shutdown: ${error.message}`);
+      }
+    },
+  });
   await login('VIP bot', client, config.token);
 } else {
   log.warn('VIP_BOT_TOKEN is not set: the VIP bot will not start');

@@ -464,9 +464,16 @@ export function createVipBot(config = loadVipConfig()) {
 const isDirectRun = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
 if (isDirectRun) {
   const config = loadVipConfig();
-  const { client, watcher, webhookServer } = createVipBot(config);
+  const { client, watcher, webhookServer, store } = createVipBot(config);
   const shutdown = () => {
     watcher.stop();
+    // Same reason as in index.js: samples are flushed every tenth tick, so an
+    // unflushed tail of up to five minutes dies with the process otherwise.
+    try {
+      store.save();
+    } catch (error) {
+      log.error(`Could not save the store on shutdown: ${error.message}`);
+    }
     webhookServer?.close();
     client.destroy();
     process.exit(0);

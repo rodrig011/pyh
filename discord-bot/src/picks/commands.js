@@ -12,6 +12,7 @@ import { COLORS } from '../lib/brand.js';
 import { measureEdge } from '../signals/measure.js';
 import { readBoard, nearestTheMoney, censusLine } from '../signals/board.js';
 import { scalpPlan } from '../signals/scalpTarget.js';
+import { historyQuality } from '../signals/collector.js';
 import { addWatch, makeWatch, removeWatches } from './watch.js';
 import {
   PROFILES,
@@ -1353,6 +1354,12 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
       .filter((sample) => sample?.at >= Date.now() - 60 * 60 * 1000 && sample?.price > 0)
       .map((sample) => sample.price);
 
+    // How good the history actually is, not merely how much of it there is.
+    const quality = historyQuality(
+      samples.filter((sample) => sample?.at >= Date.now() - 60 * 60 * 1000),
+      { sampleSeconds: 30 },
+    );
+
     const closesAt = closeTimeOf(board.contracts[0].market);
     const ladder = readBoard(board.contracts, {
       prices,
@@ -1546,7 +1553,22 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
         (ladder.tradeable.length > 0
           ? ` · **${ladder.tradeable.length}** tradeable.`
           : `, refused all of them: ${censusLine(ladder.census) ?? 'no reason recorded'}.`),
-      `_${prices.length} samples · Not financial advice._`,
+      // The sample count, and what it is out of.
+      //
+      // "91 samples" means nothing on its own. 91 out of a possible 120 does:
+      // it says the history has holes, and a hole matters more than the count
+      // because returns computed across a gap are long returns wearing a
+      // thirty-second label — every probability downstream inherits that.
+      (() => {
+        const window = 60;
+        const possible = Math.floor((window * 60) / 30);
+        const gap = quality?.worstGapSeconds ?? null;
+        return (
+          `_**${prices.length}** of a possible **${possible}** samples in the last ${window} min` +
+          (gap !== null && gap > 90 ? ` · biggest gap **${gap}s**` : '') +
+          ' · Not financial advice._'
+        );
+      })(),
     );
 
     return interaction.editReply(lines.join('\n'));

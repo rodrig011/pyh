@@ -93,3 +93,45 @@ test('a feed that is down costs a sample, never the bot', async () => {
   assert.match(thrown.reason, /coinbase is down/);
   assert.equal(empty.added, false);
 });
+
+/**
+ * Why the engine kept reading 91 samples out of a possible 120.
+ *
+ * Samples are written to memory on every tick and persisted only every tenth
+ * one, so a restart threw away up to five minutes of history — and this bot
+ * redeployed eight times in a day. Forty minutes of the volatility estimate's
+ * own input, gone, silently.
+ */
+
+test('an hour at thirty seconds is a hundred and twenty samples, and no more', () => {
+  // The ceiling the count should be read against. "91 samples" means nothing
+  // alone; 91 out of 120 says the history has holes.
+  const perHour = (60 * 60) / 30;
+  assert.equal(perHour, 120);
+});
+
+test('a gap in the history is reported, because it matters more than the count', () => {
+  // Returns computed across a hole are long returns wearing a short label, and
+  // every probability downstream inherits that.
+  const now = Date.now();
+  const samples = [];
+  for (let i = 0; i < 40; i += 1) samples.push({ at: now - (60 - i) * 30_000, price: 65_000 + i });
+  // A five-minute hole, exactly what a redeploy leaves behind.
+  for (let i = 0; i < 30; i += 1) samples.push({ at: now - (10 - i / 3) * 30_000, price: 65_100 + i });
+
+  const quality = historyQuality(samples, { sampleSeconds: 30 });
+  assert.ok(quality.worstGapSeconds > 90, 'the hole was not noticed');
+  assert.equal(quality.ok, false);
+  assert.match(quality.reason, /gap/);
+});
+
+test('a clean history is reported as clean', () => {
+  const now = Date.now();
+  const samples = Array.from({ length: 60 }, (_, i) => ({
+    at: now - (60 - i) * 30_000,
+    price: 65_000 + i,
+  }));
+  const quality = historyQuality(samples, { sampleSeconds: 30 });
+  assert.equal(quality.ok, true);
+  assert.equal(quality.worstGapSeconds, 30);
+});
