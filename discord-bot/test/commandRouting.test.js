@@ -556,10 +556,21 @@ test('share:false is the same as not asking', async (t) => {
   assert.equal(interaction.deferOptions.flags, MessageFlags.Ephemeral);
 });
 
-test('every admin subcommand except panel offers the share toggle', () => {
+/**
+ * Admin output is shareable by default, with three deliberate exceptions.
+ *
+ * `panel` posts to the channel itself, so a toggle would be meaningless.
+ * `broadcast` and `migrate` must NEVER be shareable: a broadcast preview holds
+ * a draft nobody has approved yet, and a migration report is a list of who is
+ * paying and until when. Either one pasted into a channel is a leak, and a
+ * toggle that exists is a toggle somebody eventually presses.
+ */
+const NEVER_SHAREABLE = new Set(['panel', 'broadcast', 'migrate']);
+
+test('every admin subcommand that can be shared offers the toggle', () => {
   const [, admin] = buildCommands(config);
   const missing = admin.options
-    .filter((sub) => sub.name !== 'panel')
+    .filter((sub) => !NEVER_SHAREABLE.has(sub.name))
     .filter((sub) => !(sub.options ?? []).some((option) => option.name === 'share'))
     .map((sub) => sub.name);
 
@@ -678,4 +689,35 @@ test('/vip-admin adopt with neither a user nor a tier says which to give', async
 
   assert.match(replies[0], /tier.*or.*user/i);
   assert.equal(store.listSubscriptions().length, 0);
+});
+
+test('broadcast and migrate can never be published to a channel', () => {
+  // Not an oversight: a broadcast preview holds a draft nobody approved, and a
+  // migration report is a list of who is paying and until when.
+  const [, admin] = buildCommands(config);
+  for (const name of ['broadcast', 'migrate']) {
+    const sub = admin.options.find((option) => option.name === name);
+    assert.ok(sub, `${name} is missing`);
+    assert.ok(
+      !(sub.options ?? []).some((option) => option.name === 'share'),
+      `${name} must not offer a share toggle`,
+    );
+  }
+});
+
+test('broadcast previews unless it is explicitly told to send', () => {
+  // A broadcast cannot be recalled — it is already in a thousand inboxes.
+  const [, admin] = buildCommands(config);
+  const sub = admin.options.find((option) => option.name === 'broadcast');
+  const send = (sub.options ?? []).find((option) => option.name === 'send');
+  assert.ok(send, 'there is no send flag, so it would always send');
+  assert.notEqual(send.required, true, 'send must default to off');
+});
+
+test('migrate previews unless it is explicitly confirmed', () => {
+  const [, admin] = buildCommands(config);
+  const sub = admin.options.find((option) => option.name === 'migrate');
+  const confirm = (sub.options ?? []).find((option) => option.name === 'confirm');
+  assert.ok(confirm);
+  assert.notEqual(confirm.required, true);
 });

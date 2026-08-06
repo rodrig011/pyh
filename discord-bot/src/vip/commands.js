@@ -26,6 +26,7 @@ import { postPermissionHelp } from '../lib/channelAccess.js';
 import { createLogger } from '../lib/logger.js';
 import { buildMessage } from '../lib/build.js';
 import { signalPanelAction } from '../picks/signalPanel.js';
+import { broadcastAudience, migratedSubscriptions, planMigration } from './migrate.js';
 import { handleSignalPanelButton } from '../picks/commands.js';
 import { createSubscriptionCheckout } from '../payments/stripe.js';
 import { buildEvidence, formatEvidence, money } from './evidence.js';
@@ -195,6 +196,33 @@ export function buildCommands(config) {
     )
     .addSubcommand((sub) =>
       withShare(sub.setName('stats').setDescription('Members, revenue and who is about to expire')),
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('broadcast')
+        .setDescription('DM every active member — you write the message')
+        .addStringOption((option) =>
+          option.setName('message').setDescription('What to send them').setRequired(true).setMaxLength(1800),
+        )
+        .addStringOption((option) =>
+          option
+            .setName('tiers')
+            .setDescription('Which tiers, comma separated (default: all)'),
+        )
+        .addBooleanOption((option) =>
+          option.setName('send').setDescription('False (default) previews it without sending'),
+        ),
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('migrate')
+        .setDescription('Move every membership to a different server before you switch over')
+        .addStringOption((option) =>
+          option.setName('to').setDescription('The new server ID').setRequired(true),
+        )
+        .addBooleanOption((option) =>
+          option.setName('confirm').setDescription('False (default) previews it without moving'),
+        ),
     )
     .addSubcommand((sub) =>
       withShare(
@@ -1837,6 +1865,8 @@ export async function handleInteraction(interaction, context) {
     if (sub === 'members') return handleAdminMembers(interaction, context);
     if (sub === 'stats') return handleAdminStats(interaction, context);
     if (sub === 'version') return handleAdminVersion(interaction, context);
+    if (sub === 'broadcast') return handleAdminBroadcast(interaction, context);
+    if (sub === 'migrate') return handleAdminMigrate(interaction, context);
     if (sub === 'panel') return handleAdminPanel(interaction, context);
     if (sub === 'preview') return handleAdminPreview(interaction, context);
     if (sub === 'grant') return handleAdminGrant(interaction, context);
@@ -1847,4 +1877,145 @@ export async function handleInteraction(interaction, context) {
   }
 
   return undefined;
+}
+
+/**
+ * One message to every active member, written by a person.
+ *
+ * The text is supplied rather than built here, and that is a deliberate
+ * separation rather than laziness: whoever presses this owns what it says, and
+ * a tool that composes claims on somebody's behalf makes it far too easy to
+ * send something nobody read carefully. It is also the only version that is
+ * useful twice — a server move, a price change, an outage.
+ *
+ * Previews by default. `send:True` is a second, deliberate act, because a
+ * broadcast cannot be recalled: it is already in a thousand inboxes.
+ *
+ * Sent one at a time. Discord rate-limits direct messages hard, and a burst to
+ * a whole membership is the fastest way to get a bot flagged — which would cost
+ * the very access this message is probably about.
+ */
+async function handleAdminBroadcast(interaction, { store, config }) {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  const message = interaction.options.getString('message');
+  const send = interaction.options.getBoolean('send') ?? false;
+  const rawTiers = interaction.options.getString('tiers');
+  const tiers = rawTiers
+    ? rawTiers.split(',').map((part) => Number(part.trim())).filter(Number.isFinite)
+    : null;
+
+  const audience = broadcastAudience(store.listSubscriptions(), {
+    guildId: config.guildId,
+    tiers,
+    now: Date.now(),
+  });
+
+  if (audience.length === 0) {
+    return interaction.editReply('Nobody active matches that. Nothing to send.');
+  }
+
+  if (!send) {
+    return interaction.editReply(
+      [
+        `📣 **Preview — would DM ${audience.length} member(s)**` +
+          (tiers ? ` in tier ${tiers.join(', ')}` : ' across every tier'),
+        '',
+        '```',
+        message.slice(0, 1500),
+        '```',
+        '',
+        'Run it again with **`send:True`** to actually send.',
+        '_A broadcast cannot be recalled. Read it once more first._',
+      ].join('\n'),
+    );
+  }
+
+  let sent = 0;
+  let failed = 0;
+  for (const subscription of audience) {
+    try {
+      const user = await interaction.client.users.fetch(subscription.userId);
+      await user.send(message);
+      sent += 1;
+    } catch {
+      // A closed inbox is not an error worth stopping for — one member being
+      // unreachable must not cost everybody else the message.
+      failed += 1;
+    }
+  }
+
+  commandLog.info(`Broadcast by ${interaction.user.tag}: ${sent} sent, ${failed} unreachable`);
+  return interaction.editReply(
+    `📣 **Sent to ${sent}** member(s).` +
+      (failed > 0 ? ` **${failed}** could not be reached — closed DMs, most likely.` : ''),
+  );
+}
+
+/**
+ * Moving every membership to a new server.
+ *
+ * Previews by default, for the same reason as everything else that touches what
+ * people paid for: a migration nobody inspected is a migration nobody should
+ * run.
+ */
+async function handleAdminMigrate(interaction, { store, config }) {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  const toGuildId = interaction.options.getString('to');
+  const confirm = interaction.options.getBoolean('confirm') ?? false;
+  const now = Date.now();
+
+  const plan = planMigration(store.listSubscriptions(), {
+    fromGuildId: config.guildId,
+    toGuildId,
+    now,
+  });
+  if (!plan.ok) return interaction.editReply(`❌ ${plan.reason}`);
+
+  if (!confirm) {
+    return interaction.editReply(
+      [
+        `🚚 **Preview — would move ${plan.moving.length} membership(s)**`,
+        `From \`${plan.fromGuildId}\` to \`${plan.toGuildId}\`.`,
+        '',
+        plan.leaving > 0 ? `**${plan.leaving}** expired or cancelled are left behind.` : null,
+        plan.collisions.length > 0
+          ? `**${plan.collisions.length}** already exist there — each keeps whichever membership has more time left.`
+          : null,
+        '',
+        '**This is the step that is easy to forget.** Memberships are stored under',
+        '`server:member`, so pointing the bot at a new server without this leaves every',
+        'record attached to the old one. Nothing errors. Members just quietly lose the',
+        'access they paid for, one at a time, as their roles fail to appear.',
+        '',
+        'Run again with **`confirm:True`** to move them.',
+      ]
+        .filter((line) => line !== null)
+        .join('\n'),
+    );
+  }
+
+  const { subscriptions, ok, reason } = migratedSubscriptions(store.listSubscriptions(), {
+    fromGuildId: config.guildId,
+    toGuildId,
+    now,
+  });
+  if (!ok) return interaction.editReply(`❌ ${reason}`);
+
+  for (const subscription of subscriptions) store.putSubscription(subscription);
+
+  commandLog.info(`Migrated ${subscriptions.length} membership(s) to ${toGuildId}`);
+  return interaction.editReply(
+    [
+      `🚚 **Moved ${subscriptions.length} membership(s)** to \`${toGuildId}\`.`,
+      '',
+      'The old records are left where they were, so nothing is destroyed and this can be',
+      'run again safely.',
+      '',
+      '**Still to do on the host:** set `VIP_GUILD_ID` to the new server, set the tier',
+      '`VIP_TIER_*_ROLE_ID` values to the roles in the new server, and redeploy. The',
+      'slash commands re-register themselves on start.',
+    ].join('\n'),
+  );
 }
