@@ -227,6 +227,28 @@ export function loadVipConfig() {
           analystId: str('KALSHI_ANALYST_DISCORD_ID'),
           analystTag: str('KALSHI_ANALYST_TAG'),
         },
+        // The account the bot may SPEND from, kept deliberately separate from
+        // the one above.
+        //
+        // The account above belongs to the analyst whose fills get published;
+        // it is read with a key that could trade, and the read path refuses to
+        // sign anything but three portfolio endpoints so that it cannot. This
+        // one is a different key for a different person, and the separation is
+        // the point: a bug anywhere in the publishing path cannot reach a
+        // credential that spends, and the analyst's key is never the one an
+        // order is signed with.
+        trading: {
+          keyId: str('KALSHI_TRADING_KEY_ID'),
+          privateKeyPem: (str('KALSHI_TRADING_PRIVATE_KEY') ?? '').replace(/\\n/g, '\n') || null,
+          apiBase: str('KALSHI_API_BASE'),
+          // Whose money it is. Reports and every alert go here and nowhere else.
+          ownerId: str('KALSHI_TRADING_OWNER_ID'),
+          // The whole day's budget, in dollars. A ceiling, not a target.
+          dailyLimitDollars: Number.parseFloat(str('KALSHI_DAILY_LIMIT', '20')),
+          // Deliberately NOT settable from the environment. Arming is an
+          // explicit act performed by a person in Discord, so that a copied
+          // environment or a restored backup can never start a bot that trades.
+        },
       },
     },
     // Card payments. Zelle is a one-off 30 days; Stripe bills again by itself
