@@ -1,6 +1,7 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
 import { COLORS } from '../lib/brand.js';
 import { FLIP_RISK, whaleLine } from './whales.js';
+import { scalpPlan } from '../signals/scalpTarget.js';
 
 /**
  * The signals panel, and the alerts it sends without being asked.
@@ -173,7 +174,15 @@ export function shouldAlert(
 }
 
 /** The alert itself. One screen, on a phone, at a glance. */
-export function alertMessage({ read, asset = 'BTC', ticker = null, strike = null, whales = null, risk = null }) {
+export function alertMessage({
+  read,
+  asset = 'BTC',
+  ticker = null,
+  strike = null,
+  whales = null,
+  risk = null,
+  spot = null,
+}) {
   const up = read.call === 'up';
   const entry = Math.round(read.entryCents);
   const target = read.exit ? Math.round(read.exit.targetCents) : null;
@@ -187,6 +196,29 @@ export function alertMessage({ read, asset = 'BTC', ticker = null, strike = null
       `**+${(read.netEdgeCents ?? 0).toFixed(1)}¢** after the spread and both fees`,
     Number.isFinite(strike) ? `Strike **$${Math.round(strike).toLocaleString('en-US')}**` : null,
   ];
+
+  // The scalp odds, on the same message. A target without the chance of
+  // reaching it is a wish, and the chance without the break-even beside it is
+  // a number nobody can act on.
+  const plan =
+    spot > 0 && read.result?.sigma > 0 && Number.isFinite(strike)
+      ? scalpPlan({
+          side: read.call,
+          entryCents: read.entryCents,
+          spot,
+          strike,
+          sigma: read.result.sigma,
+          targetPercent: 10,
+          edgeCents: read.netEdgeCents ?? 0,
+        })
+      : null;
+
+  if (plan) {
+    lines.push(
+      `⚡ **Scalp +10% → out at ${Math.round(plan.targetCents)}%** · reaches it ` +
+        `**${pct(plan.touchProbability)}** of the time, needs **${pct(plan.breakEvenWinRate)}** to break even`,
+    );
+  }
 
   const whale = whaleLine(whales);
   if (whale) lines.push('', whale);
@@ -207,7 +239,10 @@ export function alertMessage({ read, asset = 'BTC', ticker = null, strike = null
 
   lines.push(
     '',
-    `**Hold it.** \`/picks watch side:${up ? 'UP' : 'DOWN'} entry:${entry}\` and I will DM you when to leave.`,
+    // The exit is already handled. Requiring a command in between meant the
+    // hard half — decided in ninety seconds while the number moves — depended
+    // on somebody remembering to type while their money was on the table.
+    '**Hold it. I am already watching this one for you** — the 🚨 CASH OUT lands in your DMs.',
     `_\`${ticker ?? '—'}\` · not financial advice._`,
   );
 
@@ -344,6 +379,8 @@ export function dmAlertMessage(body) {
   return [
     body,
     '',
-    '_Sent because you asked for the calls in your DMs. `/picks dm on:False` stops it._',
+    '_Sent because you asked for the calls in your DMs. **The 🚨 CASH OUT for this one is',
+    'already set up** — you do not have to do anything to get it._',
+    '_`/picks dm on:False` stops the calls · `/picks unwatch` drops the exits._',
   ].join('\n');
 }

@@ -295,7 +295,7 @@ test('a position deep underwater warns without closing, and warns only once', ()
  * from a reset that never happened.
  */
 
-import { sweepPaper } from '../src/picks/watch.js';
+import { sweepPaper, sweepSignalAlerts } from '../src/picks/watch.js';
 import { newAccount } from '../src/picks/paper.js';
 
 const ladderMarkets = (cents = [70, 60, 50, 40, 30], strikes = [64_600, 64_800, 65_000, 65_200, 65_400]) =>
@@ -457,4 +457,122 @@ test('a board quoted with expiration_time only is NOT refused as too late', asyn
   });
 
   assert.equal(store.current.census.too_late ?? 0, 0, 'a live market was called out of time');
+});
+
+test('everyone DMd an entry is put on watch for the exit automatically', async () => {
+  // The loop this closes: the buzz that says GET IN is followed, with nobody
+  // doing anything, by the one that says GET OUT. Requiring a command between
+  // them meant the hard half — decided in ninety seconds while the number moves
+  // — depended on somebody remembering to type with money on the table.
+  const sent = [];
+  let watches = [];
+  let dms = { u1: { at: 0, failures: 0 }, u2: { at: 0, failures: 0 } };
+
+  const store = {
+    signalPanel: () => ({ channelId: 'chan' }),
+    alerts: () => ({}),
+    putAlerts: () => {},
+    signalDms: () => dms,
+    putSignalDms: (next) => {
+      dms = next;
+    },
+    listWatches: () => watches,
+    putWatches: (next) => {
+      watches = next;
+    },
+    listSamples: () => history().map((price, i) => ({ at: Date.now() - (120 - i) * 30_000, price })),
+  };
+
+  const client = {
+    channels: { fetch: async () => ({ send: async () => {} }) },
+    users: { fetch: async (id) => ({ id, send: async (body) => sent.push({ id, body }) }) },
+  };
+
+  // A ladder priced far from fair, so something clears the alert bar.
+  const contracts = [12, 30, 50, 70, 88].map((price, i) => ({
+    price,
+    market: {
+      ticker: `KXBTC-${64_000 + i * 500}`,
+      event_ticker: 'KXBTC-WINDOW',
+      floor_strike: 64_000 + i * 500,
+      status: 'active',
+      close_time: new Date(Date.now() + 500_000).toISOString(),
+      yes_bid_dollars: String((price - 1) / 100),
+      yes_ask_dollars: String((price + 1) / 100),
+      liquidity_dollars: '9000',
+    },
+  }));
+
+  const result = await sweepSignalAlerts(client, store, paperConfig, {
+    openBoard: async () => ({ contracts }),
+    fetchSpotPrice: async () => ({ price: 65_000 }),
+    fetchTrades: async () => ({ trades: [] }),
+  });
+
+  if (result.posted === 0) return; // refusing the whole board is legitimate
+
+  // Everyone reached got the message AND a watch at the alert's own price.
+  assert.equal(sent.length, 2);
+  assert.deepEqual(watches.map((w) => w.userId).sort(), ['u1', 'u2']);
+  for (const watch of watches) {
+    assert.ok(watch.entryCents > 0);
+    assert.ok(watch.ticker.startsWith('KXBTC-'));
+  }
+  // And the message says the exit is already handled, so nobody goes looking
+  // for a command to run.
+  assert.match(sent[0].body, /already watching this one for you|already set up/i);
+});
+
+test('somebody the DM could not reach is not put on watch', async () => {
+  // Watching a person who never heard the entry would DM them a CASH OUT for a
+  // position they never took.
+  let watches = [];
+  let dms = { closed: { at: 0, failures: 0 } };
+  const store = {
+    signalPanel: () => ({ channelId: 'chan' }),
+    alerts: () => ({}),
+    putAlerts: () => {},
+    signalDms: () => dms,
+    putSignalDms: (next) => {
+      dms = next;
+    },
+    listWatches: () => watches,
+    putWatches: (next) => {
+      watches = next;
+    },
+    listSamples: () => history().map((price, i) => ({ at: Date.now() - (120 - i) * 30_000, price })),
+  };
+
+  const client = {
+    channels: { fetch: async () => ({ send: async () => {} }) },
+    users: {
+      fetch: async () => ({
+        send: async () => {
+          throw new Error('Cannot send messages to this user');
+        },
+      }),
+    },
+  };
+
+  const contracts = [12, 50, 88].map((price, i) => ({
+    price,
+    market: {
+      ticker: `KXBTC-${64_000 + i * 500}`,
+      event_ticker: 'W',
+      floor_strike: 64_000 + i * 500,
+      status: 'active',
+      close_time: new Date(Date.now() + 500_000).toISOString(),
+      yes_bid_dollars: String((price - 1) / 100),
+      yes_ask_dollars: String((price + 1) / 100),
+      liquidity_dollars: '9000',
+    },
+  }));
+
+  await sweepSignalAlerts(client, store, paperConfig, {
+    openBoard: async () => ({ contracts }),
+    fetchSpotPrice: async () => ({ price: 65_000 }),
+    fetchTrades: async () => ({ trades: [] }),
+  });
+
+  assert.deepEqual(watches, []);
 });

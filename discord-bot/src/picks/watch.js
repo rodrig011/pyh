@@ -469,6 +469,7 @@ export async function sweepSignalAlerts(client, store, config, deps = {}) {
           strike: best.strike,
           whales,
           risk,
+          spot: quote.price,
         });
 
         await channel.send(body);
@@ -478,7 +479,22 @@ export async function sweepSignalAlerts(client, store, config, deps = {}) {
         // And to everyone who asked for it in their DMs. Booked to the store
         // BEFORE this, so a crash mid-delivery cannot cause the same contract
         // to be announced to the channel twice.
-        const dmd = await deliverDms(client, store, dmAlertMessage(body), log);
+        //
+        // Everyone DM'd an entry is also put on watch for the exit, at the
+        // price the alert named. That closes the loop the whole thing was built
+        // around: the buzz that says GET IN is followed, without anybody doing
+        // anything, by the one that says GET OUT. Requiring a command in
+        // between meant the exit — the half that is actually hard, decided in
+        // ninety seconds while the number moves — depended on somebody
+        // remembering to type while their money was on the table.
+        const dmd = await deliverDms(client, store, dmAlertMessage(body), log, {
+          watch: {
+            ticker: best.ticker,
+            side: best.read.call,
+            entryCents: best.read.entryCents,
+            now,
+          },
+        });
         log.info(`Signal alert posted for ${best.ticker}${dmd ? ` (+${dmd} DM)` : ''}`);
         return { posted: 1, kind: 'signal', dms: dmd };
       }
@@ -531,18 +547,28 @@ export async function sweepSignalAlerts(client, store, config, deps = {}) {
  * One person's closed inbox must never cost somebody else their alert, so every
  * send is caught individually.
  */
-async function deliverDms(client, store, body, log) {
+async function deliverDms(client, store, body, log, { watch = null } = {}) {
   let subs = store.signalDms();
   const userIds = Object.keys(subs);
   if (userIds.length === 0) return 0;
 
   let sent = 0;
+  let watches = store.listWatches();
+
   for (const userId of userIds) {
     try {
       const user = await client.users.fetch(userId);
       await user.send(body);
       subs = noteDmSuccess(subs, userId);
       sent += 1;
+
+      // On watch for the exit, at the price the alert named. Only for people
+      // the message actually reached: watching somebody who never got told to
+      // enter would DM them a CASH OUT for a position they never heard of.
+      if (watch) {
+        const made = makeWatch({ userId, ...watch, at: watch.now });
+        if (made) watches = addWatch(watches, made);
+      }
     } catch (error) {
       const before = Object.keys(subs).length;
       subs = noteDmFailure(subs, userId);
@@ -553,5 +579,6 @@ async function deliverDms(client, store, body, log) {
   }
 
   store.putSignalDms(subs, { flush: true });
+  if (watch && sent > 0) store.putWatches(watches);
   return sent;
 }
