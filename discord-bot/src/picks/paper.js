@@ -1,6 +1,6 @@
 import { SCALP_ACTIONS, roundTripCostCents, scalpDecision } from '../signals/scalp.js';
 import { directionalRead } from '../signals/direction.js';
-import { readBoard, boardIsUnreadable, censusLine } from '../signals/board.js';
+import { readBoard, boardIsUnreadable, brokenDiagnosis, censusLine } from '../signals/board.js';
 import { recommendSize } from '../signals/sizing.js';
 import { feePerContract } from '../signals/math.js';
 
@@ -377,11 +377,11 @@ export function report(account, { now = Date.now(), markCents = null } = {}) {
   // The refusal breakdown. A bare count cannot distinguish an engine finding a
   // fair market from an engine that has stopped being able to read a price, and
   // those need completely different responses.
-  const why = censusLine(
-    Object.entries(account.census ?? {})
-      .map(([reason, count]) => ({ reason, count }))
-      .sort((a, b) => b.count - a.count),
-  );
+  const rows = Object.entries(account.census ?? {})
+    .map(([reason, count]) => ({ reason, count }))
+    .sort((a, b) => b.count - a.count);
+  const why = censusLine(rows);
+  const broken = brokenDiagnosis(rows);
 
   if (closed.length === 0) {
     lines.push(
@@ -389,7 +389,7 @@ export function report(account, { now = Date.now(), markCents = null } = {}) {
       `No trades. **${account.seen}** contract(s) went by and it refused **${account.refused}**.`,
       why ? `Why: ${why}.` : null,
       lookLine(account),
-      '_Refusing is the normal state. Most 15-minute markets are priced correctly._',
+      broken ? broken.message : '_Refusing is the normal state. Most 15-minute markets are priced correctly._',
     );
   } else {
     lines.push(
@@ -522,6 +522,23 @@ export function compareReport(accounts, { now = Date.now(), marks = {} } = {}) {
     );
     if (why) lines.push(`　_${why}_`);
     lines.push('');
+  }
+
+  // Before any comparison: whether these numbers mean anything at all. Two runs
+  // both refusing everything for want of a clock are not level pegging, they
+  // are both blind, and calling that "dead level" is the report lying politely.
+  const allCensus = new Map();
+  for (const row of rows) {
+    for (const [reason, count] of Object.entries(row.account.census ?? {})) {
+      allCensus.set(reason, (allCensus.get(reason) ?? 0) + count);
+    }
+  }
+  const broken = brokenDiagnosis(
+    [...allCensus].map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count),
+  );
+  if (broken) {
+    lines.push(broken.message, '', '_Neither run is a verdict on anything until this is fixed._');
+    return lines.join('\n');
   }
 
   // The subtraction, done for them.

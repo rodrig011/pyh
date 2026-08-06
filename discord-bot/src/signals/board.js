@@ -116,6 +116,43 @@ export function censusLine(census, { limit = 4 } = {}) {
 }
 
 /**
+ * The refusals that mean the bot is broken rather than being careful.
+ *
+ * A census is only useful if somebody reads it, and nobody reads a list of
+ * reasons they do not recognise. These three mean the engine never got the
+ * inputs it needs — a missing clock, an unreadable price, no history — and a
+ * run dominated by any of them is not an engine declining a bad market, it is
+ * an engine that cannot see. That distinction went unnoticed for two deploys
+ * because the report showed the count and left the reading to a human.
+ */
+export const BROKEN_REASONS = {
+  no_clock: 'the feed is not saying when these markets close',
+  no_price: 'the feed is not giving a usable price',
+  no_vol: 'there is not enough stored price history yet',
+};
+
+export function brokenDiagnosis(census, { share = 0.5 } = {}) {
+  const rows = census ?? [];
+  const total = rows.reduce((sum, { count }) => sum + count, 0);
+  if (total === 0) return null;
+
+  for (const [reason, why] of Object.entries(BROKEN_REASONS)) {
+    const count = rows.find((row) => row.reason === reason)?.count ?? 0;
+    if (count / total >= share) {
+      return {
+        reason,
+        count,
+        total,
+        message:
+          `🔴 **This is not the engine being careful — ${why}.** ` +
+          `${count} of ${total} refusals. Run \`/picks kalshi\` — it prints the raw fields.`,
+      };
+    }
+  }
+  return null;
+}
+
+/**
  * Whether a board is worth trading at all, as opposed to any single strike.
  *
  * The one refusal the person paying for this asked to keep: a market moving too

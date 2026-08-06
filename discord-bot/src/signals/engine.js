@@ -21,6 +21,8 @@ export const SKIP_REASONS = {
   no_edge: 'The market price is already fair. There is nothing to win here that is not a coin flip.',
   fee_eats_it: 'The edge is real but smaller than the fee. The exchange takes the profit.',
   too_late: 'Not enough time left for the move this needs.',
+  no_clock:
+    'The feed did not say when this market closes, so there is no way to know how much time is left.',
   priced_out: 'Being right pays almost nothing at this price.',
   trending: 'The move is too clean for a random-walk read — the model is least reliable here.',
   vol_uncertain:
@@ -115,8 +117,17 @@ export function evaluate(input, options = {}) {
   const quotes = executablePrices(market, marketPriceCents);
   const prices_ = { quotes, marketProbability: marketPriceCents / 100 };
 
-  if (!(secondsLeft > 0)) return skip('too_late', prices_);
-  if (secondsLeft < config.minimumSecondsLeft) return skip('too_late', prices_);
+  // "No clock" and "out of time" are opposite diagnoses and used to share a
+  // name. A live market reported as `too_late` all day looks like a market that
+  // keeps closing; it was really a feed that never said when it closes, and the
+  // shared label hid that for two deploys. One is a bug in the reader, the
+  // other is the engine working, and a census that cannot tell them apart is
+  // worse than no census.
+  if (secondsLeft === null || secondsLeft === undefined || !Number.isFinite(secondsLeft)) {
+    return skip('no_clock', prices_);
+  }
+  if (!(secondsLeft > 0)) return skip('too_late', { ...prices_, secondsLeft });
+  if (secondsLeft < config.minimumSecondsLeft) return skip('too_late', { ...prices_, secondsLeft });
 
   // Judged on the YES price, before a side has been chosen — which is not
   // strictly coherent, since on a market quoted 93 the trade on the table is

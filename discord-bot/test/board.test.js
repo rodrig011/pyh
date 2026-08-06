@@ -204,3 +204,63 @@ test('a feed that is down returns an empty board rather than throwing', async ()
   assert.deepEqual(result.contracts, []);
   assert.match(result.error, /503/);
 });
+
+/**
+ * Telling "the engine is being careful" from "the engine cannot see".
+ *
+ * This distinction went unnoticed for two deploys. A live market reported "12×
+ * too late" for three hours, which reads as a market that keeps closing and was
+ * really a question about which timestamp the feed populates. The count was
+ * always there; nobody could read it, because the label conflated a bug with
+ * correct behaviour.
+ */
+
+import { brokenDiagnosis } from '../src/signals/board.js';
+
+test('a run refusing everything for want of a clock is called broken', () => {
+  const diagnosis = brokenDiagnosis([{ reason: 'no_clock', count: 12 }]);
+  assert.ok(diagnosis);
+  assert.match(diagnosis.message, /not the engine being careful/);
+  assert.match(diagnosis.message, /when these markets close/);
+  assert.match(diagnosis.message, /picks kalshi/);
+});
+
+test('a run refusing everything for no edge is the engine working', () => {
+  assert.equal(brokenDiagnosis([{ reason: 'no_edge', count: 40 }]), null);
+});
+
+test('a genuine mix is not called broken', () => {
+  const diagnosis = brokenDiagnosis([
+    { reason: 'no_edge', count: 30 },
+    { reason: 'no_clock', count: 4 },
+    { reason: 'wide_spread', count: 6 },
+  ]);
+  assert.equal(diagnosis, null);
+});
+
+test('an unusable price feed is named as its own problem', () => {
+  const diagnosis = brokenDiagnosis([{ reason: 'no_price', count: 20 }]);
+  assert.match(diagnosis.message, /usable price/);
+});
+
+test('nothing refused is not a diagnosis', () => {
+  assert.equal(brokenDiagnosis([]), null);
+  assert.equal(brokenDiagnosis(null), null);
+});
+
+test('no clock and out of time are different refusals', async () => {
+  // They shared a name, and the shared name is what hid the bug: "too late" on
+  // a market with fourteen minutes left is a contradiction nobody could see.
+  const { evaluate } = await import('../src/signals/engine.js');
+  const history = Array.from({ length: 90 }, (_, i) => 65_000 + Math.sin(i / 3) * 40);
+  const market = { yes_bid_dollars: '0.49', yes_ask_dollars: '0.51', liquidity_dollars: '900' };
+
+  const noClock = evaluate({ prices: history, spot: 65_000, strike: 65_000, marketPriceCents: 50, market, secondsLeft: null });
+  assert.equal(noClock.reason, 'no_clock');
+
+  const tooLate = evaluate({ prices: history, spot: 65_000, strike: 65_000, marketPriceCents: 50, market, secondsLeft: 12 });
+  assert.equal(tooLate.reason, 'too_late');
+  // And it carries the number, so "12s left" and "no clock at all" are not the
+  // same line in a report.
+  assert.equal(tooLate.secondsLeft, 12);
+});

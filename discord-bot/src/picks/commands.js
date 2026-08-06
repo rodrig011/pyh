@@ -74,6 +74,8 @@ import {
   fetchMarkets,
   openBoard,
   closeTimeOf,
+  boardForClose,
+  secondsUntilClose,
   formatCents,
   gradeByContract,
   openMarkets,
@@ -1653,20 +1655,54 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
       );
     }
 
+    const now = Date.now();
     const market = open[0];
     const price = readMarketPrice(market, settings.kalshi.side ?? 'yes');
-    const body = JSON.stringify(market, null, 1).slice(0, 900);
+
+    // The clock, per market, from the raw fields.
+    //
+    // This exists because the engine reported "12× too late" on a live market
+    // for two days running, which reads as a market that keeps closing and was
+    // really a question about which timestamp field the feed populates. Arguing
+    // about it from the outside is guessing; printing it settles it.
+    const board = boardForClose(markets, { now });
+    const clock = (m) => {
+      const left = secondsUntilClose(m, now);
+      return (
+        `\`${m.ticker}\` · ${left === null ? '**NO CLOCK**' : `**${Math.round(left)}s** left`}` +
+        ` · status \`${m.status ?? '?'}\``
+      );
+    };
+
+    const fields = ['close_time', 'expiration_time', 'expected_expiration_time', 'latest_expiration_time']
+      .map((field) => `${field}: ${market[field] ?? '—'}`)
+      .join('\n');
 
     return interaction.editReply(
       [
         price
           ? `✅ **${market.ticker}** — **${formatCents(price.cents)}** (from \`${price.source}\`)`
           : `⚠️ **${market.ticker}** came back with no usable price.`,
-        `${open.length} open market(s). Closes ${market.close_time ?? 'unknown'}.`,
+        `**${open.length}** open market(s) in the series · **${board.length}** in the current window.`,
         '',
-        'What the API returned for that market:',
-        `\`\`\`json\n${body}\n\`\`\``,
-        price ? '' : 'Send this to whoever maintains the bot — the field names are what the parser needs.',
+        '**The clock, which is what has been refusing everything:**',
+        '```',
+        fields,
+        '```',
+        board.length > 0 ? board.slice(0, 8).map(clock).join('\n') : '_Nothing in the window._',
+        '',
+        board.every((m) => secondsUntilClose(m, now) === null)
+          ? '🔴 **No market on this board has a readable close time.** That is the bug — the ' +
+            'engine cannot tell how long is left, so it refuses everything. The field names ' +
+            'above are what the parser needs.'
+          : board.every((m) => (secondsUntilClose(m, now) ?? 0) < 45)
+            ? '🟠 **Every market here really is inside the last 45 seconds.** The board is only ' +
+              'showing the window about to close, which is a selection problem rather than a ' +
+              'clock problem.'
+            : '🟢 **The clock reads fine.** Refusals are coming from somewhere else.',
+        '',
+        'Raw market:',
+        `\`\`\`json\n${JSON.stringify(market, null, 1).slice(0, 700)}\n\`\`\``,
       ]
         .filter(Boolean)
         .join('\n'),
