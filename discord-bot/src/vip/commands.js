@@ -1898,7 +1898,12 @@ export async function handleInteraction(interaction, context) {
 async function handleAdminBroadcast(interaction, { store, config }) {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  const message = interaction.options.getString('message');
+  // Discord's slash-command fields are single-line, so a message typed into one
+  // arrives as a wall of text however it was composed. `\n` is accepted as an
+  // escape and turned back into real breaks — the same trick the PEM key uses,
+  // and for the same reason: the thing being pasted is multi-line and the box
+  // is not.
+  const message = (interaction.options.getString('message') ?? '').replace(/\\n/g, '\n');
   const send = interaction.options.getBoolean('send') ?? false;
   const rawTiers = interaction.options.getString('tiers');
   const tiers = rawTiers

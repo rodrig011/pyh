@@ -721,3 +721,14 @@ test('migrate previews unless it is explicitly confirmed', () => {
   assert.ok(confirm);
   assert.notEqual(confirm.required, true);
 });
+
+test('a broadcast typed with \\n arrives with real line breaks', () => {
+  // Discord's slash-command fields are single-line, so a message composed
+  // anywhere else arrives as a wall of text. Without this the farewell reads as
+  // one unbroken paragraph on a phone.
+  const typed = 'First line.\\n\\nSecond line.';
+  const sent = typed.replace(/\\n/g, '\n');
+
+  assert.equal(sent.split('\n').length, 3);
+  assert.doesNotMatch(sent, /\\n/);
+});
