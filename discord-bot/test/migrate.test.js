@@ -130,3 +130,82 @@ test('members of a different server are never written to', () => {
   const audience = broadcastAudience([sub({ guildId: 'somewhere-else' })], { guildId: 'old', now });
   assert.equal(audience.length, 0);
 });
+
+/**
+ * The broadcast reached ELEVEN people out of a room of hundreds.
+ *
+ * It read the subscription store, which only knows about people who paid
+ * THROUGH THE BOT. Everyone given a role by hand, or who paid before the bot
+ * existed, or who paid the owner directly, has the role and no record — and
+ * from the store's point of view was never a member at all.
+ *
+ * The role is the truth of who is in the room. The store is a truth about who
+ * paid, and the two have never been the same set.
+ */
+
+import { everyoneToNotify, roleAudience } from '../src/vip/migrate.js';
+
+const member = (id, roles, { bot = false } = {}) => ({
+  id,
+  user: { bot },
+  roles: { cache: new Set(roles) },
+});
+
+test('everyone holding a VIP role is written to, record or not', () => {
+  const members = [
+    member('a', ['role-1']),
+    member('b', ['role-2']),
+    member('c', ['role-3']),
+    member('d', ['some-other-role']),
+  ];
+  const found = roleAudience(members, ['role-1', 'role-2', 'role-3']);
+  assert.deepEqual(found.sort(), ['a', 'b', 'c']);
+});
+
+test('somebody holding two tiers is written to once', () => {
+  const found = roleAudience([member('a', ['role-1', 'role-2'])], ['role-1', 'role-2']);
+  assert.deepEqual(found, ['a']);
+});
+
+test('bots are never messaged', () => {
+  // A guaranteed failure that pollutes the count.
+  const found = roleAudience([member('a', ['role-1']), member('bot', ['role-1'], { bot: true })], ['role-1']);
+  assert.deepEqual(found, ['a']);
+});
+
+test('with no roles configured nobody is written to, rather than everybody', () => {
+  assert.deepEqual(roleAudience([member('a', ['role-1'])], []), []);
+  assert.deepEqual(roleAudience([member('a', ['role-1'])], [null, undefined]), []);
+});
+
+test('role holders AND payers both get it, deduped', () => {
+  // A role holder with no payment record is still in the room; a payer whose
+  // role was removed by accident still paid. Missing somebody costs more than
+  // messaging one person twice — and the dedupe means nobody is.
+  const members = [member('role-only', ['role-1']), member('both', ['role-1'])];
+  const subscriptions = [
+    sub({ userId: 'both' }),
+    sub({ userId: 'payer-only' }),
+  ];
+
+  const everyone = everyoneToNotify({
+    members,
+    roleIds: ['role-1'],
+    subscriptions,
+    guildId: 'old',
+    now,
+  });
+
+  assert.deepEqual(everyone.sort(), ['both', 'payer-only', 'role-only']);
+});
+
+test('the union never messages the same person twice', () => {
+  const everyone = everyoneToNotify({
+    members: [member('u1', ['role-1'])],
+    roleIds: ['role-1'],
+    subscriptions: [sub({ userId: 'u1' }), sub({ userId: 'u1', tier: 2 })],
+    guildId: 'old',
+    now,
+  });
+  assert.deepEqual(everyone, ['u1']);
+});

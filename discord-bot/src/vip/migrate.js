@@ -113,3 +113,46 @@ export function broadcastAudience(subscriptions, { guildId, tiers = null, now = 
         list.findIndex((other) => other.userId === subscription.userId) === index,
     );
 }
+
+/**
+ * Everyone who actually holds a VIP role, whatever the payment records say.
+ *
+ * The broadcast reached ELEVEN people out of a room of hundreds, and the reason
+ * is that it read the subscription store — which only knows about people who
+ * paid THROUGH THIS BOT. Everybody who was given a role by hand, or who paid
+ * before the bot existed, or who paid the owner directly, has the role and no
+ * record. From the store's point of view they are not members at all.
+ *
+ * The role is the truth of who is in the room. The store is a truth about who
+ * paid, and the two have never been the same set.
+ *
+ * Returns Discord user IDs. Bots are dropped: messaging them is a guaranteed
+ * failure and pollutes the count.
+ */
+export function roleAudience(members, roleIds) {
+  const wanted = new Set((roleIds ?? []).filter(Boolean));
+  if (wanted.size === 0) return [];
+
+  const found = new Set();
+  for (const member of members ?? []) {
+    if (member?.user?.bot) continue;
+    const has = member?.roles?.cache;
+    if (!has) continue;
+    if ([...wanted].some((roleId) => has.has(roleId))) found.add(member.id);
+  }
+  return [...found];
+}
+
+/**
+ * Everybody to write to: role holders AND anybody with a live subscription.
+ *
+ * The union rather than either alone. A role holder with no payment record is
+ * still in the room, and a payer whose role was removed by accident still paid.
+ * Missing somebody costs more than messaging one person twice — and the dedupe
+ * means nobody IS messaged twice.
+ */
+export function everyoneToNotify({ members, roleIds, subscriptions, guildId, now = Date.now() }) {
+  const fromRoles = roleAudience(members, roleIds);
+  const fromStore = broadcastAudience(subscriptions, { guildId, now }).map((s) => s.userId);
+  return [...new Set([...fromRoles, ...fromStore])];
+}

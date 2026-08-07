@@ -26,7 +26,7 @@ import { postPermissionHelp } from '../lib/channelAccess.js';
 import { createLogger } from '../lib/logger.js';
 import { buildMessage } from '../lib/build.js';
 import { signalPanelAction } from '../picks/signalPanel.js';
-import { broadcastAudience, migratedSubscriptions, planMigration } from './migrate.js';
+import { everyoneToNotify, migratedSubscriptions, planMigration } from './migrate.js';
 import { handleSignalPanelButton } from '../picks/commands.js';
 import { createSubscriptionCheckout } from '../payments/stripe.js';
 import { buildEvidence, formatEvidence, money } from './evidence.js';
@@ -1909,23 +1909,51 @@ async function handleAdminBroadcast(interaction, { store, config }) {
   const rawTiers = interaction.options.getString('tiers');
   const tiers = rawTiers
     ? rawTiers.split(',').map((part) => Number(part.trim())).filter(Number.isFinite)
-    : null;
+    : [1, 2, 3];
 
-  const audience = broadcastAudience(store.listSubscriptions(), {
+  // The ROLES are the truth of who is in the room.
+  //
+  // This used to read only the subscription store, and reached eleven people
+  // out of hundreds — because the store knows about people who paid THROUGH
+  // THIS BOT and nobody else. Everyone given a role by hand, or who paid before
+  // the bot existed, or who paid the owner directly, has the role and no
+  // record. From the store's point of view they were never members.
+  const roleIds = tiers.map((tier) => config.tiers?.[tier]?.roleId).filter(Boolean);
+  if (roleIds.length === 0) {
+    return interaction.editReply(
+      `❌ **No role is configured for tier ${tiers.join(', ')}.** Check \`ROLE_TIER_1/2/3\` on the host.`,
+    );
+  }
+
+  const guild = await interaction.client.guilds.fetch(config.guildId).catch(() => null);
+  if (!guild) return interaction.editReply('❌ Could not read this server.');
+
+  // The full member list, not the cache. The cache holds whoever happened to
+  // speak recently, which is a fraction of a paying room and is exactly how a
+  // broadcast quietly reaches a handful of people.
+  const members = await guild.members.fetch().catch(() => null);
+  if (!members) {
+    return interaction.editReply(
+      '❌ **Could not read the member list.** The bot needs the **Server Members Intent** ' +
+        'switched on in the Discord Developer Portal → your app → Bot → Privileged Gateway Intents.',
+    );
+  }
+
+  const userIds = everyoneToNotify({
+    members: [...members.values()],
+    roleIds,
+    subscriptions: store.listSubscriptions(),
     guildId: config.guildId,
-    tiers,
-    now: Date.now(),
   });
 
-  if (audience.length === 0) {
-    return interaction.editReply('Nobody active matches that. Nothing to send.');
+  if (userIds.length === 0) {
+    return interaction.editReply('Nobody holds those roles. Nothing to send.');
   }
 
   if (!send) {
     return interaction.editReply(
       [
-        `📣 **Preview — would DM ${audience.length} member(s)**` +
-          (tiers ? ` in tier ${tiers.join(', ')}` : ' across every tier'),
+        `📣 **Preview — would DM ${userIds.length} member(s)** holding tier ${tiers.join(', ')}.`,
         '',
         '```',
         message.slice(0, 1500),
@@ -1939,9 +1967,9 @@ async function handleAdminBroadcast(interaction, { store, config }) {
 
   let sent = 0;
   let failed = 0;
-  for (const subscription of audience) {
+  for (const userId of userIds) {
     try {
-      const user = await interaction.client.users.fetch(subscription.userId);
+      const user = await interaction.client.users.fetch(userId);
       await user.send(message);
       sent += 1;
     } catch {
@@ -1953,7 +1981,7 @@ async function handleAdminBroadcast(interaction, { store, config }) {
 
   commandLog.info(`Broadcast by ${interaction.user.tag}: ${sent} sent, ${failed} unreachable`);
   return interaction.editReply(
-    `📣 **Sent to ${sent}** member(s).` +
+    `📣 **Sent to ${sent}** of **${userIds.length}** member(s).` +
       (failed > 0 ? ` **${failed}** could not be reached — closed DMs, most likely.` : ''),
   );
 }
