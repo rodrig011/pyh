@@ -59,6 +59,11 @@ function fakeInteraction(commandName, subcommand, options = {}) {
         getUser: (name) => options[name] ?? null,
       },
       deferReply: async function (options) {
+        // Discord throws on a second deferral, and the member sees an error
+        // instead of an answer. Counted rather than flagged so a handler that
+        // defers again is caught here and not in production.
+        if (this.deferred) throw new Error('The reply to this interaction has already been sent or deferred.');
+        this.deferCount = (this.deferCount ?? 0) + 1;
         this.deferred = true;
         this.deferOptions = options ?? {};
       },
@@ -731,4 +736,45 @@ test('a broadcast typed with \\n arrives with real line breaks', () => {
 
   assert.equal(sent.split('\n').length, 3);
   assert.doesNotMatch(sent, /\\n/);
+});
+
+/**
+ * Every admin subcommand is deferred exactly once, by the router.
+ *
+ * `/vip-admin broadcast` answered "The reply to this interaction has already
+ * been sent or deferred" in front of a mod, and `/vip-admin version` — the
+ * command used to VERIFY a deploy — had the same fault and would have failed
+ * the same way. Both handlers deferred again after the router had already done
+ * it, once, for all of them.
+ *
+ * This drives every subcommand the router knows about, so a handler added later
+ * that forgets is caught here rather than by somebody pressing it.
+ */
+test('no admin handler defers a second time', async (t) => {
+  const [, admin] = buildCommands(config);
+
+  for (const sub of admin.options) {
+    const store = freshStore(t);
+    const { interaction } = fakeInteraction('vip-admin', sub.name, {
+      // Enough of an argument for the handlers that require one; the ones that
+      // do not simply ignore it.
+      to: 'some-other-guild',
+      message: 'hello',
+      code: 'ABC123',
+      user: { id: 'u1', tag: 'u#1', username: 'u' },
+    });
+
+    await handleInteraction(interaction, { store, config, client: fakeClient }).catch((error) => {
+      assert.doesNotMatch(
+        String(error?.message ?? error),
+        /already been sent or deferred/,
+        `${sub.name} deferred twice`,
+      );
+    });
+
+    assert.ok(
+      (interaction.deferCount ?? 0) <= 1,
+      `${sub.name} deferred ${interaction.deferCount} times`,
+    );
+  }
 });

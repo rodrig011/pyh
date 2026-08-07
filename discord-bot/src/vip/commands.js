@@ -959,7 +959,10 @@ async function handleAdminPanel(interaction, { config }) {
  * whose whole interface is a phone.
  */
 async function handleAdminVersion(interaction) {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  // No deferReply here: the router already deferred, once, for every admin
+  // subcommand. Deferring again throws "the reply to this interaction has
+  // already been sent or deferred" and the member sees an error instead of
+  // an answer.
   return interaction.editReply(buildMessage());
 }
 
@@ -1896,8 +1899,6 @@ export async function handleInteraction(interaction, context) {
  * the very access this message is probably about.
  */
 async function handleAdminBroadcast(interaction, { store, config }) {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
   // Discord's slash-command fields are single-line, so a message typed into one
   // arrives as a wall of text however it was composed. `\n` is accepted as an
   // escape and turned back into real breaks — the same trick the PEM key uses,
@@ -1965,8 +1966,6 @@ async function handleAdminBroadcast(interaction, { store, config }) {
  * run.
  */
 async function handleAdminMigrate(interaction, { store, config }) {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
   const toGuildId = interaction.options.getString('to');
   const confirm = interaction.options.getBoolean('confirm') ?? false;
   const now = Date.now();
