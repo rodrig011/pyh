@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nameMatches, normalizeName } from '../src/lib/names.js';
+import { looksLikeAFullName, nameMatches, normalizeName } from '../src/lib/names.js';
 
 // A wrong match here hands a stranger a paid membership. A missed one only
 // costs a mod one button press. The asymmetry is the whole design.
@@ -45,4 +45,19 @@ test('empty or missing names never match', () => {
   assert.equal(nameMatches('', 'Chris Swails'), false);
   assert.equal(nameMatches('Chris Swails', null), false);
   assert.equal(nameMatches('   ', '  '), false);
+});
+
+test('looksLikeAFullName accepts a plain first-and-last name', () => {
+  assert.ok(looksLikeAFullName('Jordan Rivera'));
+  assert.ok(looksLikeAFullName("Mary-Jane O'Brien"));
+  assert.ok(looksLikeAFullName('Maria de la Cruz'));
+});
+
+test('looksLikeAFullName rejects Discord handles, not just human names', () => {
+  assert.equal(looksLikeAFullName('xX_King420_Xx'), false, 'digits and underscores');
+  assert.equal(looksLikeAFullName('Chris'), false, 'one word, could be a first-name-only handle');
+  assert.equal(looksLikeAFullName('🔥 Deadshot 🔥'), false, 'emoji');
+  assert.equal(looksLikeAFullName(''), false);
+  assert.equal(looksLikeAFullName(null), false);
+  assert.equal(looksLikeAFullName('a b c d e'), false, 'too many words to plausibly be a name');
 });

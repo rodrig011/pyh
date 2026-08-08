@@ -51,3 +51,24 @@ export function nameMatches(a, b) {
   const long = first.length <= second.length ? second : first;
   return short.length >= 3 && long.startsWith(short);
 }
+
+/**
+ * Whether a Discord name is plausibly somebody's actual name, as opposed to a
+ * handle — "xX_King420_Xx" is not a hint about what a bank alert will say.
+ *
+ * A gamertag leans on digits, underscores and symbols; a real name is barely
+ * anything but letters and spaces, with a first and a last. Deliberately
+ * conservative: a false negative just means the placeholder gives plain
+ * instructions instead of a guess, while a false positive would suggest a
+ * handle as if it were a real name.
+ */
+export function looksLikeAFullName(raw) {
+  if (typeof raw !== 'string') return false;
+  const trimmed = raw.trim();
+  if (trimmed.length === 0 || trimmed.length > 40) return false;
+  if (/[^A-Za-z\s'-]/.test(trimmed)) return false;
+
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  if (words.length < 2 || words.length > 4) return false;
+  return words.every((word) => word.replace(/[^A-Za-z]/g, '').length >= 2);
+}
