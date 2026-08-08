@@ -569,7 +569,19 @@ const NAME_FIELD = 'payerName';
  * It is asked at the only moment the buyer is already stopped and paying
  * attention: the instant they choose a tier.
  */
-export function payerNameModal(tier, config) {
+/**
+ * The placeholder is a guess, not a label. Discord's own display name is
+ * often exactly what the bank has too — the buyer's actual name is a far
+ * better hint than any fixed example, and it costs nothing to offer since the
+ * modal already knows who is filling it in.
+ */
+export function payerNamePlaceholder(suggestedName) {
+  return suggestedName
+    ? `e.g. ${suggestedName} — or the exact name on your bank/Zelle if different`
+    : 'Exactly as it appears on your bank or Zelle app';
+}
+
+export function payerNameModal(tier, config, { suggestedName = null } = {}) {
   return new ModalBuilder()
     .setCustomId(`${NAME_MODAL_PREFIX}${tier}`)
     .setTitle(`${config.tiers[tier]?.label ?? `Tier ${tier}`} — one quick thing`)
@@ -578,7 +590,7 @@ export function payerNameModal(tier, config) {
         new TextInputBuilder()
           .setCustomId(NAME_FIELD)
           .setLabel('Name on your Zelle / bank account')
-          .setPlaceholder('e.g. Christopher Swails')
+          .setPlaceholder(payerNamePlaceholder(suggestedName))
           .setStyle(TextInputStyle.Short)
           .setMaxLength(60)
           .setRequired(true),
@@ -657,7 +669,8 @@ async function handleBuy(interaction, context) {
 
   // The modal has to be the first reply to the interaction, so it comes before
   // any deferral. Its submission carries on where this leaves off.
-  await interaction.showModal(payerNameModal(tier, context.config));
+  const suggestedName = interaction.member?.displayName ?? interaction.user?.globalName ?? interaction.user?.username ?? null;
+  await interaction.showModal(payerNameModal(tier, context.config, { suggestedName }));
 }
 
 /** The buyer answered "who is paying?" — now create the order and hand out the code. */
@@ -885,7 +898,8 @@ async function handleButton(interaction, context) {
         flags: MessageFlags.Ephemeral,
       });
     }
-    return interaction.showModal(payerNameModal(buyTier, context.config));
+    const suggestedName = interaction.member?.displayName ?? interaction.user?.globalName ?? interaction.user?.username ?? null;
+    return interaction.showModal(payerNameModal(buyTier, context.config, { suggestedName }));
   }
 
   if (interaction.customId === STATUS_BUTTON) {
