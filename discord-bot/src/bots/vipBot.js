@@ -26,6 +26,7 @@ import { sweepSubscriptions } from '../vip/subscriptionSweeper.js';
 import { checkRoleSetup, grantTierRoles } from '../vip/roles.js';
 import { storefrontMessage } from '../vip/storefront.js';
 import { shouldGreetDm } from '../vip/dmGreeting.js';
+import { banAlertText, isBanned } from '../vip/banlist.js';
 import { promptDueSettlements, publishVoteResults, syncKalshiAccount } from '../picks/commands.js';
 import { collectOnce } from '../signals/collector.js';
 import { observeOnce } from '../signals/recorder.js';
@@ -341,9 +342,34 @@ export function createVipBot(config = loadVipConfig()) {
   // Nobody reads pinned messages on the way in. A DM with the buttons is the
   // one moment a new arrival is actually paying attention.
   client.on(Events.GuildMemberAdd, async (member) => {
-    if (!config.welcomeDm) return;
     if (member.user.bot) return;
     if (member.guild.id !== config.guildId) return;
+
+    // Checked before anything else — before the welcome DM, before handing
+    // back paid roles. Mods hear about it first, in case the ban call itself
+    // fails and a human has to finish the job by hand.
+    if (isBanned(member.id, config.banUserIds)) {
+      await sendLog(client, config, new EmbedBuilder().setColor(COLORS.danger).setDescription(banAlertText(member)).setTimestamp(), {
+        ping: true,
+      });
+      try {
+        await member.ban({ reason: 'On the ban list' });
+        log.info(`Banned ${member.user.tag} (${member.id}) — on the ban list`);
+      } catch (error) {
+        log.error(`Could not ban ${member.user.tag} (${member.id}): ${error.message}`);
+        await sendLog(
+          client,
+          config,
+          new EmbedBuilder()
+            .setColor(COLORS.danger)
+            .setDescription(`⚠️ Could not ban <@${member.id}> automatically: \`${error.message}\`. Ban them by hand.`)
+            .setTimestamp(),
+        );
+      }
+      return;
+    }
+
+    if (!config.welcomeDm) return;
 
     // Somebody who bought from a DM before joining has a paid membership and no
     // roles. This is the moment that gets fixed — before the welcome, so their

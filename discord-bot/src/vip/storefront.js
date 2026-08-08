@@ -37,7 +37,7 @@ export function storefrontMessage(config, { includeTicket = true, welcome = fals
 
   const embed = new EmbedBuilder()
     .setColor(COLORS.gold)
-    .setTitle(welcome ? '👑 Welcome to KING T PARLAYS' : '👑 KING T PARLAYS — VIP access')
+    .setTitle(welcome ? `👑 Welcome to ${config.brandName}` : `👑 ${config.brandName} — VIP access`)
     .setDescription(
       [
         welcome

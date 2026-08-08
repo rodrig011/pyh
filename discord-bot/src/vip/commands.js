@@ -44,6 +44,7 @@ import {
 } from './subscriptions.js';
 import { sendDm, sendLog } from './notify.js';
 import { computeStats } from './stats.js';
+import { walletBalances } from './wallet.js';
 import { TICKET_CLOSE, TICKET_OPEN, closeTicket, openTicket } from './tickets.js';
 import { STATUS_BUTTON, storefrontMessage, tierFromButton } from './storefront.js';
 import {
@@ -198,6 +199,9 @@ export function buildCommands(config) {
       withShare(sub.setName('stats').setDescription('Members, revenue and who is about to expire')),
     )
     .addSubcommand((sub) =>
+      withShare(sub.setName('wallet').setDescription("Each team member's share of the revenue so far")),
+    )
+    .addSubcommand((sub) =>
       sub
         .setName('broadcast')
         .setDescription('DM every active member — you write the message')
@@ -345,7 +349,7 @@ function pricesEmbed(config, cardEnabled) {
   const sellable = availableTiers(config.tiers);
   return new EmbedBuilder()
     .setColor(COLORS.gold)
-    .setTitle('👑 KING T PARLAYS — VIP access')
+    .setTitle(`👑 ${config.brandName} — VIP access`)
     .setDescription(
       `Every tier includes everything below it. Each one is a **${config.subscriptionDays}-day membership**.\n` +
         'Buy with `/vip buy` — you get a private code and the roles land automatically.',
@@ -1047,6 +1051,30 @@ async function handleAdminStats(interaction, { store, config }) {
                 .filter(Boolean)
                 .join('\n'),
       },
+    )
+    .setTimestamp();
+
+  await interaction.editReply({ embeds: [embed] });
+}
+
+async function handleAdminWallet(interaction, { store, config }) {
+  const wallet = walletBalances(store.data.payments, config.team);
+
+  const embed = new EmbedBuilder()
+    .setColor(COLORS.gold)
+    .setTitle('💼 Team wallet')
+    .setDescription(
+      wallet.paidCount === 0
+        ? 'No payments recorded yet.'
+        : `Split evenly across **${config.team.length}** — ${wallet.paidCount} payment(s), ` +
+            `**${formatMoney(wallet.totalCents)}** total.`,
+    )
+    .addFields(
+      wallet.balances.map((member) => ({
+        name: member.name ? `${member.name} (<@${member.id}>)` : `<@${member.id}>`,
+        value: `**${formatMoney(member.cents)}**`,
+        inline: true,
+      })),
     )
     .setTimestamp();
 
@@ -1867,6 +1895,7 @@ export async function handleInteraction(interaction, context) {
     if (sub === 'evidence') return handleAdminEvidence(interaction, context);
     if (sub === 'members') return handleAdminMembers(interaction, context);
     if (sub === 'stats') return handleAdminStats(interaction, context);
+    if (sub === 'wallet') return handleAdminWallet(interaction, context);
     if (sub === 'version') return handleAdminVersion(interaction, context);
     if (sub === 'broadcast') return handleAdminBroadcast(interaction, context);
     if (sub === 'migrate') return handleAdminMigrate(interaction, context);

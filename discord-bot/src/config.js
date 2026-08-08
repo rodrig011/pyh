@@ -67,12 +67,27 @@ function numberList(name, fallback) {
   return parsed.sort((a, b) => b - a);
 }
 
+// The team the take is split between, evenly, on every real payment. Only a
+// fallback — set TEAM_MEMBER_IDS in Railway to change the roster without a
+// code edit, but a bot that cannot start without it would block launch over
+// a spreadsheet problem, not a code one.
+const DEFAULT_TEAM = [
+  { id: '751558809817841745', name: 'Rodrig0.11' },
+  { id: '1151805597705044059', name: 'lamdiv' },
+  { id: '1529651350713925723', name: 'Potleaf420' },
+  { id: '1339768036923805728', name: 'danielreseel' },
+  { id: '702712770835251261', name: 'cvvnumber' },
+];
+
 export function loadVipConfig() {
   const guildId = required('VIP_GUILD_ID');
   return {
     token: required('VIP_BOT_TOKEN'),
     clientId: required('VIP_CLIENT_ID'),
     guildId,
+    // The name shown on the storefront and the welcome DM. Set once in Railway
+    // rather than hardcoded, because it changed once already.
+    brandName: str('VIP_BRAND_NAME', 'The Playbook BTC 15 min'),
     // Profile picture applied by `npm run avatar`.
     avatarPath: str('VIP_BOT_AVATAR', 'assets/avatar-512.png'),
     username: str('VIP_BOT_USERNAME'),
@@ -81,6 +96,13 @@ export function loadVipConfig() {
     // Roles allowed to run /vip-admin. Once this is set, ONLY these roles (plus
     // anyone with Administrator) can touch orders, payments and memberships.
     modRoleIds: list('VIP_MOD_ROLE_IDS', list('VIP_ADMIN_ROLE_IDS')),
+    // Specific people who are banned on sight, by Discord user id — not name,
+    // which a banned person can change before ever rejoining.
+    banUserIds: list('BAN_USER_IDS'),
+    // Who the take is split between. See DEFAULT_TEAM above for the fallback.
+    team: str('TEAM_MEMBER_IDS')
+      ? list('TEAM_MEMBER_IDS').map((id) => ({ id, name: null }))
+      : DEFAULT_TEAM,
     // Mention the mod roles in the log channel whenever money moves.
     pingModsOnPayment: bool('PING_MODS_ON_PAYMENT', true),
     // Payments carrying no VIP code are assumed to be the owner's personal
