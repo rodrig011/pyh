@@ -12,7 +12,7 @@ import {
   shouldAlertWhale,
   whaleAlertMessage,
 } from './signalPanel.js';
-import { compareReport, newAccount, paperTick, report, reportDue, equity } from './paper.js';
+import { PROFILES, compareReport, newAccount, paperTick, report, reportDue, equity } from './paper.js';
 import { closeTimeOf } from './kalshi.js';
 import { hasCredentials } from './kalshiAccount.js';
 import { orderRecord } from './kalshiOrders.js';
@@ -618,6 +618,12 @@ export async function sweepLiveTrading(client, store, config, deps = {}) {
   if (!state?.armed || state.killed) return { traded: false };
   if (!hasCredentials(trading)) return { traded: false, reason: 'no credentials' };
 
+  // How hard this account trades — thinner edges and bigger bets on 'scalp',
+  // same as the paper account of that name. Never the dollar ceiling or the
+  // circuit breaker below: those come from state and checkTrade, not from
+  // here, and this profile has no way to touch them.
+  const profile = PROFILES[trading.profile] ?? PROFILES.careful;
+
   try {
     const asset = settings.defaultAsset ?? 'BTC';
     const [board, quote] = await Promise.all([
@@ -655,7 +661,7 @@ export async function sweepLiveTrading(client, store, config, deps = {}) {
     }
 
     // Flat: the engine picks, the rails decide, and the rails win.
-    const ladder = readBoard(candidates, context);
+    const ladder = readBoard(candidates, context, profile.engine);
     if (!ladder.best) return { traded: false };
 
     const best = ladder.best;
@@ -663,6 +669,8 @@ export async function sweepLiveTrading(client, store, config, deps = {}) {
       probability: best.read.winProbability,
       worstProbability: best.read.result.worstWinProbability ?? best.read.winProbability,
       priceDollars: best.read.entryCents / 100,
+      kellyFraction: profile.sizing?.kellyFraction,
+      maximumFraction: profile.sizing?.maximumFraction,
     });
 
     const check = checkTrade({

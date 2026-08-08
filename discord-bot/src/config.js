@@ -153,7 +153,7 @@ export function loadVipConfig() {
     tiers: {
       1: {
         tier: 1,
-        priceCents: money('TIER_1_PRICE', 5000),
+        priceCents: money('TIER_1_PRICE', 10000),
         roleId: str('ROLE_TIER_1'),
         label: str('TIER_1_LABEL', 'Signals'),
         perks: lines('TIER_1_PERKS', [
@@ -267,6 +267,11 @@ export function loadVipConfig() {
           ownerId: str('KALSHI_TRADING_OWNER_ID'),
           // The whole day's budget, in dollars. A ceiling, not a target.
           dailyLimitDollars: Number.parseFloat(str('KALSHI_DAILY_LIMIT', '20')),
+          // Which of paper.js's PROFILES the live engine trades with — 'careful'
+          // (default) or 'scalp'. This changes how OFTEN it trades and how BIG,
+          // never the daily dollar ceiling above or the circuit breaker: those
+          // are the limit this profile is not allowed to touch.
+          profile: str('KALSHI_TRADING_PROFILE', 'careful'),
           // Deliberately NOT settable from the environment. Arming is an
           // explicit act performed by a person in Discord, so that a copied
           // environment or a restored backup can never start a bot that trades.
