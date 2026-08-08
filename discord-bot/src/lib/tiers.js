@@ -14,6 +14,32 @@ export function tierTitle(tier, tiersConfig) {
   return label ? `${TIER_NAMES[tier]} · ${label}` : TIER_NAMES[tier];
 }
 
+/**
+ * The heading for one tier on the storefront.
+ *
+ * "VIP Tier 1 · Signals" reads as a tier system even where there is only one
+ * thing being sold. `onlyTier` drops the "VIP Tier N ·" part so a
+ * one-membership server just says "Signals" (or whatever the label is) — the
+ * plain name of the thing, not its position in a ladder nobody is climbing.
+ */
+export function tierHeading(tier, tiersConfig, { onlyTier = false } = {}) {
+  const label = tiersConfig?.[tier]?.label;
+  if (onlyTier) return label || TIER_NAMES[tier];
+  return tierTitle(tier, tiersConfig);
+}
+
+/**
+ * A membership this long is not really measured in days — showing "36500
+ * days" to a member is a bug even though the arithmetic is correct. There is
+ * no separate "lifetime" flag in the data; this is the one place that decides
+ * how long counts as forever.
+ */
+export const LIFETIME_DAYS_THRESHOLD = 3650;
+
+export function isLifetime(days) {
+  return days >= LIFETIME_DAYS_THRESHOLD;
+}
+
 /** The selling points of a tier, as a block of text. */
 export function tierPerks(tier, tiersConfig) {
   const perks = tiersConfig?.[tier]?.perks ?? [];

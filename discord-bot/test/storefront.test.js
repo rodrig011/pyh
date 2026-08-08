@@ -23,13 +23,18 @@ test('every sellable tier gets its own button, priced', () => {
   assert.deepEqual(labels, ['Signals — $50.00', 'VIP — $100.00', 'Elite — $200.00']);
 });
 
-test('a tier that is coming soon has no button to press', () => {
+test('a tier that is coming soon has no button, and no field either', () => {
   const partial = { ...config, tiers: { ...config.tiers, 3: { ...config.tiers[3], roleId: undefined } } };
-  const ids = buttons(storefrontMessage(partial)).map((button) => button.custom_id);
+  const message = storefrontMessage(partial);
+  const ids = buttons(message).map((button) => button.custom_id);
+  const fields = message.embeds[0].toJSON().fields;
 
   assert.ok(ids.includes(`${BUY_PREFIX}1`));
   assert.ok(!ids.includes(`${BUY_PREFIX}3`), 'nothing to click on a locked tier');
-  assert.match(storefrontMessage(partial).embeds[0].toJSON().fields[2].value, /Coming soon/);
+  // Not for sale means not shown at all — a "coming soon" tier is not part of
+  // the pitch, and showing it as a tier system was exactly the complaint.
+  assert.equal(fields.length, 2);
+  assert.ok(!fields.some((field) => /Coming soon/.test(field.value)));
 });
 
 test('the panel also offers status and the ticket button', () => {
@@ -53,6 +58,20 @@ test('with nothing on sale the panel still renders instead of crashing', () => {
 
   assert.equal(message.components.length, 1, 'only the status row');
   assert.ok(buttons(message).some((button) => button.custom_id === STATUS_BUTTON));
+});
+
+test('one sellable tier drops the "VIP Tier N ·" heading and the renewal talk', () => {
+  const single = {
+    ...config,
+    subscriptionDays: 36500,
+    tiers: { 1: config.tiers[1] },
+  };
+  const message = storefrontMessage(single);
+  const field = message.embeds[0].toJSON().fields[0];
+
+  assert.equal(field.name, 'Signals — $50.00');
+  assert.match(message.embeds[0].toJSON().description, /[Ll]ifetime access/);
+  assert.doesNotMatch(message.embeds[0].toJSON().description, /includes everything below it/);
 });
 
 test('the button id says which tier was pressed', () => {

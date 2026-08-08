@@ -18,6 +18,8 @@ import {
   availableTiers,
   formatMoney,
   includedTiers,
+  isLifetime,
+  tierHeading,
   tierPerks,
   tierTitle,
 } from '../lib/tiers.js';
@@ -347,27 +349,36 @@ function statusLabel(status) {
 
 function pricesEmbed(config, cardEnabled) {
   const sellable = availableTiers(config.tiers);
+  const lifetime = isLifetime(config.subscriptionDays);
+  const onlyTier = sellable.length === 1;
+
   return new EmbedBuilder()
     .setColor(COLORS.gold)
     .setTitle(`👑 ${config.brandName} — VIP access`)
     .setDescription(
-      `Every tier includes everything below it. Each one is a **${config.subscriptionDays}-day membership**.\n` +
+      (lifetime
+        ? 'One-time payment. Lifetime access — nothing to renew, ever.\n'
+        : onlyTier
+          ? `**${config.subscriptionDays}-day membership.**\n`
+          : `Every tier includes everything below it. Each one is a **${config.subscriptionDays}-day membership**.\n`) +
         'Buy with `/vip buy` — you get a private code and the roles land automatically.',
     )
     .addFields(
-      [1, 2, 3].map((tier) => {
-        const open = sellable.includes(tier);
+      sellable.map((tier) => {
         const perks = tierPerks(tier, config.tiers);
+        const price = formatMoney(config.tiers[tier].priceCents);
         return {
-          name: `${open ? '' : '🔒 '}${tierTitle(tier, config.tiers)} — ${formatMoney(config.tiers[tier].priceCents)} / ${config.subscriptionDays} days`,
-          value: open ? perks : `${perks}\n\n*Coming soon — not on sale yet.*`,
+          name: `${tierHeading(tier, config.tiers, { onlyTier })} — ${lifetime ? price : `${price} / ${config.subscriptionDays} days`}`,
+          value: perks,
         };
       }),
     )
     .setFooter({
-      text: cardEnabled
-        ? 'Card or Zelle · renew before it runs out and your days stack — you never lose time'
-        : '💳 Card and 💸 Venmo coming soon · for now it is Zelle · your days stack when you renew early',
+      text: lifetime
+        ? 'One payment, access for good — nothing to renew'
+        : cardEnabled
+          ? 'Card or Zelle · renew before it runs out and your days stack — you never lose time'
+          : '💳 Card and 💸 Venmo coming soon · for now it is Zelle · your days stack when you renew early',
     });
 }
 
@@ -686,12 +697,14 @@ async function handleStatus(interaction, { store, config }) {
 
   if (subscription?.status === SUBSCRIPTION_STATUS.ACTIVE) {
     const left = daysLeft(subscription, Date.now());
-    embed.setColor(left <= 3 ? COLORS.pending : COLORS.success).addFields({
+    const lifetime = isLifetime(config.subscriptionDays);
+    embed.setColor(!lifetime && left <= 3 ? COLORS.pending : COLORS.success).addFields({
       name: `✅ ${TIER_NAMES[subscription.tier]} — active`,
-      value:
-        `Expires ${time(Math.floor(subscription.expiresAt / 1000), 'R')} (${time(Math.floor(subscription.expiresAt / 1000), 'f')})\n` +
-        `${left} day${left === 1 ? '' : 's'} left of your ${config.subscriptionDays}-day period.\n` +
-        `Renew any time with \`/vip buy tier:${subscription.tier}\` — the days stack on top of what is left.`,
+      value: lifetime
+        ? 'Lifetime access — nothing to renew, ever.'
+        : `Expires ${time(Math.floor(subscription.expiresAt / 1000), 'R')} (${time(Math.floor(subscription.expiresAt / 1000), 'f')})\n` +
+          `${left} day${left === 1 ? '' : 's'} left of your ${config.subscriptionDays}-day period.\n` +
+          `Renew any time with \`/vip buy tier:${subscription.tier}\` — the days stack on top of what is left.`,
     });
   } else if (subscription) {
     embed.setColor(COLORS.warning).addFields({
@@ -1209,7 +1222,9 @@ async function handleAdminMembers(interaction, { store, config }) {
         .setTitle(`Active memberships (${active.length})`)
         .setDescription(lines.join('\n'))
         .setFooter({
-          text: `${config.subscriptionDays}-day memberships · roles are removed automatically when they run out`,
+          text: isLifetime(config.subscriptionDays)
+            ? 'Lifetime memberships · nothing to renew'
+            : `${config.subscriptionDays}-day memberships · roles are removed automatically when they run out`,
         }),
     ],
   });
@@ -1251,7 +1266,9 @@ async function handleAdminNotify(interaction, { store, config, client }) {
           [
             note,
             note ? '' : null,
-            `Your **${config.subscriptionDays}-day** period is running and ends ${time(expiresAt, 'F')} — ${time(expiresAt, 'R')}.`,
+            isLifetime(config.subscriptionDays)
+              ? 'This is a **lifetime membership** — nothing to renew, ever.'
+              : `Your **${config.subscriptionDays}-day** period is running and ends ${time(expiresAt, 'F')} — ${time(expiresAt, 'R')}.`,
             '',
             'We will DM you before it runs out. If it is not renewed by then, the VIP roles come off automatically.',
             `Renew any time with \`/vip buy tier:${tier}\` — the days stack on top of what is left, so renewing early never costs you time.`,

@@ -1,7 +1,7 @@
 import { ActionRowBuilder, EmbedBuilder, UserSelectMenuBuilder, time } from 'discord.js';
 import { COLORS } from '../lib/brand.js';
 import { createLogger } from '../lib/logger.js';
-import { TIER_NAMES, formatMoney, includedTiers, tierPricedAt } from '../lib/tiers.js';
+import { TIER_NAMES, formatMoney, includedTiers, isLifetime, tierPricedAt } from '../lib/tiers.js';
 import { markOrderPaid, matchPayment } from './orders.js';
 import { sendDm, sendLog } from './notify.js';
 import { grantTierRoles } from './roles.js';
@@ -162,8 +162,10 @@ export async function processPayment(client, store, config, payment) {
             ? `**Join the server and your access is waiting:** ${config.serverInviteUrl ?? '(ask a mod for the invite)'}\nYour roles are handed over the second you walk in.`
             : `You now have access to: **${tierList}**.`,
           '',
-          `This is a **${config.subscriptionDays}-day membership**. It ends ${time(expiresAt, 'R')} — ${time(expiresAt, 'F')}.`,
-          'We will remind you before then. If it is not renewed, the bot removes the roles automatically.',
+          isLifetime(config.subscriptionDays)
+            ? 'This is a **one-time, lifetime membership** — nothing to renew, ever.'
+            : `This is a **${config.subscriptionDays}-day membership**. It ends ${time(expiresAt, 'R')} — ${time(expiresAt, 'F')}.\n` +
+              'We will remind you before then. If it is not renewed, the bot removes the roles automatically.',
         ].join('\n'),
       )
       .setTimestamp(),

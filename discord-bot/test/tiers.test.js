@@ -5,8 +5,10 @@ import {
   formatMoney,
   highestTierCoveredBy,
   includedTiers,
+  isLifetime,
   resolveGrantedTier,
   roleIdsForTier,
+  tierHeading,
 } from '../src/lib/tiers.js';
 
 const tiers = {
@@ -83,4 +85,20 @@ test('overpaying never upgrades into a tier that is still coming soon', () => {
   };
   assert.deepEqual(resolveGrantedTier({ tier: 1 }, 20000, { tiers: onlyTier1 }), { ok: true, tier: 1 });
   assert.deepEqual(resolveGrantedTier({ tier: 1 }, 20000, { tiers }), { ok: true, tier: 3 });
+});
+
+test('isLifetime is about the day count meaning "forever", not a stored flag', () => {
+  assert.equal(isLifetime(30), false);
+  assert.equal(isLifetime(365), false);
+  assert.equal(isLifetime(3650), true);
+  assert.equal(isLifetime(36500), true);
+});
+
+test('tierHeading drops "VIP Tier N ·" when it is the only tier on sale', () => {
+  const withLabel = { 1: { label: 'Signals' } };
+  assert.equal(tierHeading(1, withLabel), 'VIP Tier 1 · Signals');
+  assert.equal(tierHeading(1, withLabel, { onlyTier: true }), 'Signals');
+
+  const noLabel = { 1: {} };
+  assert.equal(tierHeading(1, noLabel, { onlyTier: true }), 'VIP Tier 1');
 });

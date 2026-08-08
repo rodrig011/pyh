@@ -1,6 +1,6 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
 import { COLORS } from '../lib/brand.js';
-import { availableTiers, formatMoney, tierPerks, tierTitle } from '../lib/tiers.js';
+import { availableTiers, formatMoney, isLifetime, tierHeading, tierPerks } from '../lib/tiers.js';
 import { TICKET_OPEN } from './tickets.js';
 
 export const BUY_PREFIX = 'vip:buy:';
@@ -35,6 +35,9 @@ export function storefrontMessage(config, { includeTicket = true, welcome = fals
     config.stripe?.enabled && config.stripe?.secretKey && config.stripe?.webhookSecret,
   );
 
+  const lifetime = isLifetime(config.subscriptionDays);
+  const onlyTier = sellable.length === 1;
+
   const embed = new EmbedBuilder()
     .setColor(COLORS.gold)
     .setTitle(welcome ? `👑 Welcome to ${config.brandName}` : `👑 ${config.brandName} — VIP access`)
@@ -42,9 +45,13 @@ export function storefrontMessage(config, { includeTicket = true, welcome = fals
       [
         welcome
           ? 'Glad you made it. Here is what VIP gets you — tap a button below to join, no commands to remember.'
-          : 'Tap the tier you want. You get a private code and payment instructions — nothing public, nobody sees what you picked.',
+          : 'Tap the button below. You get a private code and payment instructions — nothing public, nobody sees what you picked.',
         '',
-        `Every tier is a **${config.subscriptionDays}-day membership** and includes everything below it.`,
+        lifetime
+          ? 'One-time payment. **Lifetime access** — nothing to renew, ever.'
+          : onlyTier
+            ? `**${config.subscriptionDays}-day membership.**`
+            : `Every tier is a **${config.subscriptionDays}-day membership** and includes everything below it.`,
         '',
         cardsOn
           ? '💳 **Card** — instant access, renews itself, cancel whenever.\n🏦 **Zelle**, 💸 **Venmo** or 🟩 **Cash App** — pay how you already pay.'
@@ -52,18 +59,13 @@ export function storefrontMessage(config, { includeTicket = true, welcome = fals
       ].join('\n'),
     )
     .addFields(
-      [1, 2, 3].map((tier) => {
-        const open = sellable.includes(tier);
-        return {
-          name: `${open ? '' : '🔒 '}${tierTitle(tier, config.tiers)} — ${formatMoney(config.tiers[tier].priceCents)}`,
-          value: open
-            ? tierPerks(tier, config.tiers)
-            : `${tierPerks(tier, config.tiers)}\n\n*Coming soon.*`,
-        };
-      }),
+      sellable.map((tier) => ({
+        name: `${tierHeading(tier, config.tiers, { onlyTier })} — ${formatMoney(config.tiers[tier].priceCents)}`,
+        value: tierPerks(tier, config.tiers),
+      })),
     )
     .setFooter({
-      text: 'Renew early and your days stack — you never lose time you paid for.',
+      text: lifetime ? 'Pay once — you keep access for good.' : 'Renew early and your days stack — you never lose time you paid for.',
     });
 
   const rows = [];
