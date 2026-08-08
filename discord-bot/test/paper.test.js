@@ -253,6 +253,35 @@ test('a contract that was EVER tradeable is not booked as a refusal', () => {
   if (everTradeable) assert.equal(account.refused, 0);
 });
 
+test('a real refusal reason is not overwritten by too_late in the contract\'s last seconds', () => {
+  // Priced out (>92c) the whole way through — refused for a real reason for
+  // the bulk of its life, with plenty of time on the clock.
+  const overpriced = ladder([95], [65_000]);
+  let account = newAccount();
+  account = paperTick(account, context({ secondsLeft: 500 }), { candidates: overpriced }).account;
+  account = paperTick(account, context({ secondsLeft: 200 }), { candidates: overpriced }).account;
+  // The last look before it rolls off happens to land inside the too-late
+  // window — which used to overwrite the real reason with a trivial one.
+  account = paperTick(account, context({ secondsLeft: 10 }), { candidates: overpriced }).account;
+  // Rolls off.
+  account = paperTick(account, context(), { candidates: ladder([50], [66_000]) }).account;
+
+  assert.equal(account.seen, 1);
+  assert.equal(account.refused, 1);
+  assert.deepEqual(account.census, { priced_out: 1 });
+  assert.equal(account.census.too_late, undefined);
+});
+
+test('a contract that truly is only ever seen too late is still recorded as too_late', () => {
+  const lastSecond = ladder([50], [65_000]);
+  let account = newAccount();
+  account = paperTick(account, context({ secondsLeft: 10 }), { candidates: lastSecond }).account;
+  account = paperTick(account, context(), { candidates: ladder([50], [66_000]) }).account;
+
+  assert.equal(account.seen, 1);
+  assert.deepEqual(account.census, { too_late: 1 });
+});
+
 test('a position remembers its OWN strike and settles against that one', () => {
   // The ladder makes this fatal rather than merely wrong: "whatever strike the
   // feed lists now" is a different contract on almost every tick, so settling

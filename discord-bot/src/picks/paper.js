@@ -224,6 +224,33 @@ function holdTick(account, position, input, { now, candidates }) {
 }
 
 /**
+ * A reason that is trivially true of every contract in its final seconds,
+ * whatever else was going on. `too_late` fires once secondsLeft drops below
+ * the floor no matter how good or bad the price was, and `no_clock` is the
+ * same failure with no clock read at all — so if the LAST look before a
+ * contract rolled off the board is the one kept, every contract that was
+ * never tradeable ends up filed as "too late", which is true of its last ten
+ * seconds and says nothing about the other fourteen minutes and fifty
+ * seconds it was refused for.
+ */
+const TRIVIAL_TAIL_REASONS = new Set(['too_late', 'no_clock']);
+
+/**
+ * The reason worth remembering for a contract, between what was already on
+ * record and what this tick just saw.
+ *
+ * A substantive refusal (no_edge, wide_spread, priced_out, ...) always wins,
+ * because it is the actual answer to "why didn't this trade". A trivial tail
+ * reason only gets recorded when nothing more informative was ever seen —
+ * it must not be allowed to overwrite a real answer just for arriving last.
+ */
+function betterReason(existing, next) {
+  if (existing === undefined) return next;
+  if (!TRIVIAL_TAIL_REASONS.has(next)) return next;
+  return TRIVIAL_TAIL_REASONS.has(existing) ? next : existing;
+}
+
+/**
  * Books the board, counting each CONTRACT once rather than each sweep.
  *
  * A contract stays "in view" while it is listed, and its entry is overwritten
@@ -254,7 +281,7 @@ function countLook(account, board) {
       ? null
       : window[key] === null
         ? null
-        : entry.read.result?.reason ?? 'no read';
+        : betterReason(window[key], entry.read.result?.reason ?? 'no read');
   }
 
   // Anything no longer listed has finished. Count it, once.
