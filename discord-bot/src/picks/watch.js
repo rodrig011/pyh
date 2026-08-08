@@ -18,6 +18,7 @@ import { hasCredentials } from './kalshiAccount.js';
 import { orderRecord } from './kalshiOrders.js';
 import { checkTrade } from './riskLimits.js';
 import { recommendSize } from '../signals/sizing.js';
+import { leastBadCandidate, shouldForceEntry, tradesInWindow } from './forceTrade.js';
 
 /**
  * Watching a position somebody actually holds, and telling them when to leave.
@@ -662,22 +663,52 @@ export async function sweepLiveTrading(client, store, config, deps = {}) {
 
     // Flat: the engine picks, the rails decide, and the rails win.
     const ladder = readBoard(candidates, context, profile.engine);
-    if (!ladder.best) return { traded: false };
+    const orders = store.listTradeOrders();
 
-    const best = ladder.best;
-    const sized = recommendSize({
-      probability: best.read.winProbability,
-      worstProbability: best.read.result.worstWinProbability ?? best.read.winProbability,
-      priceDollars: best.read.entryCents / 100,
-      kellyFraction: profile.sizing?.kellyFraction,
-      maximumFraction: profile.sizing?.maximumFraction,
-    });
+    let best = ladder.best;
+    let forced = false;
+
+    // Nothing cleared the bar. If a minimum activity floor is configured and
+    // the trailing window is short of it, force the least-bad contract onto
+    // the board instead of standing aside — see forceTrade.js for why this is
+    // kept apart from the model-driven path below.
+    if (!best && trading.forceTradesPerWindow > 0) {
+      const windowMs = (Number(trading.forceWindowHours) || 6) * 60 * 60 * 1000;
+      const inWindow = tradesInWindow(orders, { windowMs, now });
+      if (
+        shouldForceEntry({
+          ordersInWindow: inWindow,
+          targetPerWindow: trading.forceTradesPerWindow,
+        })
+      ) {
+        const candidate = leastBadCandidate(ladder.reads);
+        if (candidate) {
+          best = candidate;
+          forced = true;
+        }
+      }
+    }
+
+    if (!best) return { traded: false };
+
+    const sized = forced
+      ? null
+      : recommendSize({
+          probability: best.read.winProbability,
+          worstProbability: best.read.result.worstWinProbability ?? best.read.winProbability,
+          priceDollars: best.read.entryCents / 100,
+          kellyFraction: profile.sizing?.kellyFraction,
+          maximumFraction: profile.sizing?.maximumFraction,
+        });
 
     const check = checkTrade({
       state,
-      orders: store.listTradeOrders(),
-      // What the model would want, before any rail sees it.
-      wantDollars: (Number(state.dailyLimitDollars) || 20) * (sized?.suggested ?? 0) * 4,
+      orders,
+      // What the model would want, before any rail sees it. A forced entry
+      // asks for a small fixed stake instead — there is no edge to size off.
+      wantDollars: forced
+        ? Number(trading.forceTradeDollars) || 2
+        : (Number(state.dailyLimitDollars) || 20) * (sized?.suggested ?? 0) * 4,
       hasCredentials: true,
       openPosition: null,
       secondsLeft: context.secondsLeft,
@@ -711,9 +742,13 @@ export async function sweepLiveTrading(client, store, config, deps = {}) {
       limitCents,
       result,
       at: now,
-      reason: `model ${Math.round(best.read.winProbability * 100)}% vs market ${Math.round(
-        best.read.marketWinProbability * 100,
-      )}%`,
+      reason: forced
+        ? `FORCED (activity floor) — ${Math.round(best.read.winProbability * 100)}% vs market ${Math.round(
+            best.read.marketWinProbability * 100,
+          )}%, no edge required`
+        : `model ${Math.round(best.read.winProbability * 100)}% vs market ${Math.round(
+            best.read.marketWinProbability * 100,
+          )}%`,
     });
     store.appendTradeOrder(record);
 
@@ -733,7 +768,7 @@ export async function sweepLiveTrading(client, store, config, deps = {}) {
       });
     }
 
-    await tellOwner(client, trading, liveTradeMessage({ record, check, read: best.read, asset }), log);
+    await tellOwner(client, trading, liveTradeMessage({ record, check, read: best.read, asset, forced }), log);
     log.info(`LIVE ${result.status}: ${contracts} ${record.side} on ${best.ticker} at ${limitCents}`);
     return { traded: result.status === 'placed', status: result.status };
   } catch (error) {
@@ -813,7 +848,7 @@ async function tellOwner(client, trading, body, log) {
   await user.send(body).catch((error) => log.debug(`Live trade DM failed: ${error.message}`));
 }
 
-function liveTradeMessage({ record, check, read, asset }) {
+function liveTradeMessage({ record, check, read, asset, forced = false }) {
   const up = record.side === 'yes';
   if (record.status !== 'placed') {
     return [
@@ -826,10 +861,14 @@ function liveTradeMessage({ record, check, read, asset }) {
   }
 
   return [
-    `💵 **REAL TRADE — BUY ${up ? 'UP' : 'DOWN'} @ ${record.limitCents}%** · ${asset}`,
+    forced
+      ? `🎲 **FORCED TRADE (activity floor, no edge) — BUY ${up ? 'UP' : 'DOWN'} @ ${record.limitCents}%** · ${asset}`
+      : `💵 **REAL TRADE — BUY ${up ? 'UP' : 'DOWN'} @ ${record.limitCents}%** · ${asset}`,
     '',
     `**${record.contracts} contracts · $${record.costDollars.toFixed(2)}** of your own money.`,
-    `Model ${Math.round(read.winProbability * 100)}% vs market ${Math.round(read.marketWinProbability * 100)}%.`,
+    forced
+      ? `Model ${Math.round(read.winProbability * 100)}% vs market ${Math.round(read.marketWinProbability * 100)}% — this did **not** clear the edge bar, it was forced to hit the activity floor.`
+      : `Model ${Math.round(read.winProbability * 100)}% vs market ${Math.round(read.marketWinProbability * 100)}%.`,
     '',
     `Left today: **$${check.remainingToday.toFixed(2)}** of $${check.limit.toFixed(2)}.`,
     '',

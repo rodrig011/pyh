@@ -63,7 +63,14 @@ export const PROFILES = {
     // spent flat on a market that is still quotable. The settlement-averaging
     // window (60s) already accounts for a close entry when scoring the edge,
     // so this is exposure to more of the window, not a blind spot.
-    engine: { minimumEdgeCents: 3, minimumWorstCaseEdgeCents: 0, minimumSecondsLeft: 20 },
+    //
+    // Pushed further still, on request, past what the measurements above
+    // support: 1¢ minimum edge, and a worst case allowed 2¢ NEGATIVE. That
+    // second number is not a typo — it means a trade goes through even when
+    // the pessimistic read says the edge is probably a small loser. This is
+    // the most aggressive this profile goes without ignoring the model
+    // outright; see forceTrade.js for the mode that does that.
+    engine: { minimumEdgeCents: 1, minimumWorstCaseEdgeCents: -2, minimumSecondsLeft: 20 },
     // Double the Kelly portion and double the cap. Size is what actually bounds
     // the damage on this instrument — stops were measured and they are worse —
     // so this is the knob that carries the real risk of the profile.

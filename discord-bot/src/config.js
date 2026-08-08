@@ -272,6 +272,16 @@ export function loadVipConfig() {
           // never the daily dollar ceiling above or the circuit breaker: those
           // are the limit this profile is not allowed to touch.
           profile: str('KALSHI_TRADING_PROFILE', 'careful'),
+          // A minimum ACTIVITY floor, off by default. When set, if fewer than
+          // this many orders were placed in the trailing window, the next flat
+          // sweep forces an entry on the least-bad contract on the board even
+          // with no edge — see src/picks/forceTrade.js. The dollar rails above
+          // still apply to a forced trade exactly as they do to a real one.
+          forceTradesPerWindow: int('KALSHI_FORCE_TRADES_PER_WINDOW', 0),
+          forceWindowHours: Number.parseFloat(str('KALSHI_FORCE_WINDOW_HOURS', '6')),
+          // The stake a forced trade asks for, before the same per-trade and
+          // daily caps every other trade goes through are applied.
+          forceTradeDollars: Number.parseFloat(str('KALSHI_FORCE_TRADE_DOLLARS', '2')),
           // Deliberately NOT settable from the environment. Arming is an
           // explicit act performed by a person in Discord, so that a copied
           // environment or a restored backup can never start a bot that trades.
