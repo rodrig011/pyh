@@ -57,7 +57,13 @@ export const PROFILES = {
     // break-even rather than +2¢: both of those gates exist to reject edges
     // that are really vol-estimate noise, and loosening them means accepting
     // some of that noise on purpose.
-    engine: { minimumEdgeCents: 3, minimumWorstCaseEdgeCents: 0 },
+    //
+    // minimumSecondsLeft down from the DEFAULTS' 45: careful's whole ladder
+    // goes dead in the last 45 seconds of every window, which is real time
+    // spent flat on a market that is still quotable. The settlement-averaging
+    // window (60s) already accounts for a close entry when scoring the edge,
+    // so this is exposure to more of the window, not a blind spot.
+    engine: { minimumEdgeCents: 3, minimumWorstCaseEdgeCents: 0, minimumSecondsLeft: 20 },
     // Double the Kelly portion and double the cap. Size is what actually bounds
     // the damage on this instrument — stops were measured and they are worse —
     // so this is the knob that carries the real risk of the profile.

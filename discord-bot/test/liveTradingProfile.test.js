@@ -58,6 +58,21 @@ test('scalp accepts a thin edge careful refuses as no_edge', () => {
   assert.ok(scalp.tradeable.length > careful.tradeable.length);
 });
 
+test('scalp still trades inside the last 45 seconds, where careful goes flat', () => {
+  // A real edge (44c vs. fair here), but only 30 seconds left — careful's
+  // minimumSecondsLeft (the DEFAULTS' 45) refuses this outright, whatever the
+  // edge is.
+  const closeToTheBell = { ...CONTEXT, secondsLeft: 30 };
+  const ladder = [strike(65_000, 44)];
+
+  const careful = readBoard(ladder, closeToTheBell, PROFILES.careful.engine);
+  assert.equal(careful.reads[0].read.tradeable, false);
+  assert.equal(careful.reads[0].read.result.reason, 'too_late');
+
+  const scalp = readBoard(ladder, closeToTheBell, PROFILES.scalp.engine);
+  assert.equal(scalp.reads[0].read.tradeable, true);
+});
+
 test('an unconfigured profile falls back to careful, not to nothing', () => {
   const fallback = PROFILES['does-not-exist'] ?? PROFILES.careful;
   assert.equal(fallback, PROFILES.careful);
