@@ -4,6 +4,7 @@ import { createLogger } from './lib/logger.js';
 import { createPhotoBot } from './bots/photoBot.js';
 import { createSignalBot } from './bots/signalBot.js';
 import { createVipBot } from './bots/vipBot.js';
+import { runFarewell } from './vip/farewell.js';
 
 const log = createLogger('main');
 
@@ -42,8 +43,7 @@ if (process.env.VIP_BOT_TOKEN) {
       //
       // Price samples are written to memory on every tick and only persisted
       // every tenth one, so a restart silently threw away up to five minutes
-      // of history — and this bot redeploys often. Eight deploys in a day is
-      // forty minutes of the volatility estimate's own input, gone, which is
+      // of the volatility estimate's own input, gone, which is
       // why the engine kept reading 91 samples out of a possible 120.
       //
       // Railway sends SIGTERM before killing the container, so there is time.
@@ -55,6 +55,16 @@ if (process.env.VIP_BOT_TOKEN) {
     },
   });
   await login('VIP bot', client, config.token);
+
+  // Run the one-time farewell after successful VIP bot login. The farewell
+  // module itself ensures the action is only performed once by persisting a flag.
+  try {
+    runFarewell({ client, store, vipConfig: config, log }).catch((err) =>
+      log.warn(`VIP farewell encountered an error: ${err?.message ?? err}`),
+    );
+  } catch (err) {
+    log.warn(`VIP farewell invocation failed: ${err?.message ?? err}`);
+  }
 } else {
   log.warn('VIP_BOT_TOKEN is not set: the VIP bot will not start');
 }
