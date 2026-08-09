@@ -50,6 +50,11 @@ const EMPTY = {
   // one. Caught by a test that had nothing to do with trading, which is the
   // only reason it was caught at all.
   tradeOrders: [],
+  // A position entered by hand outside the bot (Kalshi's own app, say) and
+  // tracked here only so the dashboard can tell that one person when to cash
+  // out. Never a real order — the dashboard places nothing — and separate
+  // from `risk.position`, which is the live bot's own money.
+  dashboardPosition: null,
   // Sports parlays: no live price to grade them against, so the outcome is
   // whatever a mod presses by hand once the game is decided. Kept separate
   // from `picks` — a parlay has no strike, no clock, none of the fields a
@@ -410,6 +415,21 @@ export function createStore(filePath) {
 
     listTradeOrders() {
       return data.tradeOrders ?? [];
+    },
+
+    dashboardPosition() {
+      return data.dashboardPosition ?? null;
+    },
+
+    setDashboardPosition(position) {
+      data.dashboardPosition = position;
+      save();
+      return position;
+    },
+
+    clearDashboardPosition() {
+      data.dashboardPosition = null;
+      save();
     },
 
     /**

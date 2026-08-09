@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { computeRead, positionAction, tradeRecord } from '../src/dashboard/read.js';
+import { computeRead, enterManualPosition, manualEntry, positionAction, tradeRecord } from '../src/dashboard/read.js';
 import { PROFILES } from '../src/picks/paper.js';
 
 const config = {
@@ -163,4 +163,67 @@ test('tradeRecord counts wins and losses from the real trade ledger only', () =>
 
 test('tradeRecord has no win rate before anything has settled', () => {
   assert.deepEqual(tradeRecord([]), { wins: 0, losses: 0, breakEven: 0, total: 0, winRate: null });
+});
+
+const quotes = { yesBidCents: 49, yesAskCents: 51, noBidCents: 49, noAskCents: 51 };
+
+test('manualEntry prices the side actually clicked, not the model\'s side', () => {
+  const up = manualEntry('up', { ticker: 'K-1', strike: 65_000, quotes, now: 5 });
+  assert.deepEqual(up, { ticker: 'K-1', side: 'up', strike: 65_000, entryCents: 51, manual: true, at: 5 });
+
+  const down = manualEntry('down', { ticker: 'K-1', strike: 65_000, quotes, now: 5 });
+  assert.equal(down.entryCents, 51); // the NO ask, same number here by construction
+  assert.equal(down.side, 'down');
+});
+
+test('manualEntry refuses a side that is not up or down', () => {
+  assert.equal(manualEntry('sideways', { ticker: 'K-1', strike: 65_000, quotes }), null);
+});
+
+test('manualEntry refuses when there is nothing to price against', () => {
+  assert.equal(manualEntry('up', { ticker: null, strike: 65_000, quotes }), null);
+  assert.equal(manualEntry('up', { ticker: 'K-1', strike: 65_000, quotes: null }), null);
+});
+
+function mutableStore() {
+  let dashboardPosition = null;
+  return {
+    listSamples: () => history.map((price, i) => ({ at: Date.now() - i * 1000, price })),
+    riskState: () => null,
+    dashboardPosition: () => dashboardPosition,
+    setDashboardPosition: (p) => { dashboardPosition = p; return p; },
+    clearDashboardPosition: () => { dashboardPosition = null; },
+    listTradeOrders: () => [],
+  };
+}
+
+test('enterManualPosition writes a position the next read then picks up', async () => {
+  const now = Date.now();
+  const store = mutableStore();
+
+  const entered = await enterManualPosition(store, config, 'up', {
+    openBoard: async () => board(50, 65_000, now + 500_000),
+    fetchSpotPrice: async () => ({ price: 65_000 }),
+    now,
+  });
+  assert.equal(entered.ok, true);
+  assert.equal(store.dashboardPosition().side, 'up');
+
+  const read = await computeRead(store, config, {
+    openBoard: async () => board(50, 65_000, now + 500_000),
+    fetchSpotPrice: async () => ({ price: 65_000 }),
+    now,
+  });
+  assert.ok(read.position);
+  assert.equal(read.position.manual, true);
+});
+
+test('enterManualPosition fails cleanly with no market to price against', async () => {
+  const store = mutableStore();
+  const result = await enterManualPosition(store, config, 'up', {
+    openBoard: async () => ({ contracts: [] }),
+    fetchSpotPrice: async () => ({ price: 65_000 }),
+  });
+  assert.equal(result.ok, false);
+  assert.equal(store.dashboardPosition(), null);
 });

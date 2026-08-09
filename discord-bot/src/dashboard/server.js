@@ -3,7 +3,7 @@ import { createLogger } from '../lib/logger.js';
 import { openBoard } from '../picks/kalshi.js';
 import { fetchSpotPrice } from '../picks/price.js';
 import { fetchTrades } from '../picks/whales.js';
-import { computeRead } from './read.js';
+import { computeRead, enterManualPosition } from './read.js';
 import { dashboardPage } from './page.js';
 
 const log = createLogger('dashboard');
@@ -22,10 +22,10 @@ export function isAuthorized(requestToken, configuredToken) {
 }
 
 /**
- * A read-only page and a JSON endpoint behind it, for looking at the model's
- * current call from a browser instead of Discord. Never places an order,
- * never touches the store beyond reading price samples — this cannot affect
- * trading even if the page is left open and forgotten.
+ * A page for looking at the model's current call from a browser instead of
+ * Discord, plus two small write endpoints for tracking a position entered by
+ * hand elsewhere (Kalshi's own app, say). Never places a real order — the
+ * only thing it ever writes is "I'm in, watch this for me."
  */
 export function startDashboardServer({ store, config, deps = {} }) {
   const boardFetch = deps.openBoard ?? openBoard;
@@ -34,16 +34,21 @@ export function startDashboardServer({ store, config, deps = {} }) {
   const dashboard = config.dashboard ?? {};
   const page = dashboardPage(config.brandName ?? 'Live Read');
 
+  function respondJson(response, status, body) {
+    response.writeHead(status, { 'content-type': 'application/json' });
+    response.end(JSON.stringify(body));
+  }
+
+  function authorized(request, url) {
+    const token = request.headers['x-dashboard-token'] ?? url.searchParams.get('token');
+    return isAuthorized(token, dashboard.token);
+  }
+
   const server = createServer(async (request, response) => {
     const url = new URL(request.url, 'http://localhost');
 
     if (url.pathname === '/api/read') {
-      const token = request.headers['x-dashboard-token'] ?? url.searchParams.get('token');
-      if (!isAuthorized(token, dashboard.token)) {
-        response.writeHead(401, { 'content-type': 'application/json' });
-        response.end(JSON.stringify({ ok: false, reason: 'unauthorized' }));
-        return;
-      }
+      if (!authorized(request, url)) return respondJson(response, 401, { ok: false, reason: 'unauthorized' });
 
       try {
         const read = await computeRead(store, config, {
@@ -51,13 +56,32 @@ export function startDashboardServer({ store, config, deps = {} }) {
           fetchSpotPrice: priceFetch,
           fetchTrades: tradesFetch,
         });
-        response.writeHead(200, { 'content-type': 'application/json' });
-        response.end(JSON.stringify(read));
+        respondJson(response, 200, read);
       } catch (error) {
         log.error(`Read failed: ${error.message}`);
-        response.writeHead(200, { 'content-type': 'application/json' });
-        response.end(JSON.stringify({ ok: false, reason: 'internal error' }));
+        respondJson(response, 200, { ok: false, reason: 'internal error' });
       }
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/enter') {
+      if (!authorized(request, url)) return respondJson(response, 401, { ok: false, reason: 'unauthorized' });
+
+      const side = url.searchParams.get('side');
+      try {
+        const result = await enterManualPosition(store, config, side, { openBoard: boardFetch, fetchSpotPrice: priceFetch });
+        respondJson(response, result.ok ? 200 : 400, result);
+      } catch (error) {
+        log.error(`Manual entry failed: ${error.message}`);
+        respondJson(response, 200, { ok: false, reason: 'internal error' });
+      }
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/exit') {
+      if (!authorized(request, url)) return respondJson(response, 401, { ok: false, reason: 'unauthorized' });
+      store.clearDashboardPosition();
+      respondJson(response, 200, { ok: true });
       return;
     }
 

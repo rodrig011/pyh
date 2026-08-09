@@ -19,20 +19,21 @@ import { buildCandles } from './candles.js';
 export function positionAction(position, board, { now, spot = null, prices = [] }) {
   if (!position) return null;
   const profile = PROFILES.scalp;
+  const manual = Boolean(position.manual);
 
   const mine = (board?.contracts ?? []).find((candidate) => candidate?.market?.ticker === position.ticker);
-  if (!mine) return { action: 'settling', ticker: position.ticker, side: position.side };
+  if (!mine) return { action: 'settling', ticker: position.ticker, side: position.side, manual };
 
   const closesAt = closeTimeOf(mine.market);
   const secondsLeft = Number.isFinite(closesAt) ? (closesAt - now) / 1000 : null;
-  if (!(secondsLeft > 0)) return { action: 'settling', ticker: position.ticker, side: position.side };
+  if (!(secondsLeft > 0)) return { action: 'settling', ticker: position.ticker, side: position.side, manual };
 
   const read = directionalRead(
     { prices, spot, strike: position.strike, marketPriceCents: mine.price, market: mine.market, secondsLeft },
     profile.engine,
   );
   const quotes = read.result?.quotes;
-  if (!quotes) return { action: 'holding', ticker: position.ticker, side: position.side };
+  if (!quotes) return { action: 'holding', ticker: position.ticker, side: position.side, manual };
 
   const heldBid = position.side === 'up' ? quotes.yesBidCents : quotes.noBidCents;
   const call = scalpDecision(
@@ -47,7 +48,27 @@ export function positionAction(position, board, { now, spot = null, prices = [] 
     entryCents: position.entryCents,
     nowCents: heldBid,
     reason: call.reason ?? null,
+    manual,
   };
+}
+
+/**
+ * What a manually-entered position should be recorded as, from a button
+ * press on the dashboard showing the current board.
+ *
+ * The entry price is the side's own executable price right now — the ask a
+ * buyer would actually pay — not the model's own called side or entry, since
+ * somebody clicking "I'm in DOWN" while the model favours UP is telling the
+ * truth about their own trade, not asking the model to agree with them.
+ */
+export function manualEntry(side, { ticker, strike, quotes, now = Date.now() }) {
+  if (side !== 'up' && side !== 'down') return null;
+  if (!ticker || !(strike > 0) || !quotes) return null;
+
+  const entryCents = side === 'up' ? quotes.yesAskCents : quotes.noAskCents;
+  if (!(entryCents > 0)) return null;
+
+  return { ticker, side, strike, entryCents, manual: true, at: now };
 }
 
 /**
@@ -67,6 +88,51 @@ export function tradeRecord(orders) {
     total: settled.length,
     winRate: wins + losses > 0 ? wins / (wins + losses) : null,
   };
+}
+
+/**
+ * Records "I'm in" from a dashboard button press — reads the board fresh, at
+ * the moment of the click, rather than trusting whatever was on screen from
+ * the last poll a few seconds ago.
+ */
+export async function enterManualPosition(store, config, side, { openBoard, fetchSpotPrice, now = Date.now() }) {
+  const settings = config.picks ?? {};
+  const kalshi = settings.kalshi ?? {};
+  const asset = settings.defaultAsset ?? 'BTC';
+
+  const [board, quote] = await Promise.all([
+    openBoard(kalshi, { now }).catch(() => null),
+    fetchSpotPrice(asset),
+  ]);
+
+  const contract = nearestTheMoneyContract(board?.contracts);
+  if (!contract) return { ok: false, reason: 'No readable market right now' };
+
+  const market = contract.market ?? {};
+  const strike = Number.isFinite(Number(market.floor_strike))
+    ? Number(market.floor_strike)
+    : Number(market.cap_strike);
+
+  const prices = store
+    .listSamples(asset)
+    .filter((sample) => sample?.at >= now - 60 * 60 * 1000 && sample?.price > 0)
+    .map((sample) => sample.price);
+  const secondsLeft = Number.isFinite(closeTimeOf(market)) ? (closeTimeOf(market) - now) / 1000 : null;
+
+  const read = directionalRead({
+    prices,
+    spot: quote?.price ?? null,
+    strike,
+    marketPriceCents: contract.price,
+    market,
+    secondsLeft,
+  });
+
+  const entry = manualEntry(side, { ticker: market.ticker, strike, quotes: read.result?.quotes, now });
+  if (!entry) return { ok: false, reason: 'Could not price that side right now' };
+
+  store.setDashboardPosition(entry);
+  return { ok: true, position: entry };
 }
 
 /**
@@ -139,13 +205,11 @@ export async function computeRead(
     { bucketMs: 60_000, limit: 60 },
   );
 
-  // The live bot's own held position, if any — checked against the SAME
-  // board already fetched above, not a second call.
-  const position = positionAction(store.riskState?.()?.position ?? null, board, {
-    now,
-    spot: quote.price,
-    prices,
-  });
+  // The live bot's own position wins if it has one — real money, the
+  // authoritative source. Otherwise fall back to whatever was entered by
+  // hand on the dashboard itself.
+  const held = store.riskState?.()?.position ?? store.dashboardPosition?.() ?? null;
+  const position = positionAction(held, board, { now, spot: quote.price, prices });
 
   const record = tradeRecord(store.listTradeOrders?.() ?? []);
 

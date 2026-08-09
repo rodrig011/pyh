@@ -96,6 +96,24 @@ export function dashboardPage(brandName) {
   .record b { color: var(--ink); }
   .record .up { color: var(--up); } .record .down { color: var(--down); }
 
+  .enter-row { display: flex; gap: 10px; margin-bottom: 14px; }
+  .enterBtn {
+    flex: 1; padding: 12px; border-radius: 8px; font-family: inherit; font-size: 12px; letter-spacing: 0.08em;
+    text-transform: uppercase; font-weight: 700; cursor: pointer; border: 1px solid; background: transparent; transition: all 0.15s ease;
+  }
+  .enterBtn.up { color: var(--up); border-color: rgba(43,255,163,0.4); }
+  .enterBtn.up:hover { background: rgba(43,255,163,0.1); box-shadow: 0 0 14px rgba(43,255,163,0.3); }
+  .enterBtn.down { color: var(--down); border-color: rgba(255,56,96,0.4); }
+  .enterBtn.down:hover { background: rgba(255,56,96,0.1); box-shadow: 0 0 14px rgba(255,56,96,0.3); }
+  .enterBtn:disabled { opacity: 0.4; cursor: default; }
+
+  .clearBtn {
+    display: block; margin: 8px auto 0; padding: 5px 14px; border-radius: 6px; font-family: inherit; font-size: 10px;
+    letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; border: 1px solid rgba(255,255,255,0.2);
+    background: rgba(255,255,255,0.04); color: var(--dim);
+  }
+  .clearBtn:hover { color: var(--ink); border-color: rgba(255,255,255,0.4); }
+
   .asset { text-align: center; font-size: 12px; letter-spacing: 0.1em; color: var(--dim); text-transform: uppercase; margin-bottom: 10px; }
   .call-wrap { position: relative; display: flex; align-items: center; justify-content: center; margin: 6px 0 4px; height: 78px; }
   .ring { position: absolute; width: 96px; height: 96px; border-radius: 50%; border: 1px solid currentColor; opacity: 0; }
@@ -164,8 +182,16 @@ export function dashboardPage(brandName) {
     <div id="cashout" class="cashout hidden">
       <div class="cashout-title">💸 CASH OUT</div>
       <div class="cashout-sub" id="cashoutSub">—</div>
+      <button id="exitBtn" class="clearBtn hidden">Clear</button>
     </div>
-    <div id="holding" class="holding hidden">🔵 HOLDING <span id="holdingSide"></span> · entry <span id="holdingEntry"></span> · now <span id="holdingNow"></span></div>
+    <div id="holding" class="holding hidden">
+      🔵 HOLDING <span id="holdingSide"></span> · entry <span id="holdingEntry"></span> · now <span id="holdingNow"></span>
+      <button id="exitBtn2" class="clearBtn hidden">Clear</button>
+    </div>
+    <div id="enterRow" class="enter-row hidden">
+      <button id="enterUp" class="enterBtn up">I'M IN — UP</button>
+      <button id="enterDown" class="enterBtn down">I'M IN — DOWN</button>
+    </div>
 
     <div class="record" id="record"></div>
 
@@ -267,21 +293,30 @@ export function dashboardPage(brandName) {
   function paintPosition(position) {
     var cashout = document.getElementById('cashout');
     var holding = document.getElementById('holding');
+    var enterRow = document.getElementById('enterRow');
+    var exitBtn = document.getElementById('exitBtn');
+    var exitBtn2 = document.getElementById('exitBtn2');
+
     if (position && position.action === 'cash_out') {
       cashout.classList.remove('hidden');
       holding.classList.add('hidden');
+      enterRow.classList.add('hidden');
       document.getElementById('cashoutSub').textContent =
         (position.side || '').toUpperCase() + ' position · entry ' + Math.round(position.entryCents) + '¢ · now ' +
         Math.round(position.nowCents) + '¢' + (position.reason ? ' · ' + position.reason : '');
+      exitBtn.classList.toggle('hidden', !position.manual);
     } else if (position && (position.action === 'holding' || position.action === 'settling')) {
       cashout.classList.add('hidden');
       holding.classList.remove('hidden');
+      enterRow.classList.add('hidden');
       document.getElementById('holdingSide').textContent = (position.side || '').toUpperCase();
       document.getElementById('holdingEntry').textContent = Number.isFinite(position.entryCents) ? Math.round(position.entryCents) + '¢' : '—';
       document.getElementById('holdingNow').textContent = Number.isFinite(position.nowCents) ? Math.round(position.nowCents) + '¢' : (position.action === 'settling' ? 'settling…' : '—');
+      exitBtn2.classList.toggle('hidden', !position.manual);
     } else {
       cashout.classList.add('hidden');
       holding.classList.add('hidden');
+      enterRow.classList.remove('hidden');
     }
   }
 
@@ -383,6 +418,33 @@ export function dashboardPage(brandName) {
   document.getElementById('tokenInput').addEventListener('keydown', function (e) {
     if (e.key === 'Enter') document.getElementById('tokenSubmit').click();
   });
+
+  function authHeaders() { return token ? { 'x-dashboard-token': token } : {}; }
+
+  async function enter(side, btn) {
+    var buttons = document.querySelectorAll('.enterBtn');
+    buttons.forEach(function (b) { b.disabled = true; });
+    try {
+      var res = await fetch('/api/enter?side=' + side, { method: 'POST', headers: authHeaders() });
+      var data = await res.json();
+      if (!data.ok) alert(data.reason || 'Could not record that entry.');
+      poll();
+    } catch (e) {
+      alert('Could not reach the bot.');
+    } finally {
+      buttons.forEach(function (b) { b.disabled = false; });
+    }
+  }
+
+  async function exitManual() {
+    try { await fetch('/api/exit', { method: 'POST', headers: authHeaders() }); } catch (e) {}
+    poll();
+  }
+
+  document.getElementById('enterUp').addEventListener('click', function () { enter('up'); });
+  document.getElementById('enterDown').addEventListener('click', function () { enter('down'); });
+  document.getElementById('exitBtn').addEventListener('click', exitManual);
+  document.getElementById('exitBtn2').addEventListener('click', exitManual);
 
   frame.classList.remove('hidden');
   poll();
