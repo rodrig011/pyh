@@ -177,15 +177,61 @@ export function dashboardPage(brandName) {
   .gate { display: flex; align-items: center; justify-content: center; min-height: 100vh; flex-direction: column; gap: 16px; z-index: 1; position: relative; }
   .gate input {
     background: rgba(34,224,255,0.05); border: 1px solid rgba(34,224,255,0.3); color: var(--ink);
-    padding: 12px 16px; border-radius: 8px; font-size: 14px; width: 260px; text-align: center; font-family: inherit;
+    padding: 12px 16px; border-radius: 8px; font-size: 16px; width: min(260px, 80vw); text-align: center; font-family: inherit;
   }
   .gate input:focus { outline: none; border-color: var(--cyan); box-shadow: 0 0 12px rgba(34,224,255,0.3); }
   .gate button {
-    background: rgba(34,224,255,0.12); color: var(--cyan); border: 1px solid var(--cyan); padding: 10px 22px;
-    border-radius: 8px; cursor: pointer; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; font-family: inherit;
+    background: rgba(34,224,255,0.12); color: var(--cyan); border: 1px solid var(--cyan); padding: 12px 22px;
+    border-radius: 8px; cursor: pointer; font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; font-family: inherit;
   }
   .gate button:hover { background: rgba(34,224,255,0.2); }
   .hidden { display: none; }
+
+  /* Phones — portrait, roughly iPhone SE up to a large Android in portrait. */
+  @media (max-width: 480px) {
+    body { padding: 12px 8px; align-items: flex-start; }
+    .card { padding: 16px 14px 16px; border-radius: 10px; }
+    .corner { width: 14px; height: 14px; }
+
+    .brand { font-size: 10px; letter-spacing: 0.14em; }
+    .topbar { margin-bottom: 14px; }
+
+    .cashout-title { font-size: 20px; }
+    .cashout { padding: 12px; }
+    .holding { font-size: 10px; line-height: 1.6; }
+
+    .enter-row { flex-direction: column; gap: 8px; }
+    .enterBtn { padding: 13px; font-size: 12px; }
+
+    .call { font-size: 32px; }
+    .call.none { font-size: 18px; }
+    .call-wrap { height: 56px; margin: 4px 0; }
+    .ring { width: 72px; height: 72px; }
+    .asset { font-size: 10px; }
+    .sub { font-size: 10px; margin-bottom: 14px; }
+
+    .chart-toolbar { justify-content: center; margin-bottom: 8px; }
+    .tf-btn { padding: 6px 14px; font-size: 11px; }
+    #chartMain { height: 220px; }
+    #chartRsi { height: 64px; }
+    .ohlc-legend { font-size: 8px; gap: 6px; flex-wrap: wrap; right: 6px; }
+    .rsi-label { font-size: 8px; }
+
+    .grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .stat { padding: 9px 6px; }
+    .stat .label { font-size: 8px; }
+    .stat .value { font-size: 15px; }
+
+    .clock { font-size: 16px; }
+    .whale, .reason { font-size: 11px; }
+  }
+
+  /* Small/older phones — iPhone SE 1st gen and similar 320-360px widths. */
+  @media (max-width: 360px) {
+    .grid { grid-template-columns: repeat(2, 1fr); gap: 6px; }
+    .call { font-size: 26px; }
+    #chartMain { height: 190px; }
+  }
 </style>
 </head>
 <body>
