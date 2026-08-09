@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { createLogger } from '../lib/logger.js';
 import { openBoard } from '../picks/kalshi.js';
 import { fetchSpotPrice } from '../picks/price.js';
+import { fetchTrades } from '../picks/whales.js';
 import { computeRead } from './read.js';
 import { dashboardPage } from './page.js';
 
@@ -29,6 +30,7 @@ export function isAuthorized(requestToken, configuredToken) {
 export function startDashboardServer({ store, config, deps = {} }) {
   const boardFetch = deps.openBoard ?? openBoard;
   const priceFetch = deps.fetchSpotPrice ?? fetchSpotPrice;
+  const tradesFetch = deps.fetchTrades ?? fetchTrades;
   const dashboard = config.dashboard ?? {};
   const page = dashboardPage(config.brandName ?? 'Live Read');
 
@@ -44,7 +46,11 @@ export function startDashboardServer({ store, config, deps = {} }) {
       }
 
       try {
-        const read = await computeRead(store, config, { openBoard: boardFetch, fetchSpotPrice: priceFetch });
+        const read = await computeRead(store, config, {
+          openBoard: boardFetch,
+          fetchSpotPrice: priceFetch,
+          fetchTrades: tradesFetch,
+        });
         response.writeHead(200, { 'content-type': 'application/json' });
         response.end(JSON.stringify(read));
       } catch (error) {

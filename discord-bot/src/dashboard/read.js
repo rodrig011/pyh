@@ -1,16 +1,85 @@
 import { closeTimeOf, nearestTheMoneyContract } from '../picks/kalshi.js';
 import { directionalRead } from '../signals/direction.js';
+import { flipProbability } from '../signals/exit.js';
+import { whaleActivity, whaleLine } from '../picks/whales.js';
+import { scalpDecision, SCALP_ACTIONS } from '../signals/scalp.js';
+import { PROFILES } from '../picks/paper.js';
+import { buildCandles } from './candles.js';
+
+/**
+ * Whether the live bot's own open position should come out right now.
+ *
+ * Always graded in scalp's own terms (PROFILES.scalp), whatever profile the
+ * position was actually ENTERED under. An exit is a different question from
+ * an entry — "is this still worth holding" wants the faster, later-entering
+ * rule regardless of how conservatively it got in — and the live trading
+ * engine's own exit path already reasons this way rather than reusing the
+ * entry profile.
+ */
+export function positionAction(position, board, { now, spot = null, prices = [] }) {
+  if (!position) return null;
+  const profile = PROFILES.scalp;
+
+  const mine = (board?.contracts ?? []).find((candidate) => candidate?.market?.ticker === position.ticker);
+  if (!mine) return { action: 'settling', ticker: position.ticker, side: position.side };
+
+  const closesAt = closeTimeOf(mine.market);
+  const secondsLeft = Number.isFinite(closesAt) ? (closesAt - now) / 1000 : null;
+  if (!(secondsLeft > 0)) return { action: 'settling', ticker: position.ticker, side: position.side };
+
+  const read = directionalRead(
+    { prices, spot, strike: position.strike, marketPriceCents: mine.price, market: mine.market, secondsLeft },
+    profile.engine,
+  );
+  const quotes = read.result?.quotes;
+  if (!quotes) return { action: 'holding', ticker: position.ticker, side: position.side };
+
+  const heldBid = position.side === 'up' ? quotes.yesBidCents : quotes.noBidCents;
+  const call = scalpDecision(
+    { position: { entryCents: position.entryCents, side: position.side }, nowCents: heldBid, signal: read.result, secondsLeft },
+    profile.scalp,
+  );
+
+  return {
+    action: call.action === SCALP_ACTIONS.EXIT ? 'cash_out' : 'holding',
+    ticker: position.ticker,
+    side: position.side,
+    entryCents: position.entryCents,
+    nowCents: heldBid,
+    reason: call.reason ?? null,
+  };
+}
+
+/**
+ * How many times the live bot has actually been right and wrong — settled
+ * real orders only, read straight from the trade ledger so this can never
+ * drift from what riskLimits.js itself bases the daily numbers on.
+ */
+export function tradeRecord(orders) {
+  const settled = (orders ?? []).filter((order) => Number.isFinite(order?.profitDollars));
+  const wins = settled.filter((order) => order.profitDollars > 0).length;
+  const losses = settled.filter((order) => order.profitDollars < 0).length;
+  const breakEven = settled.length - wins - losses;
+  return {
+    wins,
+    losses,
+    breakEven,
+    total: settled.length,
+    winRate: wins + losses > 0 ? wins / (wins + losses) : null,
+  };
+}
 
 /**
  * The same read the panel and the paper account trade on, packaged for
  * something that is not Discord. No new modelling here — this calls the
- * exact function everything else calls, so the dashboard can never show a
- * call the trading path itself would disagree with.
+ * exact functions everything else calls (the engine, the whale tape, the
+ * flip-odds formula), so the dashboard can never show something the trading
+ * path itself would disagree with.
  */
 export async function computeRead(
   store,
   config,
-  { openBoard, fetchSpotPrice, now = Date.now() },
+  { openBoard, fetchSpotPrice, fetchTrades = null, now = Date.now() },
 ) {
   const settings = config.picks ?? {};
   const kalshi = settings.kalshi ?? {};
@@ -51,8 +120,39 @@ export async function computeRead(
     secondsLeft,
   });
 
+  // The chance it touches the strike again before the bell — pure arithmetic
+  // on the same volatility the call itself used, not a separate model.
+  const sigma = read.result?.sigma ?? null;
+  const flip = Number.isFinite(sigma) ? flipProbability(quote.price, strike, sigma) : null;
+
+  // The trade tape, if this caller can fetch it. Optional: a dashboard reading
+  // an account with no `fetchTrades` wired in just shows no whale reading
+  // rather than failing the whole response over it.
+  let whales = null;
+  if (fetchTrades && market.ticker) {
+    const { trades } = await fetchTrades(kalshi, market.ticker).catch(() => ({ trades: [] }));
+    whales = whaleActivity(trades);
+  }
+
+  const candles = buildCandles(
+    store.listSamples(asset).filter((sample) => sample?.at >= now - 60 * 60 * 1000),
+    { bucketMs: 60_000, limit: 60 },
+  );
+
+  // The live bot's own held position, if any — checked against the SAME
+  // board already fetched above, not a second call.
+  const position = positionAction(store.riskState?.()?.position ?? null, board, {
+    now,
+    spot: quote.price,
+    prices,
+  });
+
+  const record = tradeRecord(store.listTradeOrders?.() ?? []);
+
   return {
     ok: true,
+    position,
+    record,
     asset,
     ticker: market.ticker ?? null,
     strike,
@@ -67,6 +167,9 @@ export async function computeRead(
     valueCents: read.valueCents,
     entryCents: read.entryCents ?? null,
     reason: read.tradeable ? null : (read.result?.explain ?? read.reason),
+    flipProbability: flip,
+    whales: whales && whales.count > 0 ? { ...whales, line: whaleLine(whales) } : null,
+    candles,
     at: now,
   };
 }
