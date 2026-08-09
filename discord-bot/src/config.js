@@ -307,6 +307,18 @@ export function loadVipConfig() {
       successUrl: str('STRIPE_SUCCESS_URL', `https://discord.com/channels/${guildId}`),
       cancelUrl: str('STRIPE_CANCEL_URL', `https://discord.com/channels/${guildId}`),
     },
+    // A read-only "what would it call right now" page, outside Discord — see
+    // src/dashboard/. Shares Railway's exposed PORT with the Stripe webhook
+    // server by default; since Stripe is off, that is not a conflict. If both
+    // are ever turned on at once, set DASHBOARD_PORT to something else.
+    dashboard: {
+      enabled: bool('DASHBOARD_ENABLED', true),
+      port: int('DASHBOARD_PORT', int('PORT', 3000)),
+      // A shared secret checked against the `x-dashboard-token` header. Unset
+      // means unlocked — fine to look at once, wrong for a page showing the
+      // exact calls people pay for.
+      token: str('DASHBOARD_TOKEN'),
+    },
     imap: {
       enabled: bool('IMAP_ENABLED', true),
       host: str('IMAP_HOST'),

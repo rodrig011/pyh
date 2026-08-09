@@ -18,6 +18,7 @@ import { buildLine } from '../lib/build.js';
 import { ZelleWatcher } from '../payments/zelleWatcher.js';
 import { createStripeClient, interpretStripeEvent } from '../payments/stripe.js';
 import { startStripeWebhookServer } from '../payments/stripeWebhook.js';
+import { startDashboardServer } from '../dashboard/server.js';
 import { applyStripeIntent } from '../vip/stripeFlow.js';
 import { buildCommands, handleInteraction } from '../vip/commands.js';
 import { expireStaleOrders } from '../vip/orders.js';
@@ -90,6 +91,19 @@ export function createVipBot(config = loadVipConfig()) {
       },
     });
     log.info('Card payments are on');
+  }
+
+  // A read-only page outside Discord — what the model would call right now,
+  // with a confidence and a clock. Never places an order. Sharing a port with
+  // the Stripe server above would collide if both are ever on at once; since
+  // Stripe is off, this is safe to start unconditionally.
+  let dashboardServer = null;
+  if (config.dashboard?.enabled && !(stripe && config.dashboard.port === config.stripe.port)) {
+    dashboardServer = startDashboardServer({ store, config });
+  } else if (config.dashboard?.enabled) {
+    log.error(
+      `Dashboard not started: it would collide with the Stripe webhook server on port ${config.stripe.port}. Set DASHBOARD_PORT to something else.`,
+    );
   }
 
   const watcher = new ZelleWatcher({
@@ -539,13 +553,13 @@ export function createVipBot(config = loadVipConfig()) {
     }
   });
 
-  return { client, store, watcher, stripe, webhookServer, config };
+  return { client, store, watcher, stripe, webhookServer, dashboardServer, config };
 }
 
 const isDirectRun = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
 if (isDirectRun) {
   const config = loadVipConfig();
-  const { client, watcher, webhookServer, store } = createVipBot(config);
+  const { client, watcher, webhookServer, dashboardServer, store } = createVipBot(config);
   const shutdown = () => {
     watcher.stop();
     // Same reason as in index.js: samples are flushed every tenth tick, so an
@@ -556,6 +570,7 @@ if (isDirectRun) {
       log.error(`Could not save the store on shutdown: ${error.message}`);
     }
     webhookServer?.close();
+    dashboardServer?.close();
     client.destroy();
     process.exit(0);
   };
