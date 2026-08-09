@@ -296,7 +296,7 @@ test('/picks board and record are routed', async (t) => {
 
 test('the pick commands are registered alongside the VIP ones', () => {
   const names = buildCommands(routingConfig).map((command) => command.name);
-  assert.deepEqual(names, ['vip', 'vip-admin', 'call', 'picks']);
+  assert.deepEqual(names, ['vip', 'vip-admin', 'call', 'picks', 'parlay']);
 });
 
 test('command registration survives a config with no picks block', () => {

@@ -34,6 +34,8 @@ import { evaluate } from '../signals/engine.js';
 import { currentContract, nearestTheMoneyContract, openBoard } from '../picks/kalshi.js';
 import { fetchTrades } from '../picks/whales.js';
 import { sweepPaper, sweepSignalAlerts, sweepWatches } from '../picks/watch.js';
+import { ANALYST_GUIDE_MESSAGE, gainedWatchedRole } from '../picks/analystOnboarding.js';
+import { shouldNudge, staleSinceMs } from '../picks/consistency.js';
 import { fetchSpotPrice } from '../picks/price.js';
 
 const log = createLogger('vip');
@@ -172,6 +174,34 @@ export function createVipBot(config = loadVipConfig()) {
         }
       } catch (error) {
         log.error(`Membership sweep failed: ${error.message}`);
+      }
+
+      // A quiet picks channel is invisible from the inside — somebody always
+      // remembers eventually. This is the only thing that notices from the
+      // outside, the way a member who gave up scrolling would.
+      const staleHours = config.picks?.staleHours ?? 0;
+      if (staleHours > 0) {
+        const staleMs = staleSinceMs(store.listPicks((pick) => pick.guildId === config.guildId));
+        if (
+          shouldNudge({
+            staleMs,
+            thresholdMs: staleHours * 60 * 60 * 1000,
+            lastNudgeAt: store.picksNudgedAt(),
+          })
+        ) {
+          store.markPicksNudged(Date.now());
+          await sendLog(
+            client,
+            config,
+            new EmbedBuilder()
+              .setColor(COLORS.warning)
+              .setDescription(
+                `😴 **No calls posted in over ${staleHours} hour(s).** The picks channel has gone quiet — check in with whoever is on rotation.`,
+              )
+              .setTimestamp(),
+            { ping: true },
+          );
+        }
       }
     };
 
@@ -428,6 +458,31 @@ export function createVipBot(config = loadVipConfig()) {
         )
         .setTimestamp(),
     );
+  });
+
+  // The moment somebody is handed the analyst role is the one moment they are
+  // actually paying attention to how the console works — same reasoning as
+  // the join DM above. Waiting for a mod to explain it live is how a new
+  // analyst's first pick ends up typed by hand instead of run through the
+  // panel that tracks and scores it.
+  client.on(Events.GuildMemberUpdate, async (before, after) => {
+    if (after.user.bot) return;
+    if (after.guild.id !== config.guildId) return;
+
+    const analystRoleIds = config.picks?.analystRoleIds ?? [];
+    const gained = gainedWatchedRole(
+      [...before.roles.cache.keys()],
+      [...after.roles.cache.keys()],
+      analystRoleIds,
+    );
+    if (!gained) return;
+
+    try {
+      await after.send(ANALYST_GUIDE_MESSAGE);
+      log.info(`Sent the analyst guide to ${after.user.tag}`);
+    } catch (error) {
+      log.warn(`Could not DM the analyst guide to ${after.user.tag}: ${error.message}`);
+    }
   });
 
   // Somebody writing to the bot is asking how to get in. Answering in the

@@ -64,6 +64,12 @@ import {
   handleSettleButton,
 } from '../picks/commands.js';
 import { FOLLOW_PREFIX, PANEL_PREFIX, SIZE_MODAL, SIZE_PREFIX, VOTE_PREFIX } from '../picks/panel.js';
+import {
+  PARLAY_PREFIX,
+  buildParlayCommand,
+  handleParlayButton,
+  handleParlayCommand,
+} from '../picks/parlayCommands.js';
 
 const commandLog = createLogger('commands');
 
@@ -318,7 +324,7 @@ export function buildCommands(config) {
         )),
     );
 
-  return [vip.toJSON(), admin.toJSON(), ...buildPickCommands(config)];
+  return [vip.toJSON(), admin.toJSON(), ...buildPickCommands(config), ...buildParlayCommand(config)];
 }
 
 /**
@@ -1888,6 +1894,9 @@ export async function handleInteraction(interaction, context) {
   if (interaction.isButton() && interaction.customId?.startsWith(PANEL_PREFIX)) {
     return handlePanelButton(interaction, context);
   }
+  if (interaction.isButton() && interaction.customId?.startsWith(PARLAY_PREFIX)) {
+    return handleParlayButton(interaction, context);
+  }
   if (interaction.isButton()) return handleButton(interaction, context);
   if (interaction.isUserSelectMenu?.()) return handleAssignSelect(interaction, context);
   if (interaction.isModalSubmit?.() && interaction.customId?.startsWith(NAME_MODAL_PREFIX)) {
@@ -1901,6 +1910,7 @@ export async function handleInteraction(interaction, context) {
   // Routed before getSubcommand(), which throws on a command that has none.
   if (interaction.commandName === 'call') return handleCall(interaction, context);
   if (interaction.commandName === 'picks') return handlePicks(interaction, context);
+  if (interaction.commandName === 'parlay') return handleParlayCommand(interaction, context);
 
   const sub = interaction.options.getSubcommand();
 

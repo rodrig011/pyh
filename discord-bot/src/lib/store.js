@@ -24,6 +24,9 @@ const EMPTY = {
   votes: [],
   follows: [],
   kalshiSince: null,
+  // Last time staff were told the picks channel had gone quiet, so the same
+  // quiet stretch is not flagged over and over.
+  picksNudgedAt: null,
   samples: {},
   quotes: {},
   watches: [],
@@ -47,6 +50,12 @@ const EMPTY = {
   // one. Caught by a test that had nothing to do with trading, which is the
   // only reason it was caught at all.
   tradeOrders: [],
+  // Sports parlays: no live price to grade them against, so the outcome is
+  // whatever a mod presses by hand once the game is decided. Kept separate
+  // from `picks` — a parlay has no strike, no clock, none of the fields a
+  // Kalshi call needs, and sharing the array would mean every reader of
+  // `picks` has to guard against records that are not calls at all.
+  parlays: [],
 };
 
 /**
@@ -268,6 +277,28 @@ export function createStore(filePath) {
       return data.picks.filter(filter);
     },
 
+    recordParlay(parlay) {
+      data.parlays.push(parlay);
+      save();
+      return parlay;
+    },
+
+    getParlay(id) {
+      return data.parlays.find((parlay) => parlay.id === id) ?? null;
+    },
+
+    putParlay(parlay) {
+      const index = data.parlays.findIndex((item) => item.id === parlay.id);
+      if (index === -1) data.parlays.push(parlay);
+      else data.parlays[index] = parlay;
+      save();
+      return parlay;
+    },
+
+    listParlays(filter = () => true) {
+      return data.parlays.filter(filter);
+    },
+
     /**
      * When this user was last answered in a DM. Kept so a stranger who writes
      * three times in a row gets one storefront, not three.
@@ -447,6 +478,16 @@ export function createStore(filePath) {
 
     markKalshiSince(at) {
       data.kalshiSince = at;
+      save();
+      return at;
+    },
+
+    picksNudgedAt() {
+      return data.picksNudgedAt ?? null;
+    },
+
+    markPicksNudged(at) {
+      data.picksNudgedAt = at;
       save();
       return at;
     },

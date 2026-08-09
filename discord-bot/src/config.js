@@ -208,6 +208,13 @@ export function loadVipConfig() {
         str('ROLE_TIER_3'),
       ].filter(Boolean)),
       disclaimer: str('PICKS_DISCLAIMER', 'Not financial advice'),
+      // Hours of silence in the picks channel before staff get nudged. 0 (the
+      // default) is off — a room that is meant to post rarely should not be
+      // alarmed about it. See src/picks/consistency.js.
+      staleHours: Number.parseFloat(str('PICKS_STALE_HOURS', '0')),
+      // Where /parlay post lands. Falls back to the channel the command was
+      // run in, same as PICKS_CHANNEL_ID.
+      parlayChannelId: str('PARLAY_CHANNEL_ID'),
       // Put the console back under the channel after a call closes, so the next
       // signal is never fifty messages away from the button that sends it.
       repostPanel: bool('PICKS_REPOST_PANEL', true),
