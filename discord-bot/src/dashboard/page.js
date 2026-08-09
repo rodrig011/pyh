@@ -1,7 +1,12 @@
 /**
- * One self-contained HTML page. No build step, no framework, no external
- * fonts or libraries — it polls /api/read every few seconds and repaints
- * itself, including the candlestick chart, which is hand-drawn on a canvas.
+ * One self-contained HTML page. No build step — it polls /api/read every few
+ * seconds and repaints itself. The candlestick chart is TradingView's own
+ * open-source "Lightweight Charts" library (loaded from a CDN, MIT/Apache
+ * licensed) rather than hand-drawn canvas — real price/time axes, a
+ * crosshair with an OHLC tooltip, zoom and pan, the genuine article instead
+ * of an approximation of one. If the CDN cannot be reached the page still
+ * works; the chart panel just says so instead of crashing.
+ *
  * Kept as a template string rather than a static file so the brand name can
  * be baked in without a second templating layer for one variable.
  */
@@ -12,6 +17,7 @@ export function dashboardPage(brandName) {
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>${brandName} — Live Read</title>
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <style>
   :root {
     color-scheme: dark;
@@ -20,18 +26,18 @@ export function dashboardPage(brandName) {
     --up: #2bffa3;
     --down: #ff3860;
     --amber: #ffb020;
+    --violet: #b98bff;
     --ink: #cfe8f0;
     --dim: #5c7a86;
     --bg: #04070a;
-    --panel: #060b10;
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; }
   body {
     margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
     background:
-      radial-gradient(ellipse 900px 500px at 50% -10%, rgba(34,224,255,0.10), transparent 60%),
-      radial-gradient(ellipse 700px 500px at 100% 100%, rgba(34,224,255,0.05), transparent 60%),
+      radial-gradient(ellipse 1100px 600px at 50% -10%, rgba(34,224,255,0.10), transparent 60%),
+      radial-gradient(ellipse 800px 600px at 100% 100%, rgba(34,224,255,0.05), transparent 60%),
       var(--bg);
     background-attachment: fixed;
     font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
@@ -39,7 +45,6 @@ export function dashboardPage(brandName) {
     padding: 24px 14px;
     overflow-x: hidden;
   }
-  /* faint drifting grid, purely decorative */
   body::before {
     content: ""; position: fixed; inset: -50%; z-index: 0; pointer-events: none;
     background-image:
@@ -51,9 +56,7 @@ export function dashboardPage(brandName) {
   }
   @keyframes drift { from { transform: translate(0,0); } to { transform: translate(42px, 42px); } }
 
-  .frame { position: relative; width: min(560px, 100%); z-index: 1; }
-  .frame::before, .frame::after,
-  .frame .br-tl, .frame .br-tr, .frame .br-bl, .frame .br-br { content: ""; }
+  .frame { position: relative; width: min(760px, 100%); z-index: 1; }
   .corner {
     position: absolute; width: 22px; height: 22px; border: 2px solid var(--cyan);
     filter: drop-shadow(0 0 6px rgba(34,224,255,0.7)); opacity: 0.85;
@@ -123,15 +126,31 @@ export function dashboardPage(brandName) {
   .call.up { color: var(--up); text-shadow: 0 0 24px rgba(43,255,163,0.55); }
   .call.down { color: var(--down); text-shadow: 0 0 24px rgba(255,56,96,0.55); }
   .call.none { color: var(--dim); font-size: 26px; letter-spacing: 0.15em; }
-  .sub { text-align: center; color: var(--dim); font-size: 12px; letter-spacing: 0.04em; margin-bottom: 20px; }
+  .sub { text-align: center; color: var(--dim); font-size: 12px; letter-spacing: 0.04em; margin-bottom: 18px; }
 
-  canvas#chart { width: 100%; height: 140px; display: block; border-radius: 6px; border: 1px solid rgba(34,224,255,0.15); background: rgba(2,6,9,0.6); margin-bottom: 18px; }
+  .chart-toolbar { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-bottom: 6px; }
+  .tf-btn {
+    font-family: inherit; font-size: 10px; letter-spacing: 0.08em; padding: 4px 10px; border-radius: 5px;
+    border: 1px solid rgba(34,224,255,0.2); background: transparent; color: var(--dim); cursor: pointer;
+  }
+  .tf-btn.active { color: var(--cyan); border-color: var(--cyan); background: rgba(34,224,255,0.1); }
+  .chart-wrap {
+    border-radius: 6px; border: 1px solid rgba(34,224,255,0.15); background: rgba(2,6,9,0.6); margin-bottom: 10px; overflow: hidden;
+  }
+  #chartMain { width: 100%; height: 260px; }
+  .rsi-wrap {
+    border-radius: 6px; border: 1px solid rgba(185,139,255,0.15); background: rgba(2,6,9,0.6); margin-bottom: 18px; overflow: hidden;
+    position: relative;
+  }
+  #chartRsi { width: 100%; height: 90px; }
+  .rsi-label { position: absolute; top: 4px; left: 8px; font-size: 9px; letter-spacing: 0.1em; color: var(--violet); text-transform: uppercase; z-index: 2; }
+  .chart-fallback { padding: 40px 10px; text-align: center; color: var(--dim); font-size: 11px; letter-spacing: 0.04em; }
 
-  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 10px; }
   .stat { background: rgba(34,224,255,0.03); border: 1px solid rgba(34,224,255,0.12); border-radius: 8px; padding: 10px 8px; text-align: center; }
   .stat .label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--dim); margin-bottom: 6px; }
   .stat .value { font-size: 16px; font-weight: 700; color: var(--ink); }
-  .stat .value.up { color: var(--up); } .stat .value.down { color: var(--down); } .stat .value.amber { color: var(--amber); }
+  .stat .value.up { color: var(--up); } .stat .value.down { color: var(--down); } .stat .value.amber { color: var(--amber); } .stat .value.violet { color: var(--violet); }
 
   .bar-row { margin-bottom: 8px; }
   .bar-row .labels { display: flex; justify-content: space-between; font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--dim); margin-bottom: 4px; }
@@ -202,13 +221,25 @@ export function dashboardPage(brandName) {
     </div>
     <div class="sub" id="sub">—</div>
 
-    <canvas id="chart" width="600" height="280"></canvas>
+    <div class="chart-toolbar">
+      <button class="tf-btn" data-tf="1">1m</button>
+      <button class="tf-btn active" data-tf="5">5m</button>
+      <button class="tf-btn" data-tf="15">15m</button>
+    </div>
+    <div class="chart-wrap"><div id="chartMain"></div><div id="chartFallback" class="chart-fallback hidden">Chart library unreachable — the read above is still live.</div></div>
+    <div class="rsi-wrap"><span class="rsi-label">RSI 14</span><div id="chartRsi"></div></div>
 
     <div class="grid">
       <div class="stat"><div class="label">Confidence</div><div class="value" id="conf">—</div></div>
       <div class="stat"><div class="label">Entry</div><div class="value" id="entry">—</div></div>
       <div class="stat"><div class="label">Flip odds</div><div class="value amber" id="flip">—</div></div>
       <div class="stat"><div class="label">Strike</div><div class="value" id="strike">—</div></div>
+    </div>
+    <div class="grid">
+      <div class="stat"><div class="label">RSI (14)</div><div class="value violet" id="rsiVal">—</div></div>
+      <div class="stat"><div class="label">Momentum</div><div class="value" id="momentum">—</div></div>
+      <div class="stat"><div class="label">Trend R²</div><div class="value" id="trendR2">—</div></div>
+      <div class="stat"><div class="label">Strike, in σ</div><div class="value" id="sigmaDist">—</div></div>
     </div>
 
     <div class="bar-row">
@@ -236,7 +267,10 @@ export function dashboardPage(brandName) {
   var frame = document.getElementById('frame');
   var closesAtMs = null;
   var lastOkAt = 0;
-  var candles = [];
+  var rawCandles = []; // always 1-minute, straight from the server
+  var timeframe = 5;
+  var chart = null, candleSeries = null, strikeLine = null, spotLine = null;
+  var rsiChart = null, rsiSeries = null;
 
   function fmtPct(p) { return Number.isFinite(p) ? Math.round(p * 100) + '%' : '—'; }
   function fmtClock(s) {
@@ -245,50 +279,104 @@ export function dashboardPage(brandName) {
     return m + ':' + String(sec).padStart(2, '0');
   }
 
-  function drawChart(list) {
-    var canvas = document.getElementById('chart');
-    var ctx = canvas.getContext('2d');
-    var w = canvas.width, h = canvas.height;
-    ctx.clearRect(0, 0, w, h);
-    if (!list || list.length < 2) {
-      ctx.fillStyle = '#5c7a86'; ctx.font = '11px monospace'; ctx.textAlign = 'center';
-      ctx.fillText('GATHERING PRICE HISTORY…', w / 2, h / 2);
+  // ---- Charting (TradingView Lightweight Charts) ----
+
+  function initCharts() {
+    if (typeof LightweightCharts === 'undefined') {
+      document.getElementById('chartFallback').classList.remove('hidden');
+      document.querySelector('.rsi-wrap').classList.add('hidden');
       return;
     }
+    var common = {
+      layout: { background: { color: 'transparent' }, textColor: '#7c8fa0', fontFamily: 'ui-monospace, monospace', fontSize: 10 },
+      grid: { vertLines: { color: 'rgba(34,224,255,0.06)' }, horzLines: { color: 'rgba(34,224,255,0.06)' } },
+      crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+      timeScale: { borderColor: 'rgba(34,224,255,0.15)', timeVisible: true, secondsVisible: false },
+      rightPriceScale: { borderColor: 'rgba(34,224,255,0.15)' },
+      handleScroll: true, handleScale: true,
+    };
 
-    var pad = 8;
-    var lo = Math.min.apply(null, list.map(function (c) { return c.low; }));
-    var hi = Math.max.apply(null, list.map(function (c) { return c.high; }));
-    if (hi === lo) { hi += 1; lo -= 1; }
-    var span = hi - lo;
-    var slot = (w - pad * 2) / list.length;
-    var bodyW = Math.max(2, slot * 0.55);
+    chart = LightweightCharts.createChart(document.getElementById('chartMain'), Object.assign({
+      width: document.getElementById('chartMain').clientWidth, height: 260,
+    }, common));
+    candleSeries = chart.addCandlestickSeries({
+      upColor: '#2bffa3', downColor: '#ff3860', borderVisible: false,
+      wickUpColor: '#2bffa3', wickDownColor: '#ff3860',
+    });
 
-    // faint grid
-    ctx.strokeStyle = 'rgba(34,224,255,0.08)'; ctx.lineWidth = 1;
-    for (var g = 1; g < 4; g++) {
-      var y = pad + ((h - pad * 2) / 4) * g;
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+    rsiChart = LightweightCharts.createChart(document.getElementById('chartRsi'), Object.assign({
+      width: document.getElementById('chartRsi').clientWidth, height: 90,
+    }, common, { rightPriceScale: { borderColor: 'rgba(185,139,255,0.15)' } }));
+    rsiSeries = rsiChart.addLineSeries({ color: '#b98bff', lineWidth: 2 });
+    rsiSeries.createPriceLine({ price: 70, color: 'rgba(255,56,96,0.4)', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: '70' });
+    rsiSeries.createPriceLine({ price: 30, color: 'rgba(43,255,163,0.4)', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: '30' });
+    rsiChart.priceScale('right').applyOptions({ scaleMargins: { top: 0.15, bottom: 0.15 } });
+
+    // Keep both time axes in step when one is panned or zoomed.
+    chart.timeScale().subscribeVisibleLogicalRangeChange(function (range) {
+      if (range) rsiChart.timeScale().setVisibleLogicalRange(range);
+    });
+
+    window.addEventListener('resize', function () {
+      var m = document.getElementById('chartMain'), r = document.getElementById('chartRsi');
+      if (chart) chart.applyOptions({ width: m.clientWidth });
+      if (rsiChart) rsiChart.applyOptions({ width: r.clientWidth });
+    });
+  }
+
+  /** 1-minute candles -> N-minute candles, by folding N consecutive ones together. */
+  function aggregate(candles, minutes) {
+    if (minutes <= 1) return candles;
+    var out = [];
+    for (var i = 0; i < candles.length; i += minutes) {
+      var group = candles.slice(i, i + minutes);
+      if (group.length === 0) continue;
+      out.push({
+        time: group[0].time,
+        open: group[0].open,
+        high: Math.max.apply(null, group.map(function (c) { return c.high; })),
+        low: Math.min.apply(null, group.map(function (c) { return c.low; })),
+        close: group[group.length - 1].close,
+      });
+    }
+    return out;
+  }
+
+  function toChartTime(ms) { return Math.floor(ms / 1000); }
+
+  function redrawChart(data) {
+    if (!chart || !candleSeries) return;
+    var agg = aggregate(rawCandles, timeframe);
+    var points = agg.map(function (c) {
+      return { time: toChartTime(c.time), open: c.open, high: c.high, low: c.low, close: c.close };
+    });
+    if (points.length === 0) return;
+    candleSeries.setData(points);
+
+    if (strikeLine) { candleSeries.removePriceLine(strikeLine); strikeLine = null; }
+    if (Number.isFinite(data.strike)) {
+      strikeLine = candleSeries.createPriceLine({
+        price: data.strike, color: '#7c8fa0', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed,
+        axisLabelVisible: true, title: 'strike',
+      });
     }
 
-    function yFor(price) { return pad + (h - pad * 2) * (1 - (price - lo) / span); }
+    if (spotLine) { candleSeries.removePriceLine(spotLine); spotLine = null; }
+    if (Number.isFinite(data.spot)) {
+      spotLine = candleSeries.createPriceLine({
+        price: data.spot, color: '#22e0ff', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted,
+        axisLabelVisible: true, title: 'now',
+      });
+    }
 
-    list.forEach(function (c, i) {
-      var x = pad + slot * i + slot / 2;
-      var up = c.close >= c.open;
-      var color = up ? '#2bffa3' : '#ff3860';
-      ctx.strokeStyle = color; ctx.fillStyle = color;
-      ctx.shadowColor = color; ctx.shadowBlur = 5;
+    chart.timeScale().fitContent();
 
-      ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(x, yFor(c.high)); ctx.lineTo(x, yFor(c.low)); ctx.stroke();
-
-      var openY = yFor(c.open), closeY = yFor(c.close);
-      var top = Math.min(openY, closeY), bh = Math.max(1, Math.abs(closeY - openY));
-      ctx.fillRect(x - bodyW / 2, top, bodyW, bh);
-    });
-    ctx.shadowBlur = 0;
+    if (rsiSeries && Array.isArray(data.rsiSeries)) {
+      rsiSeries.setData(data.rsiSeries.map(function (p) { return { time: toChartTime(p.time), value: p.value }; }));
+    }
   }
+
+  // ---- Panels ----
 
   function paintPosition(position) {
     var cashout = document.getElementById('cashout');
@@ -328,9 +416,26 @@ export function dashboardPage(brandName) {
       (record.winRate !== null ? ' <b>(' + Math.round(record.winRate * 100) + '%)</b>' : '');
   }
 
+  function paintIndicators(ind) {
+    if (!ind) return;
+    document.getElementById('rsiVal').textContent = Number.isFinite(ind.rsi) ? Math.round(ind.rsi) : '—';
+    var rsiEl = document.getElementById('rsiVal');
+    rsiEl.className = 'value ' + (ind.rsi >= 70 ? 'down' : ind.rsi <= 30 ? 'up' : 'violet');
+
+    var mom = document.getElementById('momentum');
+    if (Number.isFinite(ind.momentum)) {
+      mom.textContent = (ind.momentum > 0 ? '+' : '') + ind.momentum.toFixed(2) + '%';
+      mom.className = 'value ' + (ind.momentum > 0 ? 'up' : ind.momentum < 0 ? 'down' : '');
+    } else { mom.textContent = '—'; mom.className = 'value'; }
+
+    document.getElementById('trendR2').textContent = Number.isFinite(ind.trendR2) ? ind.trendR2.toFixed(2) : '—';
+    document.getElementById('sigmaDist').textContent = Number.isFinite(ind.sigmaDistance) ? (ind.sigmaDistance > 0 ? '+' : '') + ind.sigmaDistance.toFixed(2) + 'σ' : '—';
+  }
+
   function paint(data) {
     paintPosition(data.position);
     paintRecord(data.record);
+    paintIndicators(data.indicators);
     document.getElementById('asset').textContent = data.asset + (data.ticker ? ' · ' + data.ticker : '');
     var callEl = document.getElementById('call');
     var ring = document.getElementById('ring');
@@ -367,8 +472,8 @@ export function dashboardPage(brandName) {
     }
 
     document.getElementById('reason').textContent = data.reason || '';
-    candles = data.candles || [];
-    drawChart(candles);
+    rawCandles = data.candles || [];
+    redrawChart(data);
     closesAtMs = Number.isFinite(data.secondsLeft) ? Date.now() + data.secondsLeft * 1000 : null;
   }
 
@@ -378,6 +483,8 @@ export function dashboardPage(brandName) {
     document.getElementById('clock').textContent = fmtClock(left);
   }
   setInterval(tickClock, 1000);
+
+  var lastData = null;
 
   async function poll() {
     try {
@@ -391,6 +498,7 @@ export function dashboardPage(brandName) {
       gate.classList.add('hidden');
       frame.classList.remove('hidden');
       if (data.ok) {
+        lastData = data;
         paint(data);
         lastOkAt = Date.now();
         document.getElementById('stale').style.visibility = 'hidden';
@@ -419,9 +527,18 @@ export function dashboardPage(brandName) {
     if (e.key === 'Enter') document.getElementById('tokenSubmit').click();
   });
 
+  document.querySelectorAll('.tf-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      timeframe = Number(btn.getAttribute('data-tf'));
+      document.querySelectorAll('.tf-btn').forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      if (lastData) redrawChart(lastData);
+    });
+  });
+
   function authHeaders() { return token ? { 'x-dashboard-token': token } : {}; }
 
-  async function enter(side, btn) {
+  async function enter(side) {
     var buttons = document.querySelectorAll('.enterBtn');
     buttons.forEach(function (b) { b.disabled = true; });
     try {
@@ -446,10 +563,10 @@ export function dashboardPage(brandName) {
   document.getElementById('exitBtn').addEventListener('click', exitManual);
   document.getElementById('exitBtn2').addEventListener('click', exitManual);
 
+  initCharts();
   frame.classList.remove('hidden');
   poll();
   setInterval(poll, 4000);
-  window.addEventListener('resize', function () { drawChart(candles); });
 })();
 </script>
 </body>

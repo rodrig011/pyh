@@ -89,6 +89,20 @@ test('carries a flip probability and a candle series', async () => {
   assert.ok(result.candles.length > 0);
 });
 
+test('carries the descriptive indicators — RSI, momentum, trend, sigma distance', async () => {
+  const now = Date.now();
+  const result = await computeRead(fakeStore, config, {
+    openBoard: async () => board(50, 65_000, now + 500_000),
+    fetchSpotPrice: async () => ({ price: 65_000 }),
+    now,
+  });
+
+  assert.ok(result.indicators.rsi >= 0 && result.indicators.rsi <= 100);
+  assert.ok(Number.isFinite(result.indicators.momentum));
+  assert.ok(result.indicators.trendR2 >= 0 && result.indicators.trendR2 <= 1);
+  assert.ok(Number.isFinite(result.indicators.sigmaDistance));
+});
+
 test('reads the whale tape when a fetcher is wired in, and is null when it is not', async () => {
   const now = Date.now();
   const withWhales = await computeRead(fakeStore, config, {

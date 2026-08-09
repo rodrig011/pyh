@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildCandles } from '../src/dashboard/candles.js';
+import { buildCandles, rsiSeries } from '../src/dashboard/candles.js';
 
 test('ticks in the same bucket fold into one OHLC candle', () => {
   const candles = buildCandles(
@@ -47,4 +47,24 @@ test('limit keeps only the most recent candles', () => {
 test('limit 0 keeps everything', () => {
   const samples = Array.from({ length: 5 }, (_, i) => ({ at: i * 60_000, price: 100 + i }));
   assert.equal(buildCandles(samples, { bucketMs: 60_000, limit: 0 }).length, 5);
+});
+
+test('rsiSeries is empty until there is enough history for one period', () => {
+  const candles = Array.from({ length: 10 }, (_, i) => ({ time: i * 60_000, close: 100 + i }));
+  assert.deepEqual(rsiSeries(candles, { period: 14 }), []);
+});
+
+test('rsiSeries has one point per candle past the warm-up, each in range', () => {
+  const candles = Array.from({ length: 40 }, (_, i) => ({ time: i * 60_000, close: 100 + Math.sin(i / 3) * 5 }));
+  const series = rsiSeries(candles, { period: 14 });
+
+  assert.equal(series.length, 40 - 14);
+  assert.equal(series[0].time, candles[14].time);
+  for (const point of series) assert.ok(point.value >= 0 && point.value <= 100);
+});
+
+test('rsiSeries reads 100 on a straight climb with no down ticks', () => {
+  const candles = Array.from({ length: 20 }, (_, i) => ({ time: i * 60_000, close: 100 + i }));
+  const series = rsiSeries(candles, { period: 14 });
+  assert.ok(series.every((point) => point.value === 100));
 });

@@ -3,8 +3,12 @@ import { directionalRead } from '../signals/direction.js';
 import { flipProbability } from '../signals/exit.js';
 import { whaleActivity, whaleLine } from '../picks/whales.js';
 import { scalpDecision, SCALP_ACTIONS } from '../signals/scalp.js';
+import { distanceInSigma, momentum, rsi, trendFit } from '../signals/indicators.js';
 import { PROFILES } from '../picks/paper.js';
-import { buildCandles } from './candles.js';
+import { buildCandles, rsiSeries } from './candles.js';
+
+/** How much chart history to keep, independent of the 1h window the model itself reads. */
+const CHART_HISTORY_MS = 4 * 60 * 60 * 1000;
 
 /**
  * Whether the live bot's own open position should come out right now.
@@ -200,10 +204,33 @@ export async function computeRead(
     whales = whaleActivity(trades);
   }
 
+  // Same descriptive layer the engine's own comments describe as "what price
+  // has been doing" — none of it feeds the trade decision above, it explains
+  // the read rather than replacing it. Trend and momentum read the last 20
+  // samples, the same window engine.js itself uses for its own trend check.
+  const recent = prices.slice(-20);
+  const trend = trendFit(recent);
+  const indicators = {
+    rsi: rsi(prices),
+    momentum: momentum(recent),
+    trendR2: trend?.r2 ?? null,
+    trendSlope: trend?.slope ?? null,
+    // How many standard deviations of the time left the strike sits from
+    // spot — the number the file itself calls "the single most useful one no
+    // chart shows."
+    sigmaDistance: Number.isFinite(sigma) ? distanceInSigma(quote.price, strike, sigma) : null,
+  };
+
+  // A separate, longer window than the model reads — this is for the chart,
+  // which benefits from more history than a 15-minute contract's own
+  // volatility estimate needs.
   const candles = buildCandles(
-    store.listSamples(asset).filter((sample) => sample?.at >= now - 60 * 60 * 1000),
-    { bucketMs: 60_000, limit: 60 },
+    store.listSamples(asset).filter((sample) => sample?.at >= now - CHART_HISTORY_MS),
+    { bucketMs: 60_000, limit: 240 },
   );
+  // RSI on the 1-minute candle closes — a coarser, chart-friendly cousin of
+  // the RSI reported above, which reads the raw tick history instead.
+  const rsiOverTime = rsiSeries(candles);
 
   // The live bot's own position wins if it has one — real money, the
   // authoritative source. Otherwise fall back to whatever was entered by
@@ -217,6 +244,7 @@ export async function computeRead(
     ok: true,
     position,
     record,
+    indicators,
     asset,
     ticker: market.ticker ?? null,
     strike,
@@ -234,6 +262,7 @@ export async function computeRead(
     flipProbability: flip,
     whales: whales && whales.count > 0 ? { ...whales, line: whaleLine(whales) } : null,
     candles,
+    rsiSeries: rsiOverTime,
     at: now,
   };
 }
