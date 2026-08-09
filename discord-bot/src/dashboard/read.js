@@ -1,11 +1,11 @@
 import { closeTimeOf, nearestTheMoneyContract } from '../picks/kalshi.js';
 import { directionalRead } from '../signals/direction.js';
 import { flipProbability } from '../signals/exit.js';
-import { whaleActivity, whaleLine } from '../picks/whales.js';
+import { normalizeTrades, whaleActivity, whaleLine } from '../picks/whales.js';
 import { scalpDecision, SCALP_ACTIONS } from '../signals/scalp.js';
 import { distanceInSigma, momentum, rsi, trendFit } from '../signals/indicators.js';
 import { PROFILES } from '../picks/paper.js';
-import { buildCandles, rsiSeries } from './candles.js';
+import { buildCandles, buildVolume, rsiSeries } from './candles.js';
 
 /** How much chart history to keep, independent of the 1h window the model itself reads. */
 const CHART_HISTORY_MS = 4 * 60 * 60 * 1000;
@@ -199,9 +199,15 @@ export async function computeRead(
   // an account with no `fetchTrades` wired in just shows no whale reading
   // rather than failing the whole response over it.
   let whales = null;
+  let volume = [];
   if (fetchTrades && market.ticker) {
     const { trades } = await fetchTrades(kalshi, market.ticker).catch(() => ({ trades: [] }));
     whales = whaleActivity(trades);
+    // Logged so the chart has real volume to show, on this and every future
+    // contract — see store.recordContractTrades for why it cannot be
+    // backfilled for anything already rolled over.
+    store.recordContractTrades?.(market.ticker, normalizeTrades(trades));
+    volume = buildVolume(store.listContractTrades?.(market.ticker) ?? []);
   }
 
   // Same descriptive layer the engine's own comments describe as "what price
@@ -220,6 +226,21 @@ export async function computeRead(
     // chart shows."
     sigmaDistance: Number.isFinite(sigma) ? distanceInSigma(quote.price, strike, sigma) : null,
   };
+
+  // The model's own uncertainty, drawn as a range rather than left as a
+  // single number: `sigma` is already scaled to the time left, so ±1σ in log
+  // space is the band spot is expected to land inside of by the close, at
+  // roughly a two-thirds chance. Not a prediction of where it WILL be — a
+  // width. A market inside a wide band is a coin flip whatever the model
+  // says; a strike outside a narrow one is closer to a sure thing.
+  const expectedRange =
+    Number.isFinite(sigma) && Number.isFinite(secondsLeft) && secondsLeft > 0
+      ? {
+          low: quote.price * Math.exp(-sigma),
+          high: quote.price * Math.exp(sigma),
+          at: now + secondsLeft * 1000,
+        }
+      : null;
 
   // A separate, longer window than the model reads — this is for the chart,
   // which benefits from more history than a 15-minute contract's own
@@ -263,6 +284,8 @@ export async function computeRead(
     whales: whales && whales.count > 0 ? { ...whales, line: whaleLine(whales) } : null,
     candles,
     rsiSeries: rsiOverTime,
+    volume,
+    expectedRange,
     at: now,
   };
 }

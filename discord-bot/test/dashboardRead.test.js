@@ -103,6 +103,50 @@ test('carries the descriptive indicators — RSI, momentum, trend, sigma distanc
   assert.ok(Number.isFinite(result.indicators.sigmaDistance));
 });
 
+test('the expected range straddles spot and widens with more time left', async () => {
+  const now = Date.now();
+  const soon = await computeRead(fakeStore, config, {
+    openBoard: async () => board(50, 65_000, now + 60_000),
+    fetchSpotPrice: async () => ({ price: 65_000 }),
+    now,
+  });
+  const later = await computeRead(fakeStore, config, {
+    openBoard: async () => board(50, 65_000, now + 900_000),
+    fetchSpotPrice: async () => ({ price: 65_000 }),
+    now,
+  });
+
+  assert.ok(soon.expectedRange.low < 65_000 && soon.expectedRange.high > 65_000);
+  assert.ok(later.expectedRange.high - later.expectedRange.low > soon.expectedRange.high - soon.expectedRange.low);
+});
+
+test('real trades on the tape become real volume bars, logged for next time', async () => {
+  const now = Date.now();
+  let logged = null;
+  const store = {
+    ...fakeStore,
+    recordContractTrades: (ticker, trades) => { logged = { ticker, trades }; },
+    listContractTrades: () => [
+      { at: now - 90_000, count: 40, side: 'yes' },
+      { at: now - 20_000, count: 60, side: 'no' },
+    ],
+  };
+
+  const result = await computeRead(store, config, {
+    openBoard: async () => board(50, 65_000, now + 500_000),
+    fetchSpotPrice: async () => ({ price: 65_000 }),
+    fetchTrades: async () => ({
+      trades: [{ created_time: new Date(now).toISOString(), count: 10, taker_side: 'yes', yes_price: 50 }],
+    }),
+    now,
+  });
+
+  assert.ok(logged, 'trades were handed to the store to remember');
+  assert.equal(logged.ticker, 'K-1');
+  assert.ok(result.volume.length > 0);
+  assert.equal(result.volume.reduce((sum, bar) => sum + bar.value, 0), 100);
+});
+
 test('reads the whale tape when a fetcher is wired in, and is null when it is not', async () => {
   const now = Date.now();
   const withWhales = await computeRead(fakeStore, config, {

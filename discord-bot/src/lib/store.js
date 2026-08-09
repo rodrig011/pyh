@@ -50,6 +50,12 @@ const EMPTY = {
   // one. Caught by a test that had nothing to do with trading, which is the
   // only reason it was caught at all.
   tradeOrders: [],
+  // Kalshi contract trades actually observed on the tape, kept only so the
+  // dashboard can chart real volume over time. There is no historical trade
+  // feed to backfill from — each 15-minute window is a different contract —
+  // so this only ever covers what has been seen since the bot last
+  // restarted, and only while something was actually polling for it.
+  contractTrades: [],
   // A position entered by hand outside the bot (Kalshi's own app, say) and
   // tracked here only so the dashboard can tell that one person when to cash
   // out. Never a real order — the dashboard places nothing — and separate
@@ -415,6 +421,35 @@ export function createStore(filePath) {
 
     listTradeOrders() {
       return data.tradeOrders ?? [];
+    },
+
+    /**
+     * Folds newly-seen trades into the log, deduped by ticker+time+size+side
+     * (the tape carries no id worth trusting), oldest dropped once the cap is
+     * hit. Written on a slower flush than every price sample: a busy tape can
+     * mean several of these a minute, and this is chart decoration, not
+     * money — no restart can lose anything this file's own math depends on.
+     */
+    recordContractTrades(ticker, trades, { keep = 5000 } = {}) {
+      if (!ticker || !(trades ?? []).length) return;
+      const seen = new Set(data.contractTrades.map((t) => `${t.ticker}:${t.at}:${t.count}:${t.side}`));
+      let added = false;
+      for (const trade of trades) {
+        const key = `${ticker}:${trade.at}:${trade.count}:${trade.side}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        data.contractTrades.push({ ticker, ...trade });
+        added = true;
+      }
+      if (!added) return;
+      if (data.contractTrades.length > keep) {
+        data.contractTrades = data.contractTrades.slice(data.contractTrades.length - keep);
+      }
+      save();
+    },
+
+    listContractTrades(ticker) {
+      return data.contractTrades.filter((t) => t.ticker === ticker);
     },
 
     dashboardPosition() {

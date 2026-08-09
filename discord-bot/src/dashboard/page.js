@@ -135,9 +135,15 @@ export function dashboardPage(brandName) {
   }
   .tf-btn.active { color: var(--cyan); border-color: var(--cyan); background: rgba(34,224,255,0.1); }
   .chart-wrap {
-    border-radius: 6px; border: 1px solid rgba(34,224,255,0.15); background: rgba(2,6,9,0.6); margin-bottom: 10px; overflow: hidden;
+    position: relative; border-radius: 6px; border: 1px solid rgba(34,224,255,0.15); background: rgba(2,6,9,0.6); margin-bottom: 10px; overflow: hidden;
   }
-  #chartMain { width: 100%; height: 260px; }
+  #chartMain { width: 100%; height: 300px; }
+  .ohlc-legend {
+    position: absolute; top: 6px; left: 8px; z-index: 3; font-size: 10px; letter-spacing: 0.03em; color: var(--dim);
+    display: flex; gap: 10px; pointer-events: none; text-shadow: 0 0 4px rgba(0,0,0,0.8);
+  }
+  .ohlc-legend b { color: var(--ink); font-weight: 700; }
+  .ohlc-legend .up { color: var(--up); } .ohlc-legend .down { color: var(--down); }
   .rsi-wrap {
     border-radius: 6px; border: 1px solid rgba(185,139,255,0.15); background: rgba(2,6,9,0.6); margin-bottom: 18px; overflow: hidden;
     position: relative;
@@ -226,7 +232,11 @@ export function dashboardPage(brandName) {
       <button class="tf-btn active" data-tf="5">5m</button>
       <button class="tf-btn" data-tf="15">15m</button>
     </div>
-    <div class="chart-wrap"><div id="chartMain"></div><div id="chartFallback" class="chart-fallback hidden">Chart library unreachable — the read above is still live.</div></div>
+    <div class="chart-wrap">
+      <div id="ohlcLegend" class="ohlc-legend"></div>
+      <div id="chartMain"></div>
+      <div id="chartFallback" class="chart-fallback hidden">Chart library unreachable — the read above is still live.</div>
+    </div>
     <div class="rsi-wrap"><span class="rsi-label">RSI 14</span><div id="chartRsi"></div></div>
 
     <div class="grid">
@@ -268,9 +278,12 @@ export function dashboardPage(brandName) {
   var closesAtMs = null;
   var lastOkAt = 0;
   var rawCandles = []; // always 1-minute, straight from the server
+  var rawVolume = [];
   var timeframe = 5;
-  var chart = null, candleSeries = null, strikeLine = null, spotLine = null;
+  var chart = null, candleSeries = null, volumeSeries = null;
+  var strikeLine = null, spotLine = null, rangeHiLine = null, rangeLoLine = null;
   var rsiChart = null, rsiSeries = null;
+  var lastRsiPoints = [];
 
   function fmtPct(p) { return Number.isFinite(p) ? Math.round(p * 100) + '%' : '—'; }
   function fmtClock(s) {
@@ -304,6 +317,32 @@ export function dashboardPage(brandName) {
       wickUpColor: '#2bffa3', wickDownColor: '#ff3860',
     });
 
+    // Real Kalshi contract volume, sparse by nature — see buildVolume server
+    // side. Squeezed into the bottom 15% of the same pane, the way a proper
+    // terminal does it, rather than a whole separate chart for what is often
+    // a handful of bars.
+    volumeSeries = chart.addHistogramSeries({
+      priceFormat: { type: 'volume' },
+      priceScaleId: 'volume',
+      color: 'rgba(124,143,160,0.5)',
+    });
+    chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
+
+    // A live OHLC readout under the crosshair — pure decoration, and the one
+    // thing that makes a chart feel like a terminal instead of a picture.
+    chart.subscribeCrosshairMove(function (param) {
+      var legend = document.getElementById('ohlcLegend');
+      var bar = param && param.seriesData ? param.seriesData.get(candleSeries) : null;
+      if (!bar) { legend.innerHTML = ''; return; }
+      var up = bar.close >= bar.open;
+      var cls = up ? 'up' : 'down';
+      legend.innerHTML =
+        'O <b class="' + cls + '">' + bar.open.toFixed(0) + '</b> ' +
+        'H <b class="' + cls + '">' + bar.high.toFixed(0) + '</b> ' +
+        'L <b class="' + cls + '">' + bar.low.toFixed(0) + '</b> ' +
+        'C <b class="' + cls + '">' + bar.close.toFixed(0) + '</b>';
+    });
+
     rsiChart = LightweightCharts.createChart(document.getElementById('chartRsi'), Object.assign({
       width: document.getElementById('chartRsi').clientWidth, height: 90,
     }, common, { rightPriceScale: { borderColor: 'rgba(185,139,255,0.15)' } }));
@@ -316,6 +355,21 @@ export function dashboardPage(brandName) {
     chart.timeScale().subscribeVisibleLogicalRangeChange(function (range) {
       if (range) rsiChart.timeScale().setVisibleLogicalRange(range);
     });
+
+    // And the crosshair itself, so reading the RSI at a given candle does not
+    // need lining the two panes up by eye. RSI lives on a SEPARATE chart, so
+    // its value at this timestamp has to be looked up in the last data this
+    // page itself sent it, not read off the main chart's own series. Guarded
+    // — a library version mismatch on this call must not take the rest of
+    // the chart down with it.
+    try {
+      chart.subscribeCrosshairMove(function (param) {
+        if (!param || !param.time) { rsiChart.clearCrosshairPosition(); return; }
+        var point = lastRsiPoints.find(function (p) { return p.time === param.time; });
+        if (point) rsiChart.setCrosshairPosition(point.value, param.time, rsiSeries);
+        else rsiChart.clearCrosshairPosition();
+      });
+    } catch (e) {}
 
     window.addEventListener('resize', function () {
       var m = document.getElementById('chartMain'), r = document.getElementById('chartRsi');
@@ -340,6 +394,17 @@ export function dashboardPage(brandName) {
       });
     }
     return out;
+  }
+
+  /** Same folding, for the volume bars — summed instead of OHLC'd. */
+  function aggregateVolume(bars, minutes) {
+    if (minutes <= 1) return bars;
+    var byBucket = {};
+    bars.forEach(function (b) {
+      var bucket = Math.floor(b.time / (minutes * 60_000)) * (minutes * 60_000);
+      byBucket[bucket] = (byBucket[bucket] || 0) + b.value;
+    });
+    return Object.keys(byBucket).map(function (t) { return { time: Number(t), value: byBucket[t] }; }).sort(function (a, b) { return a.time - b.time; });
   }
 
   function toChartTime(ms) { return Math.floor(ms / 1000); }
@@ -369,10 +434,32 @@ export function dashboardPage(brandName) {
       });
     }
 
+    // The model's own uncertainty, drawn rather than left as a number — the
+    // range spot is expected to land inside of by the close, at roughly a
+    // two-thirds chance. A width, not a prediction of where it lands.
+    if (rangeHiLine) { candleSeries.removePriceLine(rangeHiLine); rangeHiLine = null; }
+    if (rangeLoLine) { candleSeries.removePriceLine(rangeLoLine); rangeLoLine = null; }
+    if (data.expectedRange) {
+      rangeHiLine = candleSeries.createPriceLine({
+        price: data.expectedRange.high, color: 'rgba(185,139,255,0.55)', lineWidth: 1,
+        lineStyle: LightweightCharts.LineStyle.SparseDotted, axisLabelVisible: true, title: '~68% hi',
+      });
+      rangeLoLine = candleSeries.createPriceLine({
+        price: data.expectedRange.low, color: 'rgba(185,139,255,0.55)', lineWidth: 1,
+        lineStyle: LightweightCharts.LineStyle.SparseDotted, axisLabelVisible: true, title: '~68% lo',
+      });
+    }
+
+    if (volumeSeries) {
+      var volAgg = aggregateVolume(rawVolume, timeframe);
+      volumeSeries.setData(volAgg.map(function (v) { return { time: toChartTime(v.time), value: v.value }; }));
+    }
+
     chart.timeScale().fitContent();
 
     if (rsiSeries && Array.isArray(data.rsiSeries)) {
-      rsiSeries.setData(data.rsiSeries.map(function (p) { return { time: toChartTime(p.time), value: p.value }; }));
+      lastRsiPoints = data.rsiSeries.map(function (p) { return { time: toChartTime(p.time), value: p.value }; });
+      rsiSeries.setData(lastRsiPoints);
     }
   }
 
@@ -473,6 +560,7 @@ export function dashboardPage(brandName) {
 
     document.getElementById('reason').textContent = data.reason || '';
     rawCandles = data.candles || [];
+    rawVolume = data.volume || [];
     redrawChart(data);
     closesAtMs = Number.isFinite(data.secondsLeft) ? Date.now() + data.secondsLeft * 1000 : null;
   }

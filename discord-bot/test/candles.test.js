@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildCandles, rsiSeries } from '../src/dashboard/candles.js';
+import { buildCandles, buildVolume, rsiSeries } from '../src/dashboard/candles.js';
 
 test('ticks in the same bucket fold into one OHLC candle', () => {
   const candles = buildCandles(
@@ -67,4 +67,28 @@ test('rsiSeries reads 100 on a straight climb with no down ticks', () => {
   const candles = Array.from({ length: 20 }, (_, i) => ({ time: i * 60_000, close: 100 + i }));
   const series = rsiSeries(candles, { period: 14 });
   assert.ok(series.every((point) => point.value === 100));
+});
+
+test('buildVolume sums trade size into the same buckets a candle would use', () => {
+  const volume = buildVolume(
+    [
+      { at: 0, count: 50 },
+      { at: 20_000, count: 30 },
+      { at: 65_000, count: 10 },
+    ],
+    { bucketMs: 60_000 },
+  );
+  assert.deepEqual(volume, [
+    { time: 0, value: 80 },
+    { time: 60_000, value: 10 },
+  ]);
+});
+
+test('buildVolume drops trades with no usable size or time', () => {
+  assert.deepEqual(buildVolume([{ at: 0, count: 0 }, { at: NaN, count: 5 }, { count: 5 }]), []);
+});
+
+test('buildVolume is empty with nothing on the tape', () => {
+  assert.deepEqual(buildVolume([]), []);
+  assert.deepEqual(buildVolume(undefined), []);
 });

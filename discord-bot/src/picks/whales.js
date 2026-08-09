@@ -59,14 +59,14 @@ export async function fetchTrades(
 }
 
 /**
- * What the tape says, folded into one reading.
+ * The tape, in one shape, whatever field names this particular response used.
  *
- * `taker_side` is the side that crossed the spread — the aggressor. That is the
- * one worth counting: a resting order that got hit was not making a statement,
- * the order that reached across was.
+ * Pulled out on its own because the trade log (dashboard volume) and the
+ * whale reading below both need the same normalised rows, and a second copy
+ * of this parsing would drift the moment Kalshi's field names did.
  */
-export function whaleActivity(trades, { minimumContracts = WHALE_CONTRACTS, since = null } = {}) {
-  const rows = (trades ?? [])
+export function normalizeTrades(trades) {
+  return (trades ?? [])
     .map((trade) => {
       const at = Date.parse(trade?.created_time ?? trade?.created_at ?? '') || null;
       const count = Number(trade?.count ?? trade?.size);
@@ -74,8 +74,20 @@ export function whaleActivity(trades, { minimumContracts = WHALE_CONTRACTS, sinc
       const priceCents = Number(trade?.yes_price ?? trade?.price);
       return { at, count, side, priceCents: isPriceCents(priceCents) ? priceCents : null };
     })
-    .filter((trade) => Number.isFinite(trade.count) && trade.count > 0 && trade.side !== null)
-    .filter((trade) => since === null || trade.at === null || trade.at >= since);
+    .filter((trade) => Number.isFinite(trade.count) && trade.count > 0 && trade.side !== null);
+}
+
+/**
+ * What the tape says, folded into one reading.
+ *
+ * `taker_side` is the side that crossed the spread — the aggressor. That is the
+ * one worth counting: a resting order that got hit was not making a statement,
+ * the order that reached across was.
+ */
+export function whaleActivity(trades, { minimumContracts = WHALE_CONTRACTS, since = null } = {}) {
+  const rows = normalizeTrades(trades).filter(
+    (trade) => since === null || trade.at === null || trade.at >= since,
+  );
 
   const big = rows.filter((trade) => trade.count >= minimumContracts);
 

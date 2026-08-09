@@ -44,3 +44,20 @@ export function rsiSeries(candles, { period = 14 } = {}) {
   }
   return out;
 }
+
+/**
+ * Real contract volume, bucketed to match the candles — built from whatever
+ * has actually been observed on the tape (see store.recordContractTrades),
+ * never estimated. Sparse by nature: each Kalshi window is its own contract,
+ * so only the most recent one has any trades to bucket at all — the rest of
+ * the chart is legitimately empty, not missing data.
+ */
+export function buildVolume(trades, { bucketMs = 60_000 } = {}) {
+  const buckets = new Map();
+  for (const trade of trades ?? []) {
+    if (!(trade?.count > 0) || !Number.isFinite(trade?.at)) continue;
+    const time = Math.floor(trade.at / bucketMs) * bucketMs;
+    buckets.set(time, (buckets.get(time) ?? 0) + trade.count);
+  }
+  return [...buckets.entries()].map(([time, value]) => ({ time, value })).sort((a, b) => a.time - b.time);
+}
