@@ -17,6 +17,7 @@ export function dashboardPage(brandName) {
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>${brandName} — Live Read</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8E%AF%3C/text%3E%3C/svg%3E" />
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <style>
   :root {
@@ -158,6 +159,42 @@ export function dashboardPage(brandName) {
   .stat .value { font-size: 16px; font-weight: 700; color: var(--ink); }
   .stat .value.up { color: var(--up); } .stat .value.down { color: var(--down); } .stat .value.amber { color: var(--amber); } .stat .value.violet { color: var(--violet); }
 
+  .view-tabs { display: flex; gap: 6px; margin-bottom: 14px; }
+  .view-tab {
+    flex: 1; font-family: inherit; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; padding: 8px 6px;
+    border-radius: 6px; border: 1px solid rgba(34,224,255,0.15); background: transparent; color: var(--dim); cursor: pointer;
+  }
+  .view-tab.active { color: var(--cyan); border-color: var(--cyan); background: rgba(34,224,255,0.08); box-shadow: 0 0 10px rgba(34,224,255,0.15); }
+  .view.hidden { display: none; }
+
+  .panel-title { font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--dim); margin: 16px 0 8px; }
+  .panel-title:first-child { margin-top: 0; }
+
+  .lean-wrap { text-align: center; margin-bottom: 10px; }
+  .lean { font-size: 28px; font-weight: 800; letter-spacing: 0.05em; }
+  .lean.up { color: var(--up); text-shadow: 0 0 18px rgba(43,255,163,0.5); }
+  .lean.down { color: var(--down); text-shadow: 0 0 18px rgba(255,56,96,0.5); }
+  .lean.none { color: var(--dim); font-size: 18px; letter-spacing: 0.12em; }
+  .lean-score { font-size: 11px; color: var(--dim); margin-top: 2px; }
+  .lean-reasons { font-size: 11px; color: var(--dim); line-height: 1.7; margin: 8px 0 4px; }
+  .agree-row { display: flex; gap: 8px; margin-top: 10px; }
+  .agree-stat { flex: 1; text-align: center; padding: 8px 4px; border-radius: 6px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); }
+  .agree-stat .label { font-size: 8px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); margin-bottom: 4px; }
+  .agree-stat .value { font-size: 13px; font-weight: 700; color: var(--ink); }
+  .agree-stat .n { font-size: 9px; color: var(--dim); }
+
+  .rails { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 14px; padding: 10px; border-radius: 8px; }
+  .rails.armed { background: rgba(255,56,96,0.08); border: 1px solid rgba(255,56,96,0.4); }
+  .rails.disarmed { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); }
+  .rails.killed { background: rgba(255,176,32,0.08); border: 1px solid rgba(255,176,32,0.4); }
+  .rails-label { font-size: 13px; font-weight: 800; letter-spacing: 0.08em; }
+  .rails.armed .rails-label { color: var(--down); }
+  .rails.disarmed .rails-label { color: var(--dim); }
+  .rails.killed .rails-label { color: var(--amber); }
+  .budget-bar { height: 8px; border-radius: 4px; background: rgba(255,255,255,0.06); overflow: hidden; margin: 4px 0 14px; }
+  .budget-bar .fill { height: 100%; background: linear-gradient(90deg, var(--cyan-dim), var(--cyan)); transition: width 0.4s ease; }
+  .live-note { text-align: center; font-size: 10px; color: var(--dim); margin-top: 10px; letter-spacing: 0.02em; line-height: 1.6; }
+
   .bar-row { margin-bottom: 8px; }
   .bar-row .labels { display: flex; justify-content: space-between; font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--dim); margin-bottom: 4px; }
   .bar { height: 6px; border-radius: 4px; background: rgba(255,255,255,0.06); overflow: hidden; position: relative; }
@@ -224,6 +261,11 @@ export function dashboardPage(brandName) {
 
     .clock { font-size: 16px; }
     .whale, .reason { font-size: 11px; }
+
+    .view-tab { font-size: 9px; padding: 9px 4px; }
+    .lean { font-size: 22px; }
+    .agree-row { flex-wrap: wrap; }
+    .agree-stat { min-width: calc(50% - 4px); }
   }
 
   /* Small/older phones — iPhone SE 1st gen and similar 320-360px widths. */
@@ -250,6 +292,13 @@ export function dashboardPage(brandName) {
       <div class="live"><span class="dot"></span>LIVE</div>
     </div>
 
+    <div class="view-tabs">
+      <button class="view-tab active" data-view="viewSignal">Signal</button>
+      <button class="view-tab" data-view="viewIndicators">Indicators</button>
+      <button class="view-tab" data-view="viewLive">Live $</button>
+    </div>
+
+    <div id="viewSignal" class="view">
     <div id="cashout" class="cashout hidden">
       <div class="cashout-title">💸 CASH OUT</div>
       <div class="cashout-sub" id="cashoutSub">—</div>
@@ -309,6 +358,50 @@ export function dashboardPage(brandName) {
 
     <div class="whale" id="whale"></div>
     <div class="reason" id="reason"></div>
+    </div>
+
+    <div id="viewIndicators" class="view hidden">
+      <div class="panel-title">Trend &amp; Momentum</div>
+      <div class="grid">
+        <div class="stat"><div class="label">EMA 9/21/50</div><div class="value" id="emaStack">—</div></div>
+        <div class="stat"><div class="label">MACD hist.</div><div class="value" id="macdHist">—</div></div>
+        <div class="stat"><div class="label">Bollinger width</div><div class="value" id="bbWidth">—</div></div>
+        <div class="stat"><div class="label">ATR</div><div class="value" id="atrVal">—</div></div>
+      </div>
+      <div class="grid">
+        <div class="stat"><div class="label">RSI (14)</div><div class="value violet" id="rsiVal2">—</div></div>
+        <div class="stat"><div class="label">Momentum</div><div class="value" id="momentum2">—</div></div>
+        <div class="stat"><div class="label">Trend R²</div><div class="value" id="trendR2b">—</div></div>
+        <div class="stat"><div class="label">Session</div><div class="value" id="session">—</div></div>
+      </div>
+
+      <div class="panel-title">Confluence — a second, independent read</div>
+      <div class="lean-wrap">
+        <div class="lean none" id="confLean">NO LEAN</div>
+        <div class="lean-score" id="confScore">—</div>
+      </div>
+      <div class="lean-reasons" id="confReasons"></div>
+      <div class="agree-row">
+        <div class="agree-stat"><div class="label">Overall</div><div class="value" id="confOverall">—</div><div class="n" id="confOverallN"></div></div>
+        <div class="agree-stat"><div class="label">Agrees w/ model</div><div class="value" id="confAgrees">—</div><div class="n" id="confAgreesN"></div></div>
+        <div class="agree-stat"><div class="label">Disagrees</div><div class="value" id="confDisagrees">—</div><div class="n" id="confDisagreesN"></div></div>
+      </div>
+      <div class="live-note">Never fed into the call above — kept separate so it can be checked against the model, not blended into it. Needs a fortnight of settled windows before either number means anything.</div>
+    </div>
+
+    <div id="viewLive" class="view hidden">
+      <div class="rails disarmed" id="railsBox">
+        <span class="rails-label" id="railsLabel">🔕 DISARMED</span>
+      </div>
+      <div class="grid">
+        <div class="stat"><div class="label">Spent today</div><div class="value" id="liveSpent">—</div></div>
+        <div class="stat"><div class="label">Remaining</div><div class="value" id="liveRemaining">—</div></div>
+        <div class="stat"><div class="label">Orders today</div><div class="value" id="liveTrades">—</div></div>
+        <div class="stat"><div class="label">Realised</div><div class="value" id="liveRealised">—</div></div>
+      </div>
+      <div class="budget-bar"><div class="fill" id="liveBudgetFill" style="width:0%"></div></div>
+      <div class="live-note" id="liveNote">Arming and disarming real money only happens in Discord — <code>/picks live</code> — never from this page, on purpose.</div>
+    </div>
 
     <div class="clock-row"><span class="label">Closes in</span><span class="clock" id="clock">—</span></div>
     <div class="stale" id="stale">◆ FEED STALE — RECONNECTING…</div>
@@ -563,12 +656,108 @@ export function dashboardPage(brandName) {
 
     document.getElementById('trendR2').textContent = Number.isFinite(ind.trendR2) ? ind.trendR2.toFixed(2) : '—';
     document.getElementById('sigmaDist').textContent = Number.isFinite(ind.sigmaDistance) ? (ind.sigmaDistance > 0 ? '+' : '') + ind.sigmaDistance.toFixed(2) + 'σ' : '—';
+
+    // The Indicators tab — same numbers where they overlap (RSI, momentum,
+    // trend), plus the ones that only fit there: EMA stack, MACD, Bollinger
+    // width, ATR, session. Two IDs for RSI/momentum/trend on purpose, one per
+    // tab, so painting one tab never silently touches the other's DOM.
+    var stackEl = document.getElementById('emaStack');
+    stackEl.textContent = ind.emaStack ? ind.emaStack.toUpperCase() : '—';
+    stackEl.className = 'value ' + (ind.emaStack === 'bullish' ? 'up' : ind.emaStack === 'bearish' ? 'down' : '');
+
+    var macdEl = document.getElementById('macdHist');
+    if (Number.isFinite(ind.macdHistogram)) {
+      macdEl.textContent = (ind.macdHistogram > 0 ? '+' : '') + ind.macdHistogram.toFixed(1);
+      macdEl.className = 'value ' + (ind.macdHistogram > 0 ? 'up' : ind.macdHistogram < 0 ? 'down' : '');
+    } else { macdEl.textContent = '—'; macdEl.className = 'value'; }
+
+    document.getElementById('bbWidth').textContent = Number.isFinite(ind.bollingerWidthPercent) ? ind.bollingerWidthPercent.toFixed(2) + '%' : '—';
+    document.getElementById('atrVal').textContent = Number.isFinite(ind.atr) ? '$' + Math.round(ind.atr).toLocaleString('en-US') : '—';
+    document.getElementById('session').textContent = ind.session ? ind.session.replace(/_/g, ' ').toUpperCase() : '—';
+
+    var rsiEl2 = document.getElementById('rsiVal2');
+    rsiEl2.textContent = Number.isFinite(ind.rsi) ? Math.round(ind.rsi) : '—';
+    rsiEl2.className = 'value ' + (ind.rsi >= 70 ? 'down' : ind.rsi <= 30 ? 'up' : 'violet');
+
+    var mom2 = document.getElementById('momentum2');
+    if (Number.isFinite(ind.momentum)) {
+      mom2.textContent = (ind.momentum > 0 ? '+' : '') + ind.momentum.toFixed(2) + '%';
+      mom2.className = 'value ' + (ind.momentum > 0 ? 'up' : ind.momentum < 0 ? 'down' : '');
+    } else { mom2.textContent = '—'; mom2.className = 'value'; }
+
+    document.getElementById('trendR2b').textContent = Number.isFinite(ind.trendR2) ? ind.trendR2.toFixed(2) : '—';
+  }
+
+  function paintConfluence(confluence, measured) {
+    var leanEl = document.getElementById('confLean');
+    if (confluence && confluence.lean === 'up') {
+      leanEl.textContent = '▲ LEANING UP'; leanEl.className = 'lean up';
+    } else if (confluence && confluence.lean === 'down') {
+      leanEl.textContent = '▼ LEANING DOWN'; leanEl.className = 'lean down';
+    } else {
+      leanEl.textContent = confluence && confluence.squeeze ? 'SQUEEZE — NO LEAN' : 'NO LEAN';
+      leanEl.className = 'lean none';
+    }
+    document.getElementById('confScore').textContent = confluence && Number.isFinite(confluence.score) ? 'score ' + (confluence.score > 0 ? '+' : '') + confluence.score : '—';
+    var reasons = (confluence && confluence.reasons) || [];
+    document.getElementById('confReasons').textContent = reasons.length ? reasons.join(' · ') : 'Nothing lining up right now.';
+
+    function paintBucket(bucket, valueId, nId) {
+      var valueEl = document.getElementById(valueId);
+      var nEl = document.getElementById(nId);
+      if (!bucket || !bucket.enough) {
+        valueEl.textContent = bucket ? bucket.settled + '/20' : '—';
+        valueEl.className = 'value';
+        nEl.textContent = 'need 20+';
+        return;
+      }
+      var pct = Math.round(bucket.winRate * 100);
+      valueEl.textContent = pct + '%';
+      valueEl.className = 'value ' + (pct > 55 ? 'up' : pct < 45 ? 'down' : '');
+      nEl.textContent = bucket.settled + ' settled';
+    }
+
+    var byBucket = {};
+    (measured || []).forEach(function (row) { byBucket[row.bucket] = row; });
+    paintBucket(byBucket.overall, 'confOverall', 'confOverallN');
+    paintBucket(byBucket.agrees_with_model, 'confAgrees', 'confAgreesN');
+    paintBucket(byBucket.disagrees_with_model, 'confDisagrees', 'confDisagreesN');
+  }
+
+  function paintLiveTrading(lt) {
+    var box = document.getElementById('railsBox');
+    var label = document.getElementById('railsLabel');
+    if (!lt) return;
+
+    if (lt.killed) {
+      box.className = 'rails killed';
+      label.textContent = '🛑 KILLED' + (lt.killedReason ? ' — ' + lt.killedReason : '');
+    } else if (lt.armed) {
+      box.className = 'rails armed';
+      label.textContent = '🔴 ARMED — REAL MONEY';
+    } else {
+      box.className = 'rails disarmed';
+      label.textContent = '🔕 DISARMED';
+    }
+
+    var money = function (n) { return Number.isFinite(n) ? '$' + n.toFixed(2) : '—'; };
+    document.getElementById('liveSpent').textContent = money(lt.spent);
+    document.getElementById('liveRemaining').textContent = money(lt.remaining);
+    document.getElementById('liveTrades').textContent = Number.isFinite(lt.trades) ? String(lt.trades) : '—';
+    var realisedEl = document.getElementById('liveRealised');
+    realisedEl.textContent = Number.isFinite(lt.realised) ? (lt.realised >= 0 ? '+' : '') + money(lt.realised) : '—';
+    realisedEl.className = 'value ' + (lt.realised > 0 ? 'up' : lt.realised < 0 ? 'down' : '');
+
+    var pct = lt.limit > 0 ? Math.min(100, (lt.spent / lt.limit) * 100) : 0;
+    document.getElementById('liveBudgetFill').style.width = pct + '%';
   }
 
   function paint(data) {
     paintPosition(data.position);
     paintRecord(data.record);
     paintIndicators(data.indicators);
+    paintConfluence(data.confluence, data.confluenceMeasured);
+    paintLiveTrading(data.liveTrading);
     document.getElementById('asset').textContent = data.asset + (data.ticker ? ' · ' + data.ticker : '');
     var callEl = document.getElementById('call');
     var ring = document.getElementById('ring');
@@ -667,6 +856,23 @@ export function dashboardPage(brandName) {
       document.querySelectorAll('.tf-btn').forEach(function (b) { b.classList.remove('active'); });
       btn.classList.add('active');
       if (lastData) redrawChart(lastData);
+    });
+  });
+
+  document.querySelectorAll('.view-tab').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var target = btn.getAttribute('data-view');
+      document.querySelectorAll('.view-tab').forEach(function (b) { b.classList.remove('active'); });
+      document.querySelectorAll('.view').forEach(function (v) { v.classList.add('hidden'); });
+      btn.classList.add('active');
+      document.getElementById(target).classList.remove('hidden');
+      // The chart only sizes itself correctly against a panel that is
+      // actually visible — switching back to Signal after another tab was
+      // showing left it squashed to zero width until the next resize.
+      if (target === 'viewSignal' && chart) {
+        chart.applyOptions({ width: document.getElementById('chartMain').clientWidth });
+        if (lastData) redrawChart(lastData);
+      }
     });
   });
 

@@ -103,6 +103,71 @@ test('carries the descriptive indicators — RSI, momentum, trend, sigma distanc
   assert.ok(Number.isFinite(result.indicators.sigmaDistance));
 });
 
+test('carries the extended indicators — EMA stack, MACD, Bollinger width, ATR, session', async () => {
+  const now = Date.now();
+  const result = await computeRead(fakeStore, config, {
+    openBoard: async () => board(50, 65_000, now + 500_000),
+    fetchSpotPrice: async () => ({ price: 65_000 }),
+    now,
+  });
+
+  assert.ok(['bullish', 'bearish', 'mixed', null].includes(result.indicators.emaStack));
+  assert.ok(
+    result.indicators.bollingerWidthPercent === null || result.indicators.bollingerWidthPercent >= 0,
+  );
+  assert.ok(typeof result.indicators.session === 'string');
+});
+
+test('carries confluence — a second, independent lean, never fed into the call above', async () => {
+  const now = Date.now();
+  const result = await computeRead(fakeStore, config, {
+    openBoard: async () => board(50, 65_000, now + 500_000),
+    fetchSpotPrice: async () => ({ price: 65_000 }),
+    now,
+  });
+
+  assert.ok(['up', 'down', null].includes(result.confluence.lean));
+  assert.ok(Array.isArray(result.confluence.reasons));
+  // Measured accuracy is always shaped the same way, even before anything
+  // has settled — the dashboard should never have to guard against a shape
+  // that only shows up once a fortnight of history exists.
+  assert.deepEqual(
+    result.confluenceMeasured.map((row) => row.bucket).sort(),
+    ['agrees_with_model', 'disagrees_with_model', 'no_model_opinion', 'overall'].sort(),
+  );
+});
+
+test('live-trading status is read-only and defaults sensibly with nothing armed', async () => {
+  const now = Date.now();
+  const result = await computeRead(fakeStore, config, {
+    openBoard: async () => board(50, 65_000, now + 500_000),
+    fetchSpotPrice: async () => ({ price: 65_000 }),
+    now,
+  });
+
+  assert.equal(result.liveTrading.armed, false);
+  assert.equal(result.liveTrading.killed, false);
+  assert.equal(result.liveTrading.spent, 0);
+});
+
+test('live-trading status reflects the real risk state when one exists', async () => {
+  const now = Date.now();
+  const store = {
+    ...fakeStore,
+    riskState: () => ({ armed: true, killed: false, dailyLimitDollars: 20 }),
+    listTradeOrders: () => [{ at: now, status: 'filled', costDollars: 4, profitDollars: 1.2 }],
+  };
+  const result = await computeRead(store, config, {
+    openBoard: async () => board(50, 65_000, now + 500_000),
+    fetchSpotPrice: async () => ({ price: 65_000 }),
+    now,
+  });
+
+  assert.equal(result.liveTrading.armed, true);
+  assert.equal(result.liveTrading.spent, 4);
+  assert.equal(result.liveTrading.remaining, 16);
+});
+
 test('the expected range straddles spot and widens with more time left', async () => {
   const now = Date.now();
   const soon = await computeRead(fakeStore, config, {
