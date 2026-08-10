@@ -168,6 +168,11 @@ test('a placed order is signed and sent to the current V2 path, and reads back t
   assert.equal(sentBody.count, '3.00');
   assert.equal(typeof sentBody.count, 'string');
   assert.equal(sentBody.exchange_index, 0);
+  // REQUIRED by the exchange — a reference client's own source comment
+  // names this exact field as the cause of "400 missing_parameters" when
+  // it is left out, which is precisely the second real rejection this bot
+  // hit live.
+  assert.equal(sentBody.self_trade_prevention_type, 'maker');
 });
 
 test('errorDetail finds the message whatever shape Kalshi wrapped it in', () => {

@@ -111,6 +111,14 @@ export function buildOrder({
       // this is still a limit order meant to sit at the price the decision
       // was made on, not a market order in a GTC costume.
       time_in_force: 'good_till_canceled',
+      // REQUIRED by CreateOrderV2Request, confirmed from a reference
+      // client's own source comment: omitting this is literally what a
+      // "400 missing_parameters" means. "maker" is the exchange's own
+      // default (cancel the RESTING order on a self-cross rather than the
+      // incoming one) — this bot only ever holds one position, so a
+      // self-cross should never actually happen, but the field still has to
+      // be present.
+      self_trade_prevention_type: 'maker',
       // Present in every example request found, always 0 for a standard
       // account — omitting a field the schema may require silently is how
       // the last 400 happened with no error text explaining why.
