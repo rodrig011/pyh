@@ -119,6 +119,159 @@ export function largePrints(trades, { minimumBtc = 5 } = {}) {
 }
 
 /**
+ * Exponential moving average — the standard multiplier, seeded with a plain
+ * average of the first `period` values rather than the first value alone, so
+ * a jumpy opening tick cannot dominate weeks of smoothing on its own.
+ * Returns the CURRENT value only; see `emaSeries` for the whole line.
+ */
+export function ema(prices, period) {
+  const series = emaSeries(prices, period);
+  return series.length ? series.at(-1).value : null;
+}
+
+/** Every EMA value from the point there is enough history, not just the last one. */
+export function emaSeries(prices, period) {
+  const values = (prices ?? []).filter((price) => Number.isFinite(price));
+  if (values.length < period) return [];
+
+  const k = 2 / (period + 1);
+  const seed = values.slice(0, period).reduce((sum, v) => sum + v, 0) / period;
+  const out = [{ index: period - 1, value: seed }];
+  let prev = seed;
+  for (let i = period; i < values.length; i += 1) {
+    prev = values[i] * k + prev * (1 - k);
+    out.push({ index: i, value: prev });
+  }
+  return out;
+}
+
+/**
+ * Whether the short, medium and long averages are stacked in the same order
+ * price is moving — the plain trend-following read everyone means by
+ * "EMA9/21/50", collapsed to one word instead of three numbers nobody reads
+ * mid-trade.
+ */
+export function emaStack(prices, periods = [9, 21, 50]) {
+  const values = periods.map((period) => ema(prices, period));
+  if (values.some((value) => value === null)) return { alignment: null, values };
+  const [fast, mid, slow] = values;
+  const alignment = fast > mid && mid > slow ? 'bullish' : fast < mid && mid < slow ? 'bearish' : 'mixed';
+  return { alignment, values: { fast, mid, slow } };
+}
+
+/**
+ * MACD: the gap between a fast and a slow EMA, and that gap's own EMA as the
+ * signal line. The histogram is what most people actually mean when they say
+ * "MACD crossed" — it changes sign exactly when the two lines cross.
+ */
+export function macd(prices, { fastPeriod = 12, slowPeriod = 26, signalPeriod = 9 } = {}) {
+  const values = (prices ?? []).filter((price) => Number.isFinite(price));
+  const fast = emaSeries(values, fastPeriod);
+  const slow = emaSeries(values, slowPeriod);
+  if (fast.length === 0 || slow.length === 0) return null;
+
+  const slowByIndex = new Map(slow.map((point) => [point.index, point.value]));
+  const macdLine = fast
+    .filter((point) => slowByIndex.has(point.index))
+    .map((point) => point.value - slowByIndex.get(point.index));
+  if (macdLine.length < signalPeriod) return null;
+
+  const signalSeries = emaSeries(macdLine, signalPeriod);
+  if (signalSeries.length === 0) return null;
+
+  const macdNow = macdLine.at(-1);
+  const signalNow = signalSeries.at(-1).value;
+  return { macd: macdNow, signal: signalNow, histogram: macdNow - signalNow };
+}
+
+/**
+ * Bollinger width, as a percentage of price rather than a dollar figure —
+ * the number that actually compares across time as BTC's own price moves.
+ * A squeeze (small width) says the market has gone quiet; that quiet
+ * usually ends with a move, not a direction.
+ */
+export function bollingerWidth(prices, { period = 20, stdDevMultiplier = 2 } = {}) {
+  const values = (prices ?? []).filter((price) => Number.isFinite(price)).slice(-period);
+  if (values.length < period) return null;
+
+  const mean = values.reduce((sum, v) => sum + v, 0) / period;
+  const variance = values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / period;
+  const stdDev = Math.sqrt(variance);
+  if (!(mean > 0)) return null;
+
+  const upper = mean + stdDevMultiplier * stdDev;
+  const lower = mean - stdDevMultiplier * stdDev;
+  return { upper, lower, mid: mean, widthPercent: ((upper - lower) / mean) * 100 };
+}
+
+/**
+ * Average True Range, Wilder's smoothing, from OHLC candles rather than the
+ * raw tick history — true range needs a high and a low, which a single price
+ * per tick does not carry.
+ */
+export function atr(candles, period = 14) {
+  const bars = (candles ?? []).filter(
+    (c) => Number.isFinite(c?.high) && Number.isFinite(c?.low) && Number.isFinite(c?.close),
+  );
+  if (bars.length < period + 1) return null;
+
+  const trueRanges = [];
+  for (let i = 1; i < bars.length; i += 1) {
+    const prevClose = bars[i - 1].close;
+    trueRanges.push(
+      Math.max(bars[i].high - bars[i].low, Math.abs(bars[i].high - prevClose), Math.abs(bars[i].low - prevClose)),
+    );
+  }
+  if (trueRanges.length < period) return null;
+
+  let value = trueRanges.slice(0, period).reduce((sum, tr) => sum + tr, 0) / period;
+  for (let i = period; i < trueRanges.length; i += 1) {
+    value = (value * (period - 1) + trueRanges[i]) / period;
+  }
+  return value;
+}
+
+/**
+ * Percentage move over a fixed lookback, from TIMESTAMPED samples — not the
+ * plain `prices` array, which has no clock of its own and cannot say what
+ * "5 minutes ago" means. Reads whichever sample is closest to that instant,
+ * since ticks land every ~30s rather than on the minute exactly.
+ */
+export function priceChangeOverMinutes(samples, minutes, now = Date.now()) {
+  const points = (samples ?? []).filter((s) => Number.isFinite(s?.at) && s?.price > 0).sort((a, b) => a.at - b.at);
+  if (points.length < 2) return null;
+
+  const target = now - minutes * 60_000;
+  let closest = points[0];
+  for (const point of points) {
+    if (Math.abs(point.at - target) < Math.abs(closest.at - target)) closest = point;
+    if (point.at > target) break;
+  }
+  const latest = points.at(-1);
+  // Nothing this old — do not report a "5 minute change" measured over 40
+  // seconds of actual history just because that is all there was.
+  if (latest.at - closest.at < minutes * 60_000 * 0.5) return null;
+
+  return closest.price > 0 ? ((latest.price - closest.price) / closest.price) * 100 : null;
+}
+
+/**
+ * A rough trading-session label from the UTC hour. Genuinely approximate —
+ * real sessions overlap and drift with daylight saving — but good enough to
+ * say "this is the illiquid stretch" versus "both London and New York are
+ * awake", which is the distinction that actually matters for how thin the
+ * book is likely to be.
+ */
+export function sessionOf(now = Date.now()) {
+  const hour = new Date(now).getUTCHours();
+  if (hour >= 0 && hour < 7) return 'asia';
+  if (hour >= 7 && hour < 12) return 'london';
+  if (hour >= 12 && hour < 16) return 'london_ny_overlap';
+  if (hour >= 16 && hour < 21) return 'new_york';
+  return 'late';
+}
+
+/**
  * Whether the book can actually be traded.
  *
  * A signal on an untradeable market is worse than no signal: the member takes
