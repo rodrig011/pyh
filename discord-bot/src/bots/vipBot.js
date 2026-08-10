@@ -36,7 +36,8 @@ import { confluenceRead } from '../signals/confluence.js';
 import { appendConfluenceRecord, makeConfluenceRecord } from '../signals/confluenceLog.js';
 import { currentContract, closeTimeOf, nearestTheMoneyContract, openBoard } from '../picks/kalshi.js';
 import { fetchTrades } from '../picks/whales.js';
-import { sweepPaper, sweepSignalAlerts, sweepWatches } from '../picks/watch.js';
+import { sweepLiveTrading, sweepPaper, sweepSignalAlerts, sweepWatches } from '../picks/watch.js';
+import { placeOrder } from '../picks/kalshiOrders.js';
 import { ANALYST_GUIDE_MESSAGE, gainedWatchedRole } from '../picks/analystOnboarding.js';
 import { shouldNudge, staleSinceMs } from '../picks/consistency.js';
 import { fetchSpotPrice } from '../picks/price.js';
@@ -413,6 +414,18 @@ export function createVipBot(config = loadVipConfig()) {
         // and it costs nothing when no panel exists.
         sweepSignalAlerts(client, store, config, { openBoard, fetchSpotPrice, fetchTrades, log })
           .catch((error) => log.debug(`Alert sweep failed: ${error.message}`));
+
+        // Real money. Was never actually wired into any interval before this
+        // — /picks live arm flipped a flag in the store and nothing ever
+        // read it on a schedule, so an armed account could sit all night and
+        // never place a single order regardless of profile. Same cadence as
+        // the sweep above: exposure to a market is worth less every second
+        // this is late, same as an exit or an alert.
+        sweepLiveTrading(client, store, config, { openBoard, fetchSpotPrice, placeOrder, log })
+          .then((result) => {
+            if (result.traded) log.info(`LIVE trade placed (${result.status ?? 'placed'})`);
+          })
+          .catch((error) => log.debug(`Live trading sweep failed: ${error.message}`));
       }, watchMs).unref();
 
       log.info(`Watching positions for cash-out alerts every ${watchMs / 1000}s`);
