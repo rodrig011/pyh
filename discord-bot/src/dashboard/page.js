@@ -7,6 +7,11 @@
  * of an approximation of one. If the CDN cannot be reached the page still
  * works; the chart panel just says so instead of crashing.
  *
+ * Visual language: a plain, restrained "verified ledger" report rather than a
+ * sci-fi HUD — hairline-bordered sections with a small label and status badge
+ * each, muted state colors, no glow or motion for its own sake. The data
+ * earns the attention, not the chrome around it.
+ *
  * Kept as a template string rather than a static file so the brand name can
  * be baked in without a second templating layer for one variable.
  */
@@ -22,230 +27,212 @@ export function dashboardPage(brandName) {
 <style>
   :root {
     color-scheme: dark;
-    --cyan: #22e0ff;
-    --cyan-dim: #0b8fae;
-    --up: #2bffa3;
-    --down: #ff3860;
-    --amber: #ffb020;
-    --violet: #b98bff;
-    --ink: #cfe8f0;
-    --dim: #5c7a86;
-    --bg: #04070a;
+    --bg: #0a0b0d;
+    --card: #17181b;
+    --panel: #1c1e22;
+    --border: rgba(255,255,255,0.09);
+    --border-soft: rgba(255,255,255,0.06);
+    --ink: #f2f3f4;
+    --dim: #90959d;
+    --dim2: #5a5f68;
+    --up: #3ecf8e;
+    --down: #f2555a;
+    --blue: #5b9df5;
+    --amber: #e2a63f;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; }
   body {
     margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
-    background:
-      radial-gradient(ellipse 1100px 600px at 50% -10%, rgba(34,224,255,0.10), transparent 60%),
-      radial-gradient(ellipse 800px 600px at 100% 100%, rgba(34,224,255,0.05), transparent 60%),
-      var(--bg);
-    background-attachment: fixed;
-    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+    background: var(--bg);
+    font-family: var(--sans);
     color: var(--ink);
-    padding: 24px 14px;
+    padding: 28px 14px;
     overflow-x: hidden;
   }
-  body::before {
-    content: ""; position: fixed; inset: -50%; z-index: 0; pointer-events: none;
-    background-image:
-      linear-gradient(rgba(34,224,255,0.05) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(34,224,255,0.05) 1px, transparent 1px);
-    background-size: 42px 42px;
-    animation: drift 40s linear infinite;
-    mask-image: radial-gradient(ellipse 60% 50% at 50% 40%, black, transparent 75%);
-  }
-  @keyframes drift { from { transform: translate(0,0); } to { transform: translate(42px, 42px); } }
 
-  .frame { position: relative; width: min(760px, 100%); z-index: 1; }
-  .corner {
-    position: absolute; width: 22px; height: 22px; border: 2px solid var(--cyan);
-    filter: drop-shadow(0 0 6px rgba(34,224,255,0.7)); opacity: 0.85;
-  }
-  .corner.tl { top: -8px; left: -8px; border-right: none; border-bottom: none; }
-  .corner.tr { top: -8px; right: -8px; border-left: none; border-bottom: none; }
-  .corner.bl { bottom: -8px; left: -8px; border-right: none; border-top: none; }
-  .corner.br { bottom: -8px; right: -8px; border-left: none; border-top: none; }
+  .frame { width: min(720px, 100%); }
 
   .card {
-    position: relative; border-radius: 6px; padding: 26px 26px 22px;
-    background: linear-gradient(180deg, rgba(15,30,38,0.55), rgba(4,8,11,0.85));
-    border: 1px solid rgba(34,224,255,0.25);
-    box-shadow: 0 0 0 1px rgba(34,224,255,0.04) inset, 0 40px 90px rgba(0,0,0,0.6), 0 0 40px rgba(34,224,255,0.05);
-    backdrop-filter: blur(6px);
+    border-radius: 14px; padding: 22px 22px 18px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    box-shadow: 0 24px 60px rgba(0,0,0,0.45);
   }
 
-  .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
-  .brand { font-size: 12px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--cyan); text-shadow: 0 0 12px rgba(34,224,255,0.5); }
-  .live { display: flex; align-items: center; gap: 6px; font-size: 10px; letter-spacing: 0.15em; color: var(--dim); text-transform: uppercase; }
-  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--up); box-shadow: 0 0 8px var(--up); animation: pulse 1.6s ease-in-out infinite; }
-  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
+  .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .brand { font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
+  .live { display: flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; color: var(--dim); text-transform: uppercase; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--up); animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+  /* A bordered block with a small label + optional status badge — the
+     repeated unit the whole page is built from, the same way the reference
+     report is a stack of labelled cards rather than one continuous screen. */
+  .section { border: 1px solid var(--border-soft); border-radius: 10px; padding: 14px 16px 16px; margin-bottom: 10px; background: rgba(255,255,255,0.012); }
+  .section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .section-title { font-size: 10px; letter-spacing: 0.13em; text-transform: uppercase; color: var(--dim); font-weight: 600; }
+  .badge { font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; font-weight: 700; padding: 3px 9px; border-radius: 20px; background: rgba(255,255,255,0.07); color: var(--ink); }
+  .badge.up { color: var(--up); background: rgba(62,207,142,0.12); }
+  .badge.down { color: var(--down); background: rgba(242,85,90,0.12); }
+  .badge.blue { color: var(--blue); background: rgba(91,157,245,0.12); }
+  .badge.amber { color: var(--amber); background: rgba(226,166,63,0.12); }
 
   .cashout {
-    text-align: center; margin-bottom: 14px; padding: 14px; border-radius: 10px;
-    border: 1px solid rgba(255,176,32,0.5); background: rgba(255,176,32,0.1);
-    animation: cashoutPulse 1.1s ease-in-out infinite;
+    text-align: center; margin-bottom: 12px; padding: 14px; border-radius: 10px;
+    border: 1px solid rgba(226,166,63,0.4); background: rgba(226,166,63,0.08);
   }
-  .cashout-title { font-size: 26px; font-weight: 800; letter-spacing: 0.06em; color: var(--amber); text-shadow: 0 0 18px rgba(255,176,32,0.7); }
-  .cashout-sub { font-size: 11px; color: var(--amber); opacity: 0.85; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
-  @keyframes cashoutPulse {
-    0%,100% { box-shadow: 0 0 0px rgba(255,176,32,0.0); border-color: rgba(255,176,32,0.4); }
-    50% { box-shadow: 0 0 26px rgba(255,176,32,0.5); border-color: rgba(255,176,32,0.9); }
-  }
+  .cashout-title { font-size: 22px; font-weight: 800; letter-spacing: 0.02em; color: var(--amber); }
+  .cashout-sub { font-family: var(--mono); font-size: 11px; color: var(--amber); opacity: 0.85; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.03em; }
   .holding {
-    text-align: center; margin-bottom: 14px; padding: 8px; border-radius: 8px; font-size: 11px;
-    letter-spacing: 0.05em; color: var(--cyan); border: 1px solid rgba(34,224,255,0.2); background: rgba(34,224,255,0.04);
+    text-align: center; margin-bottom: 12px; padding: 9px; border-radius: 8px; font-family: var(--mono); font-size: 11px;
+    letter-spacing: 0.03em; color: var(--blue); border: 1px solid var(--border); background: rgba(91,157,245,0.06);
   }
-  .record { text-align: center; font-size: 11px; letter-spacing: 0.05em; color: var(--dim); margin-bottom: 8px; text-transform: uppercase; }
+  .record { text-align: center; font-family: var(--mono); font-size: 11px; letter-spacing: 0.03em; color: var(--dim); margin-bottom: 10px; text-transform: uppercase; }
   .record b { color: var(--ink); }
   .record .up { color: var(--up); } .record .down { color: var(--down); }
 
-  .enter-row { display: flex; gap: 10px; margin-bottom: 14px; }
+  .enter-row { display: flex; gap: 10px; margin-bottom: 12px; }
   .enterBtn {
-    flex: 1; padding: 12px; border-radius: 8px; font-family: inherit; font-size: 12px; letter-spacing: 0.08em;
-    text-transform: uppercase; font-weight: 700; cursor: pointer; border: 1px solid; background: transparent; transition: all 0.15s ease;
+    flex: 1; padding: 12px; border-radius: 8px; font-family: var(--sans); font-size: 12px; letter-spacing: 0.04em;
+    text-transform: uppercase; font-weight: 700; cursor: pointer; border: 1px solid; background: transparent; transition: background 0.15s ease;
   }
-  .enterBtn.up { color: var(--up); border-color: rgba(43,255,163,0.4); }
-  .enterBtn.up:hover { background: rgba(43,255,163,0.1); box-shadow: 0 0 14px rgba(43,255,163,0.3); }
-  .enterBtn.down { color: var(--down); border-color: rgba(255,56,96,0.4); }
-  .enterBtn.down:hover { background: rgba(255,56,96,0.1); box-shadow: 0 0 14px rgba(255,56,96,0.3); }
+  .enterBtn.up { color: var(--up); border-color: rgba(62,207,142,0.4); }
+  .enterBtn.up:hover { background: rgba(62,207,142,0.08); }
+  .enterBtn.down { color: var(--down); border-color: rgba(242,85,90,0.4); }
+  .enterBtn.down:hover { background: rgba(242,85,90,0.08); }
   .enterBtn:disabled { opacity: 0.4; cursor: default; }
 
   .clearBtn {
-    display: block; margin: 8px auto 0; padding: 5px 14px; border-radius: 6px; font-family: inherit; font-size: 10px;
-    letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; border: 1px solid rgba(255,255,255,0.2);
-    background: rgba(255,255,255,0.04); color: var(--dim);
+    display: block; margin: 8px auto 0; padding: 5px 14px; border-radius: 6px; font-family: var(--sans); font-size: 10px;
+    letter-spacing: 0.05em; text-transform: uppercase; cursor: pointer; border: 1px solid var(--border);
+    background: rgba(255,255,255,0.03); color: var(--dim);
   }
-  .clearBtn:hover { color: var(--ink); border-color: rgba(255,255,255,0.4); }
+  .clearBtn:hover { color: var(--ink); border-color: var(--dim2); }
 
-  .asset { text-align: center; font-size: 12px; letter-spacing: 0.1em; color: var(--dim); text-transform: uppercase; margin-bottom: 10px; }
-  .call-wrap { position: relative; display: flex; align-items: center; justify-content: center; margin: 6px 0 4px; height: 78px; }
-  .ring { position: absolute; width: 96px; height: 96px; border-radius: 50%; border: 1px solid currentColor; opacity: 0; }
-  .ring.on { animation: ringpulse 2s ease-out infinite; }
-  @keyframes ringpulse { 0% { opacity: 0.5; transform: scale(0.6); } 100% { opacity: 0; transform: scale(1.6); } }
-  .call { position: relative; text-align: center; font-size: 46px; font-weight: 800; letter-spacing: 0.05em; }
-  .call.up { color: var(--up); text-shadow: 0 0 24px rgba(43,255,163,0.55); }
-  .call.down { color: var(--down); text-shadow: 0 0 24px rgba(255,56,96,0.55); }
-  .call.none { color: var(--dim); font-size: 26px; letter-spacing: 0.15em; }
-  .sub { text-align: center; color: var(--dim); font-size: 12px; letter-spacing: 0.04em; margin-bottom: 18px; }
+  .asset { text-align: center; font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; color: var(--dim); text-transform: uppercase; margin-bottom: 8px; }
+  .call-wrap { display: flex; align-items: center; justify-content: center; margin: 4px 0; }
+  .ring { display: none; }
+  .call { text-align: center; font-size: 34px; font-weight: 800; letter-spacing: 0.01em; }
+  .call.up { color: var(--up); } .call.down { color: var(--down); }
+  .call.none { color: var(--dim); font-size: 20px; letter-spacing: 0.1em; }
+  .sub { text-align: center; color: var(--dim); font-size: 11px; letter-spacing: 0.03em; margin-bottom: 14px; text-transform: uppercase; }
 
   .chart-toolbar { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-bottom: 6px; }
   .tf-btn {
-    font-family: inherit; font-size: 10px; letter-spacing: 0.08em; padding: 4px 10px; border-radius: 5px;
-    border: 1px solid rgba(34,224,255,0.2); background: transparent; color: var(--dim); cursor: pointer;
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.05em; padding: 4px 10px; border-radius: 5px;
+    border: 1px solid var(--border); background: transparent; color: var(--dim); cursor: pointer;
   }
-  .tf-btn.active { color: var(--cyan); border-color: var(--cyan); background: rgba(34,224,255,0.1); }
+  .tf-btn.active { color: var(--ink); border-color: var(--dim2); background: rgba(255,255,255,0.06); }
   .chart-wrap {
-    position: relative; border-radius: 6px; border: 1px solid rgba(34,224,255,0.15); background: rgba(2,6,9,0.6); margin-bottom: 10px; overflow: hidden;
+    position: relative; border-radius: 8px; border: 1px solid var(--border-soft); background: var(--panel); margin-bottom: 10px; overflow: hidden;
   }
   #chartMain { width: 100%; height: 300px; }
   .ohlc-legend {
-    position: absolute; top: 6px; left: 8px; z-index: 3; font-size: 10px; letter-spacing: 0.03em; color: var(--dim);
-    display: flex; gap: 10px; pointer-events: none; text-shadow: 0 0 4px rgba(0,0,0,0.8);
+    position: absolute; top: 6px; left: 8px; z-index: 3; font-family: var(--mono); font-size: 10px; letter-spacing: 0.02em; color: var(--dim);
+    display: flex; gap: 10px; pointer-events: none;
   }
   .ohlc-legend b { color: var(--ink); font-weight: 700; }
   .ohlc-legend .up { color: var(--up); } .ohlc-legend .down { color: var(--down); }
   .rsi-wrap {
-    border-radius: 6px; border: 1px solid rgba(185,139,255,0.15); background: rgba(2,6,9,0.6); margin-bottom: 18px; overflow: hidden;
+    border-radius: 8px; border: 1px solid var(--border-soft); background: var(--panel); margin-bottom: 14px; overflow: hidden;
     position: relative;
   }
   #chartRsi { width: 100%; height: 90px; }
-  .rsi-label { position: absolute; top: 4px; left: 8px; font-size: 9px; letter-spacing: 0.1em; color: var(--violet); text-transform: uppercase; z-index: 2; }
-  .chart-fallback { padding: 40px 10px; text-align: center; color: var(--dim); font-size: 11px; letter-spacing: 0.04em; }
+  .rsi-label { position: absolute; top: 4px; left: 8px; font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em; color: var(--dim); text-transform: uppercase; z-index: 2; }
+  .chart-fallback { padding: 40px 10px; text-align: center; color: var(--dim); font-size: 11px; letter-spacing: 0.02em; }
 
-  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 10px; }
-  .stat { background: rgba(34,224,255,0.03); border: 1px solid rgba(34,224,255,0.12); border-radius: 8px; padding: 10px 8px; text-align: center; }
-  .stat .label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--dim); margin-bottom: 6px; }
-  .stat .value { font-size: 16px; font-weight: 700; color: var(--ink); }
-  .stat .value.up { color: var(--up); } .stat .value.down { color: var(--down); } .stat .value.amber { color: var(--amber); } .stat .value.violet { color: var(--violet); }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 8px; }
+  .stat { background: var(--panel); border: 1px solid var(--border-soft); border-radius: 8px; padding: 10px 8px; text-align: center; }
+  .stat .label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); margin-bottom: 6px; }
+  .stat .value { font-size: 16px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .stat .value.up { color: var(--up); } .stat .value.down { color: var(--down); } .stat .value.amber { color: var(--amber); } .stat .value.violet { color: var(--blue); }
 
-  .view-tabs { display: flex; gap: 6px; margin-bottom: 14px; }
+  .view-tabs { display: flex; gap: 4px; margin-bottom: 14px; padding: 3px; background: var(--panel); border: 1px solid var(--border-soft); border-radius: 9px; }
   .view-tab {
-    flex: 1; font-family: inherit; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; padding: 8px 6px;
-    border-radius: 6px; border: 1px solid rgba(34,224,255,0.15); background: transparent; color: var(--dim); cursor: pointer;
+    flex: 1; font-family: var(--sans); font-size: 11px; letter-spacing: 0.02em; font-weight: 600; padding: 7px 6px;
+    border-radius: 6px; border: none; background: transparent; color: var(--dim); cursor: pointer;
   }
-  .view-tab.active { color: var(--cyan); border-color: var(--cyan); background: rgba(34,224,255,0.08); box-shadow: 0 0 10px rgba(34,224,255,0.15); }
+  .view-tab.active { color: var(--ink); background: var(--card); }
   .view.hidden { display: none; }
 
-  .panel-title { font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--dim); margin: 16px 0 8px; }
+  .panel-title { font-size: 10px; letter-spacing: 0.13em; text-transform: uppercase; color: var(--dim); margin: 14px 0 8px; font-weight: 600; }
   .panel-title:first-child { margin-top: 0; }
 
-  .lean-wrap { text-align: center; margin-bottom: 10px; }
-  .lean { font-size: 28px; font-weight: 800; letter-spacing: 0.05em; }
-  .lean.up { color: var(--up); text-shadow: 0 0 18px rgba(43,255,163,0.5); }
-  .lean.down { color: var(--down); text-shadow: 0 0 18px rgba(255,56,96,0.5); }
-  .lean.none { color: var(--dim); font-size: 18px; letter-spacing: 0.12em; }
-  .lean-score { font-size: 11px; color: var(--dim); margin-top: 2px; }
-  .lean-reasons { font-size: 11px; color: var(--dim); line-height: 1.7; margin: 8px 0 4px; }
+  .lean-wrap { text-align: center; margin-bottom: 8px; }
+  .lean { font-size: 22px; font-weight: 800; letter-spacing: 0.01em; }
+  .lean.up { color: var(--up); } .lean.down { color: var(--down); }
+  .lean.none { color: var(--dim); font-size: 16px; letter-spacing: 0.08em; }
+  .lean-score { font-family: var(--mono); font-size: 11px; color: var(--dim); margin-top: 2px; }
+  .lean-reasons { font-family: var(--mono); font-size: 11px; color: var(--dim); line-height: 1.7; margin: 8px 0 4px; }
   .agree-row { display: flex; gap: 8px; margin-top: 10px; }
-  .agree-stat { flex: 1; text-align: center; padding: 8px 4px; border-radius: 6px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); }
-  .agree-stat .label { font-size: 8px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); margin-bottom: 4px; }
+  .agree-stat { flex: 1; text-align: center; padding: 8px 4px; border-radius: 8px; background: var(--panel); border: 1px solid var(--border-soft); }
+  .agree-stat .label { font-size: 8px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); margin-bottom: 4px; }
   .agree-stat .value { font-size: 13px; font-weight: 700; color: var(--ink); }
-  .agree-stat .n { font-size: 9px; color: var(--dim); }
+  .agree-stat .n { font-family: var(--mono); font-size: 9px; color: var(--dim2); }
 
-  .rails { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 14px; padding: 10px; border-radius: 8px; }
-  .rails.armed { background: rgba(255,56,96,0.08); border: 1px solid rgba(255,56,96,0.4); }
-  .rails.disarmed { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); }
-  .rails.killed { background: rgba(255,176,32,0.08); border: 1px solid rgba(255,176,32,0.4); }
-  .rails-label { font-size: 13px; font-weight: 800; letter-spacing: 0.08em; }
+  .rails { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 12px; padding: 10px; border-radius: 8px; }
+  .rails.armed { background: rgba(242,85,90,0.08); border: 1px solid rgba(242,85,90,0.35); }
+  .rails.disarmed { background: var(--panel); border: 1px solid var(--border-soft); }
+  .rails.killed { background: rgba(226,166,63,0.08); border: 1px solid rgba(226,166,63,0.35); }
+  .rails-label { font-size: 13px; font-weight: 800; letter-spacing: 0.02em; }
   .rails.armed .rails-label { color: var(--down); }
   .rails.disarmed .rails-label { color: var(--dim); }
   .rails.killed .rails-label { color: var(--amber); }
-  .budget-bar { height: 8px; border-radius: 4px; background: rgba(255,255,255,0.06); overflow: hidden; margin: 4px 0 14px; }
-  .budget-bar .fill { height: 100%; background: linear-gradient(90deg, var(--cyan-dim), var(--cyan)); transition: width 0.4s ease; }
-  .live-note { text-align: center; font-size: 10px; color: var(--dim); margin-top: 10px; letter-spacing: 0.02em; line-height: 1.6; }
+  .budget-bar { height: 6px; border-radius: 4px; background: var(--panel); overflow: hidden; margin: 4px 0 14px; }
+  .budget-bar .fill { height: 100%; background: var(--blue); transition: width 0.4s ease; }
+  .live-note { text-align: center; font-family: var(--mono); font-size: 10px; color: var(--dim); margin-top: 10px; letter-spacing: 0.01em; line-height: 1.6; }
 
   .bar-row { margin-bottom: 8px; }
-  .bar-row .labels { display: flex; justify-content: space-between; font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--dim); margin-bottom: 4px; }
-  .bar { height: 6px; border-radius: 4px; background: rgba(255,255,255,0.06); overflow: hidden; position: relative; }
+  .bar-row .labels { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 10px; letter-spacing: 0.03em; text-transform: uppercase; color: var(--dim); margin-bottom: 4px; }
+  .bar { height: 6px; border-radius: 4px; background: var(--panel); overflow: hidden; position: relative; }
   .bar .fill { position: absolute; inset: 0; border-radius: 4px; transition: width 0.4s ease; }
-  .bar .fill.model { background: linear-gradient(90deg, var(--cyan-dim), var(--cyan)); box-shadow: 0 0 8px rgba(34,224,255,0.5); }
-  .bar .fill.market { background: linear-gradient(90deg, #46586a, #7c8fa0); }
+  .bar .fill.model { background: var(--blue); }
+  .bar .fill.market { background: var(--dim2); }
 
-  .whale { margin-top: 14px; padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(255,176,32,0.0); background: rgba(255,176,32,0.0); font-size: 12px; color: var(--dim); transition: all 0.3s ease; min-height: 16px; }
-  .whale.active { border-color: rgba(255,176,32,0.35); background: rgba(255,176,32,0.06); color: var(--amber); }
+  .whale { margin-top: 10px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border-soft); background: var(--panel); font-family: var(--mono); font-size: 12px; color: var(--dim); transition: all 0.3s ease; min-height: 16px; }
+  .whale.active { border-color: rgba(226,166,63,0.3); background: rgba(226,166,63,0.05); color: var(--amber); }
 
-  .reason { text-align: center; font-size: 11px; color: var(--dim); margin-top: 10px; letter-spacing: 0.02em; }
-  .clock-row { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 18px; padding-top: 16px; border-top: 1px solid rgba(34,224,255,0.1); }
-  .clock-row .label { font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--dim); }
-  .clock { font-size: 18px; font-weight: 700; color: var(--cyan); font-variant-numeric: tabular-nums; text-shadow: 0 0 10px rgba(34,224,255,0.4); }
-  .stale { text-align: center; margin-top: 10px; font-size: 11px; color: var(--down); visibility: hidden; letter-spacing: 0.05em; }
+  .reason { text-align: center; font-family: var(--mono); font-size: 11px; color: var(--dim); margin-top: 10px; letter-spacing: 0.01em; }
+  .clock-row { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border-soft); }
+  .clock-row .label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); }
+  .clock { font-family: var(--mono); font-size: 17px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .stale { text-align: center; margin-top: 10px; font-family: var(--mono); font-size: 11px; color: var(--down); visibility: hidden; letter-spacing: 0.03em; }
 
-  .gate { display: flex; align-items: center; justify-content: center; min-height: 100vh; flex-direction: column; gap: 16px; z-index: 1; position: relative; }
+  .gate { display: flex; align-items: center; justify-content: center; min-height: 100vh; flex-direction: column; gap: 16px; }
   .gate input {
-    background: rgba(34,224,255,0.05); border: 1px solid rgba(34,224,255,0.3); color: var(--ink);
-    padding: 12px 16px; border-radius: 8px; font-size: 16px; width: min(260px, 80vw); text-align: center; font-family: inherit;
+    background: var(--panel); border: 1px solid var(--border); color: var(--ink);
+    padding: 12px 16px; border-radius: 8px; font-size: 16px; width: min(260px, 80vw); text-align: center; font-family: var(--sans);
   }
-  .gate input:focus { outline: none; border-color: var(--cyan); box-shadow: 0 0 12px rgba(34,224,255,0.3); }
+  .gate input:focus { outline: none; border-color: var(--dim2); }
   .gate button {
-    background: rgba(34,224,255,0.12); color: var(--cyan); border: 1px solid var(--cyan); padding: 12px 22px;
-    border-radius: 8px; cursor: pointer; font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; font-family: inherit;
+    background: var(--panel); color: var(--ink); border: 1px solid var(--border); padding: 12px 22px;
+    border-radius: 8px; cursor: pointer; font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; font-family: var(--sans); font-weight: 600;
   }
-  .gate button:hover { background: rgba(34,224,255,0.2); }
+  .gate button:hover { background: rgba(255,255,255,0.08); }
   .hidden { display: none; }
 
   /* Phones — portrait, roughly iPhone SE up to a large Android in portrait. */
   @media (max-width: 480px) {
     body { padding: 12px 8px; align-items: flex-start; }
-    .card { padding: 16px 14px 16px; border-radius: 10px; }
-    .corner { width: 14px; height: 14px; }
+    .card { padding: 16px 14px 16px; border-radius: 12px; }
 
-    .brand { font-size: 10px; letter-spacing: 0.14em; }
+    .brand { font-size: 10px; letter-spacing: 0.1em; }
     .topbar { margin-bottom: 14px; }
 
-    .cashout-title { font-size: 20px; }
+    .cashout-title { font-size: 18px; }
     .cashout { padding: 12px; }
     .holding { font-size: 10px; line-height: 1.6; }
 
     .enter-row { flex-direction: column; gap: 8px; }
     .enterBtn { padding: 13px; font-size: 12px; }
 
-    .call { font-size: 32px; }
-    .call.none { font-size: 18px; }
-    .call-wrap { height: 56px; margin: 4px 0; }
-    .ring { width: 72px; height: 72px; }
+    .call { font-size: 26px; }
+    .call.none { font-size: 16px; }
     .asset { font-size: 10px; }
-    .sub { font-size: 10px; margin-bottom: 14px; }
+    .sub { font-size: 10px; margin-bottom: 12px; }
 
     .chart-toolbar { justify-content: center; margin-bottom: 8px; }
     .tf-btn { padding: 6px 14px; font-size: 11px; }
@@ -262,8 +249,8 @@ export function dashboardPage(brandName) {
     .clock { font-size: 16px; }
     .whale, .reason { font-size: 11px; }
 
-    .view-tab { font-size: 9px; padding: 9px 4px; }
-    .lean { font-size: 22px; }
+    .view-tab { font-size: 10px; padding: 8px 4px; }
+    .lean { font-size: 19px; }
     .agree-row { flex-wrap: wrap; }
     .agree-stat { min-width: calc(50% - 4px); }
   }
@@ -271,7 +258,7 @@ export function dashboardPage(brandName) {
   /* Small/older phones — iPhone SE 1st gen and similar 320-360px widths. */
   @media (max-width: 360px) {
     .grid { grid-template-columns: repeat(2, 1fr); gap: 6px; }
-    .call { font-size: 26px; }
+    .call { font-size: 22px; }
     #chartMain { height: 190px; }
   }
 </style>
@@ -281,14 +268,13 @@ export function dashboardPage(brandName) {
   <div class="brand">${brandName}</div>
   <input id="tokenInput" type="password" placeholder="ACCESS CODE" />
   <button id="tokenSubmit">Unlock</button>
-  <div id="gateError" style="color:var(--down);font-size:12px;"></div>
+  <div id="gateError" style="color:var(--down);font-size:12px;font-family:var(--sans);"></div>
 </div>
 
 <div id="frame" class="frame hidden">
-  <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
   <div class="card">
     <div class="topbar">
-      <div class="brand">${brandName}</div>
+      <div class="brand">${brandName} / Live Read</div>
       <div class="live"><span class="dot"></span>LIVE</div>
     </div>
 
@@ -300,12 +286,12 @@ export function dashboardPage(brandName) {
 
     <div id="viewSignal" class="view">
     <div id="cashout" class="cashout hidden">
-      <div class="cashout-title">💸 CASH OUT</div>
+      <div class="cashout-title">CASH OUT</div>
       <div class="cashout-sub" id="cashoutSub">—</div>
       <button id="exitBtn" class="clearBtn hidden">Clear</button>
     </div>
     <div id="holding" class="holding hidden">
-      🔵 HOLDING <span id="holdingSide"></span> · entry <span id="holdingEntry"></span> · now <span id="holdingNow"></span>
+      HOLDING <span id="holdingSide"></span> · entry <span id="holdingEntry"></span> · now <span id="holdingNow"></span>
       <button id="exitBtn2" class="clearBtn hidden">Clear</button>
     </div>
     <div id="enterRow" class="enter-row hidden">
@@ -334,26 +320,36 @@ export function dashboardPage(brandName) {
     </div>
     <div class="rsi-wrap"><span class="rsi-label">RSI 14</span><div id="chartRsi"></div></div>
 
-    <div class="grid">
-      <div class="stat"><div class="label">Confidence</div><div class="value" id="conf">—</div></div>
-      <div class="stat"><div class="label">Entry</div><div class="value" id="entry">—</div></div>
-      <div class="stat"><div class="label">Flip odds</div><div class="value amber" id="flip">—</div></div>
-      <div class="stat"><div class="label">Strike</div><div class="value" id="strike">—</div></div>
-    </div>
-    <div class="grid">
-      <div class="stat"><div class="label">RSI (14)</div><div class="value violet" id="rsiVal">—</div></div>
-      <div class="stat"><div class="label">Momentum</div><div class="value" id="momentum">—</div></div>
-      <div class="stat"><div class="label">Trend R²</div><div class="value" id="trendR2">—</div></div>
-      <div class="stat"><div class="label">Strike, in σ</div><div class="value" id="sigmaDist">—</div></div>
+    <div class="section">
+      <div class="section-head"><span class="section-title">Read</span></div>
+      <div class="grid">
+        <div class="stat"><div class="label">Confidence</div><div class="value" id="conf">—</div></div>
+        <div class="stat"><div class="label">Entry</div><div class="value" id="entry">—</div></div>
+        <div class="stat"><div class="label">Flip odds</div><div class="value amber" id="flip">—</div></div>
+        <div class="stat"><div class="label">Strike</div><div class="value" id="strike">—</div></div>
+      </div>
     </div>
 
-    <div class="bar-row">
-      <div class="labels"><span>Model</span><span id="modelPct">—</span></div>
-      <div class="bar"><div class="fill model" id="modelBar" style="width:0%"></div></div>
+    <div class="section">
+      <div class="section-head"><span class="section-title">Trend &amp; momentum</span></div>
+      <div class="grid">
+        <div class="stat"><div class="label">RSI (14)</div><div class="value violet" id="rsiVal">—</div></div>
+        <div class="stat"><div class="label">Momentum</div><div class="value" id="momentum">—</div></div>
+        <div class="stat"><div class="label">Trend R²</div><div class="value" id="trendR2">—</div></div>
+        <div class="stat"><div class="label">Strike, in σ</div><div class="value" id="sigmaDist">—</div></div>
+      </div>
     </div>
-    <div class="bar-row">
-      <div class="labels"><span>Market</span><span id="marketPct">—</span></div>
-      <div class="bar"><div class="fill market" id="marketBar" style="width:0%"></div></div>
+
+    <div class="section">
+      <div class="section-head"><span class="section-title">Model vs. market</span></div>
+      <div class="bar-row">
+        <div class="labels"><span>Model</span><span id="modelPct">—</span></div>
+        <div class="bar"><div class="fill model" id="modelBar" style="width:0%"></div></div>
+      </div>
+      <div class="bar-row" style="margin-bottom:0">
+        <div class="labels"><span>Market</span><span id="marketPct">—</span></div>
+        <div class="bar"><div class="fill market" id="marketBar" style="width:0%"></div></div>
+      </div>
     </div>
 
     <div class="whale" id="whale"></div>
@@ -361,50 +357,60 @@ export function dashboardPage(brandName) {
     </div>
 
     <div id="viewIndicators" class="view hidden">
-      <div class="panel-title">Trend &amp; Momentum</div>
-      <div class="grid">
-        <div class="stat"><div class="label">EMA 9/21/50</div><div class="value" id="emaStack">—</div></div>
-        <div class="stat"><div class="label">MACD hist.</div><div class="value" id="macdHist">—</div></div>
-        <div class="stat"><div class="label">Bollinger width</div><div class="value" id="bbWidth">—</div></div>
-        <div class="stat"><div class="label">ATR</div><div class="value" id="atrVal">—</div></div>
-      </div>
-      <div class="grid">
-        <div class="stat"><div class="label">RSI (14)</div><div class="value violet" id="rsiVal2">—</div></div>
-        <div class="stat"><div class="label">Momentum</div><div class="value" id="momentum2">—</div></div>
-        <div class="stat"><div class="label">Trend R²</div><div class="value" id="trendR2b">—</div></div>
-        <div class="stat"><div class="label">Session</div><div class="value" id="session">—</div></div>
+      <div class="section">
+        <div class="section-head"><span class="section-title">Trend &amp; momentum</span></div>
+        <div class="grid">
+          <div class="stat"><div class="label">EMA 9/21/50</div><div class="value" id="emaStack">—</div></div>
+          <div class="stat"><div class="label">MACD hist.</div><div class="value" id="macdHist">—</div></div>
+          <div class="stat"><div class="label">Bollinger width</div><div class="value" id="bbWidth">—</div></div>
+          <div class="stat"><div class="label">ATR</div><div class="value" id="atrVal">—</div></div>
+        </div>
+        <div class="grid" style="margin-bottom:0">
+          <div class="stat"><div class="label">RSI (14)</div><div class="value violet" id="rsiVal2">—</div></div>
+          <div class="stat"><div class="label">Momentum</div><div class="value" id="momentum2">—</div></div>
+          <div class="stat"><div class="label">Trend R²</div><div class="value" id="trendR2b">—</div></div>
+          <div class="stat"><div class="label">Session</div><div class="value" id="session">—</div></div>
+        </div>
       </div>
 
-      <div class="panel-title">Confluence — a second, independent read</div>
-      <div class="lean-wrap">
-        <div class="lean none" id="confLean">NO LEAN</div>
-        <div class="lean-score" id="confScore">—</div>
+      <div class="section">
+        <div class="section-head">
+          <span class="section-title">Confluence — a second, independent read</span>
+          <span class="badge blue" id="confBadge">EVALUATING</span>
+        </div>
+        <div class="lean-wrap">
+          <div class="lean none" id="confLean">NO LEAN</div>
+          <div class="lean-score" id="confScore">—</div>
+        </div>
+        <div class="lean-reasons" id="confReasons"></div>
+        <div class="agree-row">
+          <div class="agree-stat"><div class="label">Overall</div><div class="value" id="confOverall">—</div><div class="n" id="confOverallN"></div></div>
+          <div class="agree-stat"><div class="label">Agrees w/ model</div><div class="value" id="confAgrees">—</div><div class="n" id="confAgreesN"></div></div>
+          <div class="agree-stat"><div class="label">Disagrees</div><div class="value" id="confDisagrees">—</div><div class="n" id="confDisagreesN"></div></div>
+        </div>
+        <div class="live-note">Never fed into the call above — kept separate so it can be checked against the model, not blended into it. Needs a fortnight of settled windows before either number means anything.</div>
       </div>
-      <div class="lean-reasons" id="confReasons"></div>
-      <div class="agree-row">
-        <div class="agree-stat"><div class="label">Overall</div><div class="value" id="confOverall">—</div><div class="n" id="confOverallN"></div></div>
-        <div class="agree-stat"><div class="label">Agrees w/ model</div><div class="value" id="confAgrees">—</div><div class="n" id="confAgreesN"></div></div>
-        <div class="agree-stat"><div class="label">Disagrees</div><div class="value" id="confDisagrees">—</div><div class="n" id="confDisagreesN"></div></div>
-      </div>
-      <div class="live-note">Never fed into the call above — kept separate so it can be checked against the model, not blended into it. Needs a fortnight of settled windows before either number means anything.</div>
     </div>
 
     <div id="viewLive" class="view hidden">
       <div class="rails disarmed" id="railsBox">
-        <span class="rails-label" id="railsLabel">🔕 DISARMED</span>
+        <span class="rails-label" id="railsLabel">DISARMED</span>
       </div>
-      <div class="grid">
-        <div class="stat"><div class="label">Spent today</div><div class="value" id="liveSpent">—</div></div>
-        <div class="stat"><div class="label">Remaining</div><div class="value" id="liveRemaining">—</div></div>
-        <div class="stat"><div class="label">Orders today</div><div class="value" id="liveTrades">—</div></div>
-        <div class="stat"><div class="label">Realised</div><div class="value" id="liveRealised">—</div></div>
+      <div class="section">
+        <div class="section-head"><span class="section-title">Today</span></div>
+        <div class="grid">
+          <div class="stat"><div class="label">Spent today</div><div class="value" id="liveSpent">—</div></div>
+          <div class="stat"><div class="label">Remaining</div><div class="value" id="liveRemaining">—</div></div>
+          <div class="stat"><div class="label">Orders today</div><div class="value" id="liveTrades">—</div></div>
+          <div class="stat"><div class="label">Realised</div><div class="value" id="liveRealised">—</div></div>
+        </div>
+        <div class="budget-bar" style="margin-bottom:0"><div class="fill" id="liveBudgetFill" style="width:0%"></div></div>
       </div>
-      <div class="budget-bar"><div class="fill" id="liveBudgetFill" style="width:0%"></div></div>
-      <div class="live-note" id="liveNote">Arming and disarming real money only happens in Discord — <code>/picks live</code> — never from this page, on purpose.</div>
+      <div class="live-note" id="liveNote">Arming and disarming real money only happens in Discord — /picks live — never from this page, on purpose.</div>
     </div>
 
     <div class="clock-row"><span class="label">Closes in</span><span class="clock" id="clock">—</span></div>
-    <div class="stale" id="stale">◆ FEED STALE — RECONNECTING…</div>
+    <div class="stale" id="stale">FEED STALE — RECONNECTING…</div>
   </div>
 </div>
 
@@ -440,11 +446,11 @@ export function dashboardPage(brandName) {
       return;
     }
     var common = {
-      layout: { background: { color: 'transparent' }, textColor: '#7c8fa0', fontFamily: 'ui-monospace, monospace', fontSize: 10 },
-      grid: { vertLines: { color: 'rgba(34,224,255,0.06)' }, horzLines: { color: 'rgba(34,224,255,0.06)' } },
+      layout: { background: { color: 'transparent' }, textColor: '#90959d', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif', fontSize: 10 },
+      grid: { vertLines: { color: 'rgba(255,255,255,0.04)' }, horzLines: { color: 'rgba(255,255,255,0.04)' } },
       crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-      timeScale: { borderColor: 'rgba(34,224,255,0.15)', timeVisible: true, secondsVisible: false },
-      rightPriceScale: { borderColor: 'rgba(34,224,255,0.15)' },
+      timeScale: { borderColor: 'rgba(255,255,255,0.1)', timeVisible: true, secondsVisible: false },
+      rightPriceScale: { borderColor: 'rgba(255,255,255,0.1)' },
       handleScroll: true, handleScale: true,
     };
 
@@ -452,8 +458,8 @@ export function dashboardPage(brandName) {
       width: document.getElementById('chartMain').clientWidth, height: 260,
     }, common));
     candleSeries = chart.addCandlestickSeries({
-      upColor: '#2bffa3', downColor: '#ff3860', borderVisible: false,
-      wickUpColor: '#2bffa3', wickDownColor: '#ff3860',
+      upColor: '#3ecf8e', downColor: '#f2555a', borderVisible: false,
+      wickUpColor: '#3ecf8e', wickDownColor: '#f2555a',
     });
 
     // Real Kalshi contract volume, sparse by nature — see buildVolume server
@@ -463,7 +469,7 @@ export function dashboardPage(brandName) {
     volumeSeries = chart.addHistogramSeries({
       priceFormat: { type: 'volume' },
       priceScaleId: 'volume',
-      color: 'rgba(124,143,160,0.5)',
+      color: 'rgba(144,149,157,0.45)',
     });
     chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
 
@@ -484,10 +490,10 @@ export function dashboardPage(brandName) {
 
     rsiChart = LightweightCharts.createChart(document.getElementById('chartRsi'), Object.assign({
       width: document.getElementById('chartRsi').clientWidth, height: 90,
-    }, common, { rightPriceScale: { borderColor: 'rgba(185,139,255,0.15)' } }));
-    rsiSeries = rsiChart.addLineSeries({ color: '#b98bff', lineWidth: 2 });
-    rsiSeries.createPriceLine({ price: 70, color: 'rgba(255,56,96,0.4)', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: '70' });
-    rsiSeries.createPriceLine({ price: 30, color: 'rgba(43,255,163,0.4)', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: '30' });
+    }, common, { rightPriceScale: { borderColor: 'rgba(255,255,255,0.1)' } }));
+    rsiSeries = rsiChart.addLineSeries({ color: '#5b9df5', lineWidth: 2 });
+    rsiSeries.createPriceLine({ price: 70, color: 'rgba(242,85,90,0.4)', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: '70' });
+    rsiSeries.createPriceLine({ price: 30, color: 'rgba(62,207,142,0.4)', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: '30' });
     rsiChart.priceScale('right').applyOptions({ scaleMargins: { top: 0.15, bottom: 0.15 } });
 
     // Keep both time axes in step when one is panned or zoomed.
@@ -560,7 +566,7 @@ export function dashboardPage(brandName) {
     if (strikeLine) { candleSeries.removePriceLine(strikeLine); strikeLine = null; }
     if (Number.isFinite(data.strike)) {
       strikeLine = candleSeries.createPriceLine({
-        price: data.strike, color: '#7c8fa0', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed,
+        price: data.strike, color: '#90959d', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed,
         axisLabelVisible: true, title: 'strike',
       });
     }
@@ -568,7 +574,7 @@ export function dashboardPage(brandName) {
     if (spotLine) { candleSeries.removePriceLine(spotLine); spotLine = null; }
     if (Number.isFinite(data.spot)) {
       spotLine = candleSeries.createPriceLine({
-        price: data.spot, color: '#22e0ff', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted,
+        price: data.spot, color: '#5b9df5', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted,
         axisLabelVisible: true, title: 'now',
       });
     }
@@ -580,11 +586,11 @@ export function dashboardPage(brandName) {
     if (rangeLoLine) { candleSeries.removePriceLine(rangeLoLine); rangeLoLine = null; }
     if (data.expectedRange) {
       rangeHiLine = candleSeries.createPriceLine({
-        price: data.expectedRange.high, color: 'rgba(185,139,255,0.55)', lineWidth: 1,
+        price: data.expectedRange.high, color: 'rgba(91,157,245,0.5)', lineWidth: 1,
         lineStyle: LightweightCharts.LineStyle.SparseDotted, axisLabelVisible: true, title: '~68% hi',
       });
       rangeLoLine = candleSeries.createPriceLine({
-        price: data.expectedRange.low, color: 'rgba(185,139,255,0.55)', lineWidth: 1,
+        price: data.expectedRange.low, color: 'rgba(91,157,245,0.5)', lineWidth: 1,
         lineStyle: LightweightCharts.LineStyle.SparseDotted, axisLabelVisible: true, title: '~68% lo',
       });
     }
@@ -637,7 +643,7 @@ export function dashboardPage(brandName) {
   function paintRecord(record) {
     var el = document.getElementById('record');
     if (!record || record.total === 0) { el.textContent = 'No settled trades yet'; return; }
-    el.innerHTML = '📊 <span class="up">' + record.wins + 'W</span> – <span class="down">' + record.losses + 'L</span>' +
+    el.innerHTML = '<span class="up">' + record.wins + 'W</span> – <span class="down">' + record.losses + 'L</span>' +
       (record.breakEven ? ' – ' + record.breakEven + ' push' : '') +
       (record.winRate !== null ? ' <b>(' + Math.round(record.winRate * 100) + '%)</b>' : '');
   }
@@ -690,13 +696,18 @@ export function dashboardPage(brandName) {
 
   function paintConfluence(confluence, measured) {
     var leanEl = document.getElementById('confLean');
+    var badge = document.getElementById('confBadge');
     if (confluence && confluence.lean === 'up') {
       leanEl.textContent = '▲ LEANING UP'; leanEl.className = 'lean up';
+      badge.textContent = 'UP'; badge.className = 'badge up';
     } else if (confluence && confluence.lean === 'down') {
       leanEl.textContent = '▼ LEANING DOWN'; leanEl.className = 'lean down';
+      badge.textContent = 'DOWN'; badge.className = 'badge down';
     } else {
       leanEl.textContent = confluence && confluence.squeeze ? 'SQUEEZE — NO LEAN' : 'NO LEAN';
       leanEl.className = 'lean none';
+      badge.textContent = confluence && confluence.squeeze ? 'SQUEEZE' : 'NEUTRAL';
+      badge.className = 'badge';
     }
     document.getElementById('confScore').textContent = confluence && Number.isFinite(confluence.score) ? 'score ' + (confluence.score > 0 ? '+' : '') + confluence.score : '—';
     var reasons = (confluence && confluence.reasons) || [];
@@ -731,13 +742,13 @@ export function dashboardPage(brandName) {
 
     if (lt.killed) {
       box.className = 'rails killed';
-      label.textContent = '🛑 KILLED' + (lt.killedReason ? ' — ' + lt.killedReason : '');
+      label.textContent = 'KILLED' + (lt.killedReason ? ' — ' + lt.killedReason : '');
     } else if (lt.armed) {
       box.className = 'rails armed';
-      label.textContent = '🔴 ARMED — REAL MONEY';
+      label.textContent = 'ARMED — REAL MONEY';
     } else {
       box.className = 'rails disarmed';
-      label.textContent = '🔕 DISARMED';
+      label.textContent = 'DISARMED';
     }
 
     var money = function (n) { return Number.isFinite(n) ? '$' + n.toFixed(2) : '—'; };
@@ -760,15 +771,12 @@ export function dashboardPage(brandName) {
     paintLiveTrading(data.liveTrading);
     document.getElementById('asset').textContent = data.asset + (data.ticker ? ' · ' + data.ticker : '');
     var callEl = document.getElementById('call');
-    var ring = document.getElementById('ring');
     if (data.call === 'up') {
       callEl.textContent = '▲ UP'; callEl.className = 'call up';
-      ring.style.color = '#2bffa3'; ring.className = 'ring' + (data.tradeable ? ' on' : '');
     } else if (data.call === 'down') {
       callEl.textContent = '▼ DOWN'; callEl.className = 'call down';
-      ring.style.color = '#ff3860'; ring.className = 'ring' + (data.tradeable ? ' on' : '');
     } else {
-      callEl.textContent = 'NO READ'; callEl.className = 'call none'; ring.className = 'ring';
+      callEl.textContent = 'NO READ'; callEl.className = 'call none';
     }
 
     document.getElementById('sub').textContent = data.tradeable
@@ -786,7 +794,7 @@ export function dashboardPage(brandName) {
 
     var whaleEl = document.getElementById('whale');
     if (data.whales && data.whales.line) {
-      whaleEl.textContent = '🐋 ' + data.whales.line.replace(/\\*\\*/g, '').replace(/^🐋 /, '');
+      whaleEl.textContent = data.whales.line.replace(/\\*\\*/g, '').replace(/^🐋 /, '');
       whaleEl.className = 'whale active';
     } else {
       whaleEl.textContent = 'No large prints on the tape right now.';
@@ -828,7 +836,6 @@ export function dashboardPage(brandName) {
       } else {
         document.getElementById('call').textContent = (data.reason || 'NO READ').toUpperCase();
         document.getElementById('call').className = 'call none';
-        document.getElementById('ring').className = 'ring';
       }
     } catch (e) {
       if (Date.now() - lastOkAt > 15000) document.getElementById('stale').style.visibility = 'visible';
