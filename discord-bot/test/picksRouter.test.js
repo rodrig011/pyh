@@ -1393,3 +1393,53 @@ test('the status names today’s spending, read from the order ledger', async ()
   assert.match(reply, /\*\*\$6\.00\*\* spent/);
   assert.match(reply, /\*\*\$14\.00\*\* left/);
 });
+
+test('status names the active trading profile — "armed but nothing traded" is unanswerable without it', async () => {
+  const store = freshStore();
+  store.putRiskState({ ...newRiskState(), armed: true });
+  const config = {
+    ...liveConfig,
+    picks: {
+      ...liveConfig.picks,
+      kalshi: { ...liveConfig.picks.kalshi, trading: { ...liveConfig.picks.kalshi.trading, profile: 'always' } },
+    },
+  };
+
+  const interaction = fakeInteraction('live', {});
+  await handlePicks(interaction, { store, config });
+
+  const reply = interaction.replies.at(-1);
+  assert.equal(typeof reply, 'string');
+  assert.match(reply, /Profile: \*\*always\*\*/);
+  assert.match(reply, /forces every window/);
+});
+
+test('status defaults to careful and says so, when no profile is configured at all', async () => {
+  const store = freshStore();
+  store.putRiskState({ ...newRiskState(), armed: true });
+
+  const interaction = fakeInteraction('live', {});
+  await handlePicks(interaction, { store, config: liveConfig });
+
+  const reply = interaction.replies.at(-1);
+  assert.equal(typeof reply, 'string');
+  assert.match(reply, /Profile: \*\*careful\*\*/);
+});
+
+test('status flags a misspelled profile instead of silently trading as careful', async () => {
+  const store = freshStore();
+  store.putRiskState({ ...newRiskState(), armed: true });
+  const config = {
+    ...liveConfig,
+    picks: {
+      ...liveConfig.picks,
+      kalshi: { ...liveConfig.picks.kalshi, trading: { ...liveConfig.picks.kalshi.trading, profile: 'allways' } },
+    },
+  };
+
+  const interaction = fakeInteraction('live', {});
+  await handlePicks(interaction, { store, config });
+
+  const reply = interaction.replies.at(-1);
+  assert.match(reply, /does not exist — running as careful instead/);
+});

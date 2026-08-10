@@ -1205,6 +1205,16 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
     }
 
     const summary = riskSummary(state, store.listTradeOrders());
+    const activeProfile = PROFILES[trading.profile] ?? PROFILES.careful;
+    // Named explicitly rather than left to be inferred, because "armed but
+    // nothing is trading" was reported live and the actual cause was that
+    // KALSHI_TRADING_PROFILE was never set to 'always' on the host — arming
+    // is a Discord act, but the profile is still an environment variable,
+    // and there was no way to see which one was actually in force without
+    // this line.
+    const profileLine = trading.profile && !PROFILES[trading.profile]
+      ? `⚠️ _KALSHI_TRADING_PROFILE is set to "${trading.profile}", which does not exist — running as careful instead._`
+      : `_Profile: **${activeProfile.label}**${activeProfile.forceEveryWindow ? ' — forces every window' : ''}._`;
     return interaction.editReply(
       [
         summary.killed
@@ -1212,6 +1222,7 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
           : summary.armed
             ? '🔴 **ARMED — trading real money**'
             : '🔕 **Disarmed** — no real trades.',
+        profileLine,
         '',
         `**$${summary.spent.toFixed(2)}** spent of **$${summary.limit.toFixed(2)}** today · ` +
           `**$${summary.remaining.toFixed(2)}** left`,
