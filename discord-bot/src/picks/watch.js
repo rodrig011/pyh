@@ -667,12 +667,25 @@ export async function sweepLiveTrading(client, store, config, deps = {}) {
 
     let best = ladder.best;
     let forced = false;
+    let forcedWhy = null;
 
-    // Nothing cleared the bar. If a minimum activity floor is configured and
-    // the trailing window is short of it, force the least-bad contract onto
-    // the board instead of standing aside — see forceTrade.js for why this is
-    // kept apart from the model-driven path below.
-    if (!best && trading.forceTradesPerWindow > 0) {
+    if (!best && profile.forceEveryWindow) {
+      // "always" — see PROFILES.always in paper.js. Every window, no
+      // exceptions, taken purely to measure what refusing costs — never a
+      // blind guess, still restricted to a contract the model formed a real
+      // opinion on. checkTrade's forced-loss limit is what actually bounds
+      // the damage this can do with real money; this file just asks.
+      const candidate = leastBadCandidate(ladder.reads);
+      if (candidate) {
+        best = candidate;
+        forced = true;
+        forcedWhy = 'always mode';
+      }
+    } else if (!best && trading.forceTradesPerWindow > 0) {
+      // Nothing cleared the bar. If a minimum activity floor is configured and
+      // the trailing window is short of it, force the least-bad contract onto
+      // the board instead of standing aside — see forceTrade.js for why this is
+      // kept apart from the model-driven path above.
       const windowMs = (Number(trading.forceWindowHours) || 6) * 60 * 60 * 1000;
       const inWindow = tradesInWindow(orders, { windowMs, now });
       if (
@@ -685,6 +698,7 @@ export async function sweepLiveTrading(client, store, config, deps = {}) {
         if (candidate) {
           best = candidate;
           forced = true;
+          forcedWhy = 'activity floor';
         }
       }
     }
@@ -713,6 +727,10 @@ export async function sweepLiveTrading(client, store, config, deps = {}) {
       openPosition: null,
       secondsLeft: context.secondsLeft,
       now,
+      forced,
+      forceLossLimitDollars: Number.isFinite(Number(trading.forceLossLimitDollars))
+        ? Number(trading.forceLossLimitDollars)
+        : null,
     });
 
     if (!check.allowed) return { traded: false, blocked: check.blocked };
@@ -742,8 +760,9 @@ export async function sweepLiveTrading(client, store, config, deps = {}) {
       limitCents,
       result,
       at: now,
+      forced,
       reason: forced
-        ? `FORCED (activity floor) — ${Math.round(best.read.winProbability * 100)}% vs market ${Math.round(
+        ? `FORCED (${forcedWhy}) — ${Math.round(best.read.winProbability * 100)}% vs market ${Math.round(
             best.read.marketWinProbability * 100,
           )}%, no edge required`
         : `model ${Math.round(best.read.winProbability * 100)}% vs market ${Math.round(
@@ -768,7 +787,12 @@ export async function sweepLiveTrading(client, store, config, deps = {}) {
       });
     }
 
-    await tellOwner(client, trading, liveTradeMessage({ record, check, read: best.read, asset, forced }), log);
+    await tellOwner(
+      client,
+      trading,
+      liveTradeMessage({ record, check, read: best.read, asset, forced, forcedWhy }),
+      log,
+    );
     log.info(`LIVE ${result.status}: ${contracts} ${record.side} on ${best.ticker} at ${limitCents}`);
     return { traded: result.status === 'placed', status: result.status };
   } catch (error) {
@@ -848,7 +872,7 @@ async function tellOwner(client, trading, body, log) {
   await user.send(body).catch((error) => log.debug(`Live trade DM failed: ${error.message}`));
 }
 
-function liveTradeMessage({ record, check, read, asset, forced = false }) {
+function liveTradeMessage({ record, check, read, asset, forced = false, forcedWhy = null }) {
   const up = record.side === 'yes';
   if (record.status !== 'placed') {
     return [
@@ -860,14 +884,16 @@ function liveTradeMessage({ record, check, read, asset, forced = false }) {
     ].join('\n');
   }
 
+  const forcedLabel = forcedWhy === 'always mode' ? 'always mode, no edge' : 'activity floor, no edge';
+
   return [
     forced
-      ? `🎲 **FORCED TRADE (activity floor, no edge) — BUY ${up ? 'UP' : 'DOWN'} @ ${record.limitCents}%** · ${asset}`
+      ? `🎲 **FORCED TRADE (${forcedLabel}) — BUY ${up ? 'UP' : 'DOWN'} @ ${record.limitCents}%** · ${asset}`
       : `💵 **REAL TRADE — BUY ${up ? 'UP' : 'DOWN'} @ ${record.limitCents}%** · ${asset}`,
     '',
     `**${record.contracts} contracts · $${record.costDollars.toFixed(2)}** of your own money.`,
     forced
-      ? `Model ${Math.round(read.winProbability * 100)}% vs market ${Math.round(read.marketWinProbability * 100)}% — this did **not** clear the edge bar, it was forced to hit the activity floor.`
+      ? `Model ${Math.round(read.winProbability * 100)}% vs market ${Math.round(read.marketWinProbability * 100)}% — this did **not** clear the edge bar, it was forced (${forcedLabel}).`
       : `Model ${Math.round(read.winProbability * 100)}% vs market ${Math.round(read.marketWinProbability * 100)}%.`,
     '',
     `Left today: **$${check.remainingToday.toFixed(2)}** of $${check.limit.toFixed(2)}.`,

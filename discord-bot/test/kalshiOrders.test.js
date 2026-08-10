@@ -156,3 +156,17 @@ test('an unknown order is still recorded, and still costed', () => {
   assert.equal(record.status, 'unknown');
   assert.equal(record.costDollars, 2);
 });
+
+test('forced is a real field, not something read back out of the reason text', () => {
+  // riskLimits.js's forced-loss circuit breaker filters and sums these —
+  // string-matching a free-text reason is how that silently breaks the day
+  // somebody edits the wording.
+  const forced = orderRecord({
+    ticker: 'T', side: 'yes', contracts: 1, limitCents: 50,
+    result: { status: 'placed' }, forced: true,
+  });
+  assert.equal(forced.forced, true);
+
+  const notForced = orderRecord({ ticker: 'T', side: 'yes', contracts: 1, limitCents: 50, result: { status: 'placed' } });
+  assert.equal(notForced.forced, false, 'defaults to false when not specified');
+});

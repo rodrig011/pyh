@@ -181,6 +181,7 @@ export function orderRecord({
   result,
   at = Date.now(),
   reason = null,
+  forced = false,
 }) {
   return {
     at,
@@ -197,5 +198,10 @@ export function orderRecord({
     // realised total have something to read.
     profitDollars: null,
     reason,
+    // A real field, not a prefix on `reason` — riskLimits.js's forced-loss
+    // circuit breaker has to filter and sum these reliably, and matching
+    // text is how that silently breaks the day somebody edits the reason
+    // string.
+    forced: Boolean(forced),
   };
 }

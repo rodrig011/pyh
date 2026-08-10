@@ -1173,20 +1173,32 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
         );
       }
       store.putRiskState({ ...state, armed: true, killed: false, armedAt: Date.now() });
+      const activeProfile = PROFILES[trading.profile] ?? PROFILES.careful;
+      const dailyLimit = state.dailyLimitDollars ?? 20;
       return interaction.editReply(
         [
-          `🔴 **ARMED — REAL MONEY, $${(state.dailyLimitDollars ?? 20).toFixed(2)} a day.**`,
+          `🔴 **ARMED — REAL MONEY, $${dailyLimit.toFixed(2)} a day.**`,
+          `_Profile: **${activeProfile.label}**._`,
           '',
           'The rails, none of which can be raised by the trading code itself:',
-          `· **$${((state.dailyLimitDollars ?? 20) * 0.25).toFixed(2)}** most per trade`,
+          `· **$${(dailyLimit * 0.25).toFixed(2)}** most per trade`,
           '· **one** position at a time',
           '· **three** losses in a row ends the day',
           '· limit orders only, never market',
           '· a market with no readable clock is never traded',
+          activeProfile.forceEveryWindow
+            ? `· **forced trades stop separately** once they alone have lost $${(
+                Number(trading.forceLossLimitDollars) || dailyLimit * 0.25
+              ).toFixed(2)} today — the model-driven side keeps going`
+            : null,
           '',
+          activeProfile.forceEveryWindow
+            ? '⚠️ **This profile trades every window with no edge required, on purpose, to measure it.** ' +
+              'Expect it to lose money to fees on average.'
+            : null,
           'You get a DM on **every** order, filled or not.',
           '**`/picks live kill` stops everything, instantly.**',
-        ].join('\n'),
+        ].filter((line) => line !== null),
       );
     }
 
@@ -1288,7 +1300,8 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
 
     const reset = interaction.options.getBoolean('reset') ?? false;
     const bankroll = interaction.options.getNumber('bankroll') ?? START_BANKROLL;
-    const mode = interaction.options.getString('mode') ?? 'both';
+    const modeOption = interaction.options.getString('mode');
+    const mode = modeOption ?? 'both';
     const wanted = mode === 'both' ? ['careful', 'scalp'] : [mode];
 
     const existing = store.paperAccounts();
@@ -1302,12 +1315,27 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
         marks[profile] =
           board?.contracts?.find((c) => c.market?.ticker === account.position.ticker)?.price ?? null;
       }
+
+      // "Already running" is not always the whole answer. `mode` is silently
+      // IGNORED whenever something is already going — asking for `always`
+      // while `careful`/`scalp` are running just reports the pair that is
+      // already there, with no hint that the mode you typed did nothing.
+      // That silence was reported as "I ran the command and nothing
+      // happened", and it was right: nothing had.
+      const runningProfiles = Object.keys(existing).sort();
+      const modeLabel = mode === 'both' ? 'both (careful + scalp)' : (PROFILES[mode]?.label ?? mode);
+      const runningLabel = runningProfiles.map((p) => PROFILES[p]?.label ?? p).join(', ');
+      const mismatch = modeOption !== null && JSON.stringify(runningProfiles) !== JSON.stringify([...wanted].sort());
+
       return interaction.editReply(
         [
           compareReport(existing, { marks }),
           '',
           `_Watching **${board?.contracts?.length ?? 0}** strike(s) in the current window._`,
-          '_Already running. `reset:True` starts it over._',
+          mismatch
+            ? `_You asked for **${modeLabel}**, but **${runningLabel}** is what's actually running — mode is ` +
+              'ignored unless you also reset. `reset:True` switches to what you just asked for._'
+            : '_Already running. `reset:True` starts it over._',
         ].join('\n'),
       );
     }

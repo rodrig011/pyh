@@ -27,6 +27,14 @@ export const DEFAULT_PER_TRADE_SHARE = 0.25;
 /** Consecutive losses before the day is over, whatever the budget says. */
 export const DEFAULT_LOSS_STREAK_STOP = 3;
 
+/**
+ * What forced trades alone may lose today, as a share of the daily budget.
+ * The same ratio as the per-trade cap, for the same reason: a fraction of an
+ * account that scales with it rather than a flat number that stops meaning
+ * anything the day somebody changes the daily limit.
+ */
+export const DEFAULT_FORCE_LOSS_SHARE = 0.25;
+
 export const BLOCKED = {
   DISARMED: 'disarmed',
   NO_CREDENTIALS: 'no_credentials',
@@ -36,6 +44,7 @@ export const BLOCKED = {
   TOO_BIG: 'too_big',
   KILLED: 'killed',
   STALE_CLOCK: 'stale_clock',
+  FORCE_LOSS_LIMIT: 'force_loss_limit',
 };
 
 export function newRiskState({ dailyLimitDollars = DEFAULT_DAILY_LIMIT_DOLLARS, at = Date.now() } = {}) {
@@ -87,6 +96,33 @@ export function spentToday(orders, { now = Date.now() } = {}) {
   return { spent, trades, realised, day: today };
 }
 
+/**
+ * What forced trades specifically have cost today, in dollars lost.
+ *
+ * A forced trade is never expected to have an edge — PROFILES.always exists
+ * precisely to take the ones the model calls bad, on purpose, to measure
+ * them. That is fine with paper money and a real cost with real money, so it
+ * gets its OWN limit, tighter than and independent of the whole account's
+ * daily budget: the model-driven side of the account can keep trading on a
+ * day forcing has used up its share, and forcing shuts itself off without
+ * having to wait for the whole day's budget to be gone first.
+ *
+ * Wins count too, negatively — a forced trade that happens to win pays back
+ * against the limit exactly like a loss draws it down, because the limit is
+ * about NET cost, not about refusing to count a lucky forced trade.
+ */
+export function forcedLossToday(orders, { now = Date.now() } = {}) {
+  const today = dayKey(now);
+  let lost = 0;
+  for (const order of orders ?? []) {
+    if (!order?.forced) continue;
+    if (dayKey(order?.at ?? 0) !== today) continue;
+    if (!Number.isFinite(order.profitDollars)) continue;
+    lost -= order.profitDollars;
+  }
+  return lost;
+}
+
 /** How many trades in a row have lost, most recent first. */
 export function lossStreak(orders, { now = Date.now() } = {}) {
   const today = dayKey(now);
@@ -118,6 +154,12 @@ export function checkTrade({
   now = Date.now(),
   perTradeShare = DEFAULT_PER_TRADE_SHARE,
   lossStreakStop = DEFAULT_LOSS_STREAK_STOP,
+  // Whether THIS trade is a forced one — see PROFILES.always. Never true for
+  // a trade the model actually likes, and the only kind this file holds to a
+  // second, tighter budget on top of the ordinary one.
+  forced = false,
+  forceLossShare = DEFAULT_FORCE_LOSS_SHARE,
+  forceLossLimitDollars = null,
 } = {}) {
   const no = (blocked, why) => ({ allowed: false, dollars: 0, blocked, why });
 
@@ -154,6 +196,22 @@ export function checkTrade({
       BLOCKED.LOSS_STREAK,
       `${streak} losses in a row. Done for the day — a losing streak is when a wrong model looks most like a run of bad luck.`,
     );
+  }
+
+  // A forced trade is never expected to have an edge, so it gets its own,
+  // tighter circuit breaker rather than sharing the whole account's budget —
+  // hitting it stops FORCING for the rest of the day while the model-driven
+  // side of the account, which is a different question, keeps trading.
+  if (forced) {
+    const cap = Number.isFinite(forceLossLimitDollars) ? forceLossLimitDollars : limit * forceLossShare;
+    const lostSoFar = forcedLossToday(orders, { now });
+    if (lostSoFar >= cap) {
+      return no(
+        BLOCKED.FORCE_LOSS_LIMIT,
+        `Forced trades have lost $${lostSoFar.toFixed(2)} of their $${cap.toFixed(2)} limit today. ` +
+          `Forcing is done for the day; the model-driven side keeps trading normally.`,
+      );
+    }
   }
 
   const perTradeCap = limit * perTradeShare;

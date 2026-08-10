@@ -6,6 +6,7 @@ import {
   DEFAULT_DAILY_LIMIT_DOLLARS,
   checkTrade,
   dayKey,
+  forcedLossToday,
   lossStreak,
   newRiskState,
   riskSummary,
@@ -163,4 +164,74 @@ test('a custom daily limit is respected in both directions', () => {
   const result = checkTrade({ state, ...ok, wantDollars: 100 });
   assert.equal(result.dollars, 2, 'a quarter of eight');
   assert.equal(result.limit, 8);
+});
+
+/**
+ * "always" mode (PROFILES.always) trades every window with no edge required
+ * — measured on purpose, real money on purpose, once somebody explicitly
+ * turns it on. It gets its OWN circuit breaker, tighter than and separate
+ * from the whole account's daily budget, so forcing can burn through its own
+ * share while the model-driven side of the account keeps trading normally.
+ */
+
+test('forcedLossToday sums only FORCED, LOSING orders from today', () => {
+  const now = Date.parse('2026-08-06T12:00:00Z');
+  const orders = [
+    { at: now, forced: true, profitDollars: -2, status: 'filled' },
+    { at: now, forced: true, profitDollars: -1.5, status: 'filled' },
+    // A forced trade that WON pays back against the limit, not adds to it.
+    { at: now, forced: true, profitDollars: 3, status: 'filled' },
+    // Not forced: the model liked this one. Never counted here.
+    { at: now, forced: false, profitDollars: -10, status: 'filled' },
+    // Forced, but yesterday.
+    { at: Date.parse('2026-08-05T12:00:00Z'), forced: true, profitDollars: -5, status: 'filled' },
+  ];
+  assert.equal(forcedLossToday(orders, { now }), 0.5, '2 + 1.5 - 3 = 0.5');
+});
+
+test('a forced trade is blocked once forced losses hit their own limit, by default a quarter of the daily budget', () => {
+  const now = Date.parse('2026-08-06T12:00:00Z');
+  const orders = [{ at: now, forced: true, profitDollars: -5, status: 'filled' }];
+  // Daily limit 20, default forced-loss share 0.25 -> cap is $5. Already lost $5.
+  const result = checkTrade({ state: armed(), orders, ...ok, forced: true, now });
+  assert.equal(result.blocked, BLOCKED.FORCE_LOSS_LIMIT);
+});
+
+test('the forced-loss limit never touches a trade the model actually likes', () => {
+  const now = Date.parse('2026-08-06T12:00:00Z');
+  const orders = [{ at: now, forced: true, profitDollars: -5, status: 'filled' }];
+  // Same account, same day, same $5 of forced losses already spent — but
+  // THIS trade is not forced, so the limit that exists only for forcing
+  // must not apply to it.
+  const result = checkTrade({ state: armed(), orders, ...ok, forced: false, now });
+  assert.equal(result.allowed, true);
+});
+
+test('an explicit forceLossLimitDollars overrides the default share', () => {
+  const now = Date.parse('2026-08-06T12:00:00Z');
+  const orders = [{ at: now, forced: true, profitDollars: -3, status: 'filled' }];
+  const blocked = checkTrade({
+    state: armed(),
+    orders,
+    ...ok,
+    forced: true,
+    forceLossLimitDollars: 2,
+    now,
+  });
+  assert.equal(blocked.blocked, BLOCKED.FORCE_LOSS_LIMIT, '$3 lost against a $2 cap');
+
+  const allowed = checkTrade({
+    state: armed(),
+    orders,
+    ...ok,
+    forced: true,
+    forceLossLimitDollars: 10,
+    now,
+  });
+  assert.equal(allowed.allowed, true, '$3 lost is still under a $10 cap');
+});
+
+test('forcing that has not lost anything yet is not blocked by a limit it has not reached', () => {
+  const result = checkTrade({ state: armed(), orders: [], ...ok, forced: true });
+  assert.equal(result.allowed, true);
 });

@@ -944,6 +944,34 @@ test('/picks paper without reset reports instead of silently starting over', asy
   assert.match(String(interaction.replies.at(-1)), /reset:True/);
 });
 
+test('/picks paper mode:always while careful+scalp are running says so, instead of silently doing nothing', async () => {
+  // The exact confusion reported live: asking for a different mode while a
+  // run is already going ignores `mode` entirely and just reports what is
+  // already there — reasonable behavior, but silent about WHY the mode
+  // typed in did nothing, which read as the command being broken.
+  const store = freshStore();
+  await handlePicks(fakeInteraction('paper', {}), { store, config: paperConfig }); // starts careful+scalp
+
+  const interaction = fakeInteraction('paper', { mode: 'always' });
+  await handlePicks(interaction, { store, config: paperConfig });
+
+  assert.deepEqual(Object.keys(store.paperAccounts()).sort(), ['careful', 'scalp']);
+  const reply = String(interaction.replies.at(-1));
+  assert.match(reply, /you asked for \*\*always\*\*/i);
+  assert.match(reply, /careful, scalp.*actually running/i);
+  assert.match(reply, /reset:True/);
+});
+
+test('/picks paper without an explicit mode does not claim a mismatch that was never asked for', async () => {
+  const store = freshStore();
+  await handlePicks(fakeInteraction('paper', {}), { store, config: paperConfig });
+
+  const interaction = fakeInteraction('paper', {});
+  await handlePicks(interaction, { store, config: paperConfig });
+
+  assert.doesNotMatch(String(interaction.replies.at(-1)), /you asked for/i);
+});
+
 test('/picks paper says so when the contract feed is switched off', async () => {
   const store = freshStore();
   const interaction = fakeInteraction('paper', {});
@@ -1241,6 +1269,50 @@ test('arming is refused without trading credentials on the host', async () => {
 
   assert.match(String(interaction.replies.at(-1)), /No trading credentials/);
   assert.notEqual(store.riskState()?.armed, true);
+});
+
+test('arming with always mode warns it trades every window with no edge, on purpose', async () => {
+  const store = freshStore();
+  const config = {
+    ...liveConfig,
+    picks: {
+      ...liveConfig.picks,
+      kalshi: {
+        ...liveConfig.picks.kalshi,
+        trading: { ownerId: 'mod', dailyLimitDollars: 20, keyId: 'k', privateKeyPem: 'p', profile: 'always' },
+      },
+    },
+  };
+
+  const interaction = fakeInteraction('live', { action: 'arm' });
+  await handlePicks(interaction, { store, config });
+
+  assert.equal(store.riskState()?.armed, true);
+  const reply = String(interaction.replies.at(-1));
+  assert.match(reply, /Profile: \*\*always\*\*/);
+  assert.match(reply, /every window with no edge required/);
+  assert.match(reply, /forced trades stop separately/);
+});
+
+test('arming with the default profile carries none of the always-mode warning', async () => {
+  const store = freshStore();
+  const config = {
+    ...liveConfig,
+    picks: {
+      ...liveConfig.picks,
+      kalshi: {
+        ...liveConfig.picks.kalshi,
+        trading: { ownerId: 'mod', dailyLimitDollars: 20, keyId: 'k', privateKeyPem: 'p' },
+      },
+    },
+  };
+
+  const interaction = fakeInteraction('live', { action: 'arm' });
+  await handlePicks(interaction, { store, config });
+
+  const reply = String(interaction.replies.at(-1));
+  assert.match(reply, /Profile: \*\*careful\*\*/);
+  assert.doesNotMatch(reply, /every window with no edge required/);
 });
 
 test('only the owner may touch the rails, not merely a mod', async () => {

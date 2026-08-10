@@ -274,21 +274,37 @@ export function loadVipConfig() {
           ownerId: str('KALSHI_TRADING_OWNER_ID'),
           // The whole day's budget, in dollars. A ceiling, not a target.
           dailyLimitDollars: Number.parseFloat(str('KALSHI_DAILY_LIMIT', '20')),
-          // Which of paper.js's PROFILES the live engine trades with — 'careful'
-          // (default) or 'scalp'. This changes how OFTEN it trades and how BIG,
-          // never the daily dollar ceiling above or the circuit breaker: those
-          // are the limit this profile is not allowed to touch.
+          // Which of paper.js's PROFILES the live engine trades with —
+          // 'careful' (default), 'scalp', or 'always'. This changes how OFTEN
+          // it trades and how BIG, never the daily dollar ceiling above or
+          // the circuit breaker: those are the limit this profile is not
+          // allowed to touch. 'always' is the one that trades every window
+          // with no edge required at all — real money, on purpose, to
+          // measure it — and it is the only profile the forced-loss limit
+          // below exists for.
           profile: str('KALSHI_TRADING_PROFILE', 'careful'),
           // A minimum ACTIVITY floor, off by default. When set, if fewer than
           // this many orders were placed in the trailing window, the next flat
           // sweep forces an entry on the least-bad contract on the board even
           // with no edge — see src/picks/forceTrade.js. The dollar rails above
           // still apply to a forced trade exactly as they do to a real one.
+          // Not used by 'always', which forces every window regardless.
           forceTradesPerWindow: int('KALSHI_FORCE_TRADES_PER_WINDOW', 0),
           forceWindowHours: Number.parseFloat(str('KALSHI_FORCE_WINDOW_HOURS', '6')),
           // The stake a forced trade asks for, before the same per-trade and
           // daily caps every other trade goes through are applied.
           forceTradeDollars: Number.parseFloat(str('KALSHI_FORCE_TRADE_DOLLARS', '2')),
+          // What FORCED trades alone may lose today before forcing shuts
+          // itself off for the rest of the day — see riskLimits.js's
+          // forcedLossToday. Unset (the default) means a quarter of the
+          // daily limit, the same ratio the per-trade cap already uses.
+          // Independent of and tighter than the whole account's daily
+          // budget: forcing can burn through its own share while the
+          // model-driven side of the account keeps trading normally.
+          forceLossLimitDollars: (() => {
+            const raw = str('KALSHI_FORCE_LOSS_LIMIT_DOLLARS');
+            return raw ? Number.parseFloat(raw) : null;
+          })(),
           // Deliberately NOT settable from the environment. Arming is an
           // explicit act performed by a person in Discord, so that a copied
           // environment or a restored backup can never start a bot that trades.
