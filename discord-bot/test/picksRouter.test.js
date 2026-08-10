@@ -1288,7 +1288,12 @@ test('arming with always mode warns it trades every window with no edge, on purp
   await handlePicks(interaction, { store, config });
 
   assert.equal(store.riskState()?.armed, true);
-  const reply = String(interaction.replies.at(-1));
+  const reply = interaction.replies.at(-1);
+  // discord.js rejects anything that is not a real string with "Cannot send
+  // an empty message" — a JS array happens to stringify into something
+  // String() and a regex will still match, which is exactly how a broken
+  // .filter(...) missing its .join('\n') slipped through here once already.
+  assert.equal(typeof reply, 'string');
   assert.match(reply, /Profile: \*\*always\*\*/);
   assert.match(reply, /every window with no edge required/);
   assert.match(reply, /forced trades stop separately/);
@@ -1310,7 +1315,8 @@ test('arming with the default profile carries none of the always-mode warning', 
   const interaction = fakeInteraction('live', { action: 'arm' });
   await handlePicks(interaction, { store, config });
 
-  const reply = String(interaction.replies.at(-1));
+  const reply = interaction.replies.at(-1);
+  assert.equal(typeof reply, 'string');
   assert.match(reply, /Profile: \*\*careful\*\*/);
   assert.doesNotMatch(reply, /every window with no edge required/);
 });

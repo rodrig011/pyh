@@ -1198,7 +1198,9 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
             : null,
           'You get a DM on **every** order, filled or not.',
           '**`/picks live kill` stops everything, instantly.**',
-        ].filter((line) => line !== null),
+        ]
+          .filter((line) => line !== null)
+          .join('\n'),
       );
     }
 
