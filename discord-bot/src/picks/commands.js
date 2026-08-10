@@ -334,6 +334,7 @@ export function buildPickCommands(config) {
               { name: 'both — run them side by side and compare (recommended)', value: 'both' },
               { name: 'scalp — thinner edges, bigger bets, more trades', value: 'scalp' },
               { name: 'careful — only what the measurements support', value: 'careful' },
+              { name: 'always — every single market, no exceptions (forced, to measure win rate)', value: 'always' },
             ),
         )
         .addBooleanOption((option) =>
@@ -1361,7 +1362,11 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
         `**Mode: ${label}.** ` +
           (wanted[0] === 'scalp'
             ? 'Half the edge required (3¢ not 6¢), double the bet size, enters a minute from the bell.'
-            : 'Six cents of edge, quarter Kelly — only what the measurements support.'),
+            : wanted[0] === 'always'
+              ? 'No edge requirement at all — it takes EVERY window, forced, so the other two ' +
+                'profiles\' refusals can be checked against something real. This is a measurement, ' +
+                'not a strategy: expect it to lose money to fees on average, on purpose.'
+              : 'Six cents of edge, quarter Kelly — only what the measurements support.'),
       );
     }
 

@@ -1178,6 +1178,13 @@ test('/picks paper mode:scalp runs only the one asked for', async () => {
   assert.deepEqual(Object.keys(store.paperAccounts()), ['scalp']);
 });
 
+test('/picks paper mode:always is selectable and runs alone, not folded into "both"', async () => {
+  const store = freshStore();
+  await handlePicks(fakeInteraction('paper', { mode: 'always' }), { store, config: paperConfig });
+  assert.deepEqual(Object.keys(store.paperAccounts()), ['always']);
+  assert.equal(store.paperAccount('always').profile, 'always');
+});
+
 test('both runs start from the same bankroll on the same clock', async () => {
   // Same markets, same instant, same money. Anything else and the difference
   // between them stops being the profile.

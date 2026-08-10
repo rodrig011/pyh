@@ -3,6 +3,7 @@ import { directionalRead } from '../signals/direction.js';
 import { readBoard, boardIsUnreadable, brokenDiagnosis, censusLine } from '../signals/board.js';
 import { recommendSize } from '../signals/sizing.js';
 import { feePerContract } from '../signals/math.js';
+import { leastBadCandidate } from './forceTrade.js';
 
 /**
  * The engine trading the real market with imaginary money.
@@ -78,6 +79,36 @@ export const PROFILES = {
     // Enters a minute from the bell instead of two, and banks a move as soon as
     // it has covered the round trip plus a quarter cent.
     scalp: { marginCents: 0.25, noEntryWithinSeconds: 60 },
+  },
+  // Not a strategy — a measurement. Takes EVERY window, no edge requirement
+  // at all, specifically so the other two profiles' refusals can be checked
+  // against something: if "always" loses money and "careful" stands aside on
+  // the same markets, that is the gate earning its keep, in a way a report
+  // of refusal REASONS alone cannot show as directly as a losing account can.
+  //
+  // Sizing bypasses Kelly for exactly this reason — see enterTick's `forced`
+  // path — since Kelly is correctly zero on a market with no edge, and a
+  // profile built to trade those anyway needs a floor instead. 3% is small
+  // enough that even a genuinely bad run does not wipe the paper account
+  // before there is anything worth reading in the results.
+  always: {
+    label: 'always',
+    engine: {
+      minimumEdgeCents: -1000,
+      minimumWorstCaseEdgeCents: -1000,
+      minimumSecondsLeft: 1,
+      // Almost the whole board, not just the middle of it — a contract at 2¢
+      // is still a contract, and "always" means the price band is not a
+      // reason to stand aside either.
+      maximumEntryCents: 99,
+      minimumEntryCents: 1,
+      maximumSpreadCents: 100,
+      minimumLiquidityDollars: 0,
+    },
+    sizing: { kellyFraction: 0.25, maximumFraction: 0.05 },
+    scalp: { marginCents: 0.25, noEntryWithinSeconds: 30 },
+    forceEveryWindow: true,
+    forcedFraction: 0.03,
   },
 };
 
@@ -167,6 +198,16 @@ export function paperTick(
   // written on, which is the same class of mistake as grading a Kalshi call on
   // the spot price.
   if (position) return holdTick(seen, position, input, { now, candidates });
+
+  // "always" does not stand aside for anything, including an unreadable
+  // board — it exists to measure what refusing would have cost, and a board
+  // it refuses to read is exactly the case that question is about. The
+  // least-bad candidate is still never a BLIND one; see leastBadCandidate.
+  if (profile.forceEveryWindow) {
+    const best = board.best ?? leastBadCandidate(board.reads);
+    if (!best) return { account: seen, event: null };
+    return enterTick(seen, best, { now, ticker, sizing, forced: !board.best });
+  }
 
   // The refusal the person paying for this explicitly asked to keep: when the
   // ladder as a whole says the volatility cannot be read, stand aside. One
@@ -319,7 +360,7 @@ function countLook(account, board) {
 }
 
 /** Opens the board's best strike, if the stake buys at least one contract. */
-function enterTick(account, entry, { now, ticker, sizing }) {
+function enterTick(account, entry, { now, ticker, sizing, forced = false }) {
   const read = entry.read;
   const profile = profileOf(account);
 
@@ -333,7 +374,16 @@ function enterTick(account, entry, { now, ticker, sizing }) {
     ...sizing,
   });
 
-  const stake = account.cash * (sized?.suggested ?? 0);
+  // Kelly correctly says "bet nothing" on a non-edge — that is what it is
+  // FOR. A forced entry (see PROFILES.always) exists to trade the window
+  // anyway, purely to measure it, so it gets a small fixed floor instead of
+  // Kelly's zero. "Trade every window" and "size by the edge" cannot both be
+  // true on a window with no edge; this is the one that wins when forced.
+  const suggested = forced
+    ? Math.max(sized?.suggested ?? 0, profile.forcedFraction ?? 0)
+    : sized?.suggested ?? 0;
+
+  const stake = account.cash * suggested;
   const contracts = contractsFor(stake, read.entryCents);
   if (contracts < 1) return { account, event: null };
 
@@ -356,6 +406,10 @@ function enterTick(account, entry, { now, ticker, sizing }) {
     cost: cost + fee,
     openedAt: now,
     modelProbability: read.winProbability,
+    // Whether the edge gate actually cleared, or this window was taken
+    // anyway to measure it. The report reads this so "always" mode's record
+    // is never mistaken for the model finding real opportunities.
+    forced,
   };
 
   return {

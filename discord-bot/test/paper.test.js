@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  PROFILES,
   START_BANKROLL,
   compareReport,
   contractsFor,
@@ -10,6 +11,7 @@ import {
   report,
   reportDue,
 } from '../src/picks/paper.js';
+import { evaluate } from '../src/signals/engine.js';
 
 // The engine trading the real market with imaginary money. The rules that make
 // the answer worth having are all about not flattering itself.
@@ -443,4 +445,87 @@ test('the comparison carries each run’s refusal reasons', () => {
 test('nothing running says so rather than dividing by zero', () => {
   assert.match(compareReport({}), /No paper runs/);
   assert.match(compareReport(null), /No paper runs/);
+});
+
+/**
+ * "always" — not a strategy, a measurement. It exists so the other two
+ * profiles' refusals can be checked against something real: if this loses
+ * money on the same markets careful and scalp stand aside on, that is the
+ * gate earning its keep, in a way a census of refusal reasons alone cannot
+ * show as plainly as a losing account can.
+ */
+
+// A ladder quoted at exactly what the model itself calls fair for each
+// strike, rather than guessing cents that happen to clear or miss a bar.
+// Guarantees near-zero edge everywhere, so careful and scalp both refuse the
+// whole board on their own merits.
+function fairLadder(strikes) {
+  const prices = history();
+  const spot = 65_000;
+  const secondsLeft = 500;
+  const cents = strikes.map((strike) => {
+    const probe = evaluate(
+      { prices, spot, strike, marketPriceCents: 50, secondsLeft },
+      PROFILES.always.engine,
+    );
+    return Math.round((probe.probability ?? 0.5) * 100);
+  });
+  return ladder(cents, strikes);
+}
+
+test('always forces an entry on a fairly-priced board that careful and scalp correctly refuse', () => {
+  const board = fairLadder([64_900, 64_950, 65_000, 65_050, 65_100]);
+
+  for (const profile of ['careful', 'scalp']) {
+    const { event } = paperTick(newAccount({ profile }), context(), { candidates: board });
+    assert.equal(event, null, `${profile} should have stood aside on a fair market`);
+  }
+
+  const { account, event } = paperTick(newAccount({ profile: 'always' }), context(), {
+    candidates: board,
+  });
+  assert.equal(event.kind, 'enter');
+  assert.equal(event.trade.forced, true, "nothing here cleared even always's own loosened bar");
+  assert.ok(account.position.contracts > 0);
+  assert.ok(account.cash < 70, 'the forced stake never actually left the account');
+});
+
+test("a forced entry sizes off the fixed floor, not Kelly's zero on a no-edge market", () => {
+  const board = fairLadder([64_900, 64_950, 65_000, 65_050, 65_100]);
+  const { account } = paperTick(newAccount({ profile: 'always' }), context(), { candidates: board });
+
+  // Kelly on a genuinely fair price is zero. The only way this account is not
+  // still flat is the forcedFraction floor actually overriding it.
+  const spent = 70 - account.cash;
+  assert.ok(
+    spent > 70 * PROFILES.always.forcedFraction * 0.5,
+    `spent only $${spent.toFixed(2)} — looks like Kelly's zero won instead of the floor`,
+  );
+});
+
+test('always still tells a genuine edge from a forced one', () => {
+  // The default ladder carries real drift from its own seeded history, so
+  // several strikes clear even always's loosened bar on their own merits —
+  // this is NOT the forced fallback, and the record has to say so, or a
+  // forced run's results could never be told apart from a real one.
+  const { event } = paperTick(newAccount({ profile: 'always' }), context(), { candidates: ladder() });
+  if (!event) return; // still a legitimate outcome if the seeded history ever shifts
+  assert.equal(event.trade.forced, false);
+});
+
+test('always does not fabricate a trade when nothing on the board has any opinion at all', () => {
+  // No price history at all: every strike refuses with no_vol, which carries
+  // no probability and therefore no call — there is no "least bad" candidate
+  // among opinions that were never formed, forced mode or not.
+  const blind = { spot: 65_000, secondsLeft: 500, prices: [] };
+  const { account, event } = paperTick(newAccount({ profile: 'always' }), blind, {
+    candidates: ladder(),
+  });
+  assert.equal(event, null);
+  assert.equal(account.position, null);
+});
+
+test('the always profile is wired for forced entry, not just loosened thresholds', () => {
+  assert.equal(PROFILES.always.forceEveryWindow, true);
+  assert.ok(PROFILES.always.forcedFraction > 0);
 });
