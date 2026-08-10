@@ -100,18 +100,50 @@ export function buildOrder({
     order: {
       ticker,
       side: bookSide(action, side),
-      count,
+      // A quoted decimal, not a JSON number — confirmed against Kalshi's own
+      // published example request, which sends whole-contract counts as
+      // "10.00". A bare 1 here is exactly the kind of type mismatch that
+      // gets a 400 with no explanation.
+      count: count.toFixed(2),
       price: yesPriceDollars.toFixed(4),
       // GTC — Kalshi's own default — stated explicitly rather than relying
       // on a server default that could change. Never anything time-boxed:
       // this is still a limit order meant to sit at the price the decision
       // was made on, not a market order in a GTC costume.
       time_in_force: 'good_till_canceled',
+      // Present in every example request found, always 0 for a standard
+      // account — omitting a field the schema may require silently is how
+      // the last 400 happened with no error text explaining why.
+      exchange_index: 0,
       // The same logical order retried is the same order, not a second one.
       client_order_id: clientOrderId ?? randomUUID(),
     },
     error: null,
   };
+}
+
+/**
+ * The human-readable part of a rejection, tried against every shape Kalshi
+ * has actually used rather than one assumed shape — a schema mismatch here
+ * is exactly how a real 400 reached a person as "HTTP 400" and nothing
+ * else, with the real reason sitting unread in the response the whole time.
+ * Falls all the way back to the raw body rather than ever hiding what the
+ * exchange said.
+ */
+export function errorDetail(body) {
+  if (!body) return null;
+  if (typeof body.error === 'string') return body.error;
+  if (typeof body.error?.message === 'string') return body.error.message;
+  if (typeof body.message === 'string') return body.message;
+  if (typeof body.detail === 'string') return body.detail;
+  if (Array.isArray(body.errors) && body.errors.length > 0) {
+    return body.errors.map((e) => (typeof e === 'string' ? e : (e?.message ?? JSON.stringify(e)))).join('; ');
+  }
+  try {
+    return JSON.stringify(body);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -166,7 +198,7 @@ export async function placeOrder(
       const definite = response.status >= 400 && response.status < 500;
       return {
         status: definite ? 'rejected' : 'unknown',
-        error: `HTTP ${response.status}${body?.error?.message ? `: ${body.error.message}` : ''}`,
+        error: `HTTP ${response.status}${errorDetail(body) ? `: ${errorDetail(body)}` : ''}`,
         order,
         body,
       };

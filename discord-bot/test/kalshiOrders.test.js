@@ -7,6 +7,7 @@ import {
   ORDER_PATHS,
   bookSide,
   buildOrder,
+  errorDetail,
   orderCostDollars,
   orderRecord,
   placeOrder,
@@ -161,6 +162,45 @@ test('a placed order is signed and sent to the current V2 path, and reads back t
   assert.equal(sentBody.side, 'ask'); // BUY NO -> ask
   assert.equal(sentBody.price, '0.6700'); // 1 - 0.33
   assert.equal(sentBody.time_in_force, 'good_till_canceled');
+  // A quoted decimal, matching Kalshi's own published example request
+  // ("10.00") — sending a bare JSON number here is exactly what produced a
+  // 400 with no explanation the first time this endpoint was hit live.
+  assert.equal(sentBody.count, '3.00');
+  assert.equal(typeof sentBody.count, 'string');
+  assert.equal(sentBody.exchange_index, 0);
+});
+
+test('errorDetail finds the message whatever shape Kalshi wrapped it in', () => {
+  assert.equal(errorDetail({ error: { message: 'bad price' } }), 'bad price');
+  assert.equal(errorDetail({ error: 'bad price' }), 'bad price');
+  assert.equal(errorDetail({ message: 'bad price' }), 'bad price');
+  assert.equal(errorDetail({ detail: 'bad price' }), 'bad price');
+  assert.equal(errorDetail({ errors: ['a', 'b'] }), 'a; b');
+  assert.equal(errorDetail({ errors: [{ message: 'a' }] }), 'a');
+  // An unrecognised shape still surfaces something rather than nothing.
+  assert.equal(errorDetail({ weird: 'shape' }), '{"weird":"shape"}');
+  assert.equal(errorDetail(null), null);
+});
+
+test('a rejection with an unfamiliar error shape still shows the raw body, not just the status code', async () => {
+  const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const creds2 = { keyId: 'k', privateKeyPem: privateKey.export({ type: 'pkcs8', format: 'pem' }) };
+
+  const result = await placeOrder(
+    creds2,
+    { ticker: 'T', side: 'yes', contracts: 1, limitCents: 90, action: 'buy' },
+    {
+      fetchImpl: async () => ({
+        ok: false,
+        status: 400,
+        json: async () => ({ code: 'bad_request', reason: 'count must be a decimal string' }),
+      }),
+    },
+  );
+
+  assert.equal(result.status, 'rejected');
+  assert.match(result.error, /HTTP 400:/);
+  assert.match(result.error, /count must be a decimal string/);
 });
 
 test('a timeout is UNKNOWN, never a rejection', async () => {
