@@ -32,7 +32,9 @@ import { promptDueSettlements, publishVoteResults, syncKalshiAccount } from '../
 import { collectOnce } from '../signals/collector.js';
 import { observeOnce } from '../signals/recorder.js';
 import { evaluate } from '../signals/engine.js';
-import { currentContract, nearestTheMoneyContract, openBoard } from '../picks/kalshi.js';
+import { confluenceRead } from '../signals/confluence.js';
+import { appendConfluenceRecord, makeConfluenceRecord } from '../signals/confluenceLog.js';
+import { currentContract, closeTimeOf, nearestTheMoneyContract, openBoard } from '../picks/kalshi.js';
 import { fetchTrades } from '../picks/whales.js';
 import { sweepPaper, sweepSignalAlerts, sweepWatches } from '../picks/watch.js';
 import { ANALYST_GUIDE_MESSAGE, gainedWatchedRole } from '../picks/analystOnboarding.js';
@@ -323,6 +325,52 @@ export function createVipBot(config = loadVipConfig()) {
                   evaluateModel: (input) =>
                     evaluate(input, { sampleSeconds: signals.sampleSeconds ?? 30 }),
                 });
+
+                // Confluence's own lean, logged beside the same quote — see
+                // confluenceLog.js. A second read that must never be allowed
+                // to affect a single trade; it exists purely to be checked
+                // against the primary model above, over time, the same way
+                // the market's own price already is.
+                try {
+                  const priceHistory = store
+                    .listSamples(asset)
+                    .filter((sample) => sample?.at >= Date.now() - 60 * 60 * 1000 && sample?.price > 0)
+                    .map((sample) => sample.price);
+                  const strike = Number(contract.market.floor_strike ?? contract.market.cap_strike);
+                  const closesAt = closeTimeOf(contract.market);
+                  const primary = evaluate(
+                    {
+                      prices: priceHistory,
+                      spot: result.price,
+                      strike,
+                      marketPriceCents: contract.price,
+                      market: contract.market,
+                      secondsLeft: Number.isFinite(closesAt) ? (closesAt - Date.now()) / 1000 : null,
+                    },
+                    { sampleSeconds: signals.sampleSeconds ?? 30 },
+                  );
+                  const lean = confluenceRead({ prices: priceHistory });
+                  const record = makeConfluenceRecord({
+                    at: Date.now(),
+                    spot: result.price,
+                    lean: lean.lean,
+                    score: lean.score,
+                    primaryLeaning: Number.isFinite(primary.probability)
+                      ? primary.probability >= 0.5
+                        ? 'up'
+                        : 'down'
+                      : null,
+                    primaryWinProbability: Number.isFinite(primary.probability)
+                      ? primary.probability
+                      : null,
+                  });
+                  store.putConfluenceLog?.(
+                    asset,
+                    appendConfluenceRecord(store.confluenceLog?.(asset) ?? [], record),
+                  );
+                } catch (error) {
+                  log.debug(`Confluence record failed: ${error.message}`);
+                }
               }
             }
 

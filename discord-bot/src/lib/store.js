@@ -29,6 +29,12 @@ const EMPTY = {
   picksNudgedAt: null,
   samples: {},
   quotes: {},
+  // Confluence's own directional leans, per asset, waiting to be graded — see
+  // signals/confluenceLog.js. Separate from `quotes`, which scores the
+  // PRIMARY model against the market; this scores a completely independent
+  // read against reality, so one can never quietly inherit the other's
+  // accuracy.
+  confluenceLog: {},
   watches: [],
   paper: null,
   // Where the signals panel lives, and what has already been announced there.
@@ -525,6 +531,16 @@ export function createStore(filePath) {
       data.quotes[asset] = quotes;
       if (flush) save();
       return quotes;
+    },
+
+    confluenceLog(asset) {
+      return data.confluenceLog[asset] ?? [];
+    },
+
+    putConfluenceLog(asset, log, { flush = false } = {}) {
+      data.confluenceLog[asset] = log;
+      if (flush) save();
+      return log;
     },
 
     kalshiSince() {
