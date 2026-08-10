@@ -26,12 +26,39 @@ import { authHeaders, hasCredentials } from './kalshiAccount.js';
  *
  * A PATH WHITELIST, same as the read side. A typo that reached a different
  * endpoint would be signed with a key that can spend.
+ *
+ * V2 ORDER SCHEMA. Kalshi retired `/portfolio/orders` — the path this file
+ * used until it started coming back `410: Please switch to the V2
+ * endpoints` — for `/portfolio/events/orders`, which drops separate yes/no
+ * sides and buy/sell actions for a single book `side` ("bid" or "ask"),
+ * always priced in YES-denominated dollars. Confirmed against two
+ * independent, actively-maintained open-source Kalshi clients (arshka's
+ * pykalshi and mvanhorn's printing-press-library) rather than against
+ * Kalshi's own docs site, which this environment cannot reach — both agree
+ * on the mapping below. Nothing about the RISK rails changed: still one
+ * limit order at a time, still idempotent by client_order_id, still a path
+ * whitelist.
  */
 
-export const ORDER_PATHS = ['/portfolio/orders'];
+export const ORDER_PATHS = ['/portfolio/events/orders'];
 
 /** The most a single order may ever be, whatever the caller asks for. */
 export const MAXIMUM_CONTRACTS = 500;
+
+/**
+ * BUY/SELL crossed with YES/NO, collapsed into the single book side V2
+ * wants — because YES and NO are complementary (always sum to $1), every
+ * order is really a bid or an ask on the same underlying question:
+ *
+ *   BUY  YES -> bid   (paying to hold YES)
+ *   SELL YES -> ask   (giving up YES at that price)
+ *   BUY  NO  -> ask   (equivalent to selling YES at the complementary price)
+ *   SELL NO  -> bid   (equivalent to buying YES at the complementary price)
+ */
+export function bookSide(action, side) {
+  if (action === 'buy') return side === 'yes' ? 'bid' : 'ask';
+  return side === 'yes' ? 'ask' : 'bid';
+}
 
 /**
  * The order body Kalshi expects.
@@ -56,22 +83,30 @@ export function buildOrder({
   if (!(count >= 1)) return { order: null, error: 'no contracts' };
   if (count > MAXIMUM_CONTRACTS) return { order: null, error: `${count} contracts is over the cap` };
 
-  const price = Math.round(Number(limitCents));
+  const priceCents = Math.round(Number(limitCents));
   // A price of 0 or 100 is not a limit, it is a market order in disguise.
-  if (!isPriceCents(price) || price <= 0 || price >= 100) {
+  if (!isPriceCents(priceCents) || priceCents <= 0 || priceCents >= 100) {
     return { order: null, error: `bad limit price: ${limitCents}` };
   }
+
+  // V2 prices are always YES-denominated, whichever side is actually being
+  // traded — a NO order at 40c is a YES price of 60c, since the two sum to
+  // a dollar. Four decimal places matches every reference client checked;
+  // Kalshi supports sub-cent pricing now, and this format works whether the
+  // exchange wants that precision or not.
+  const yesPriceDollars = side === 'yes' ? priceCents / 100 : 1 - priceCents / 100;
 
   return {
     order: {
       ticker,
-      action,
-      side,
+      side: bookSide(action, side),
       count,
-      // Never 'market'. See the note at the top of this file.
-      type: 'limit',
-      // The price is named per side: a NO order is priced in NO cents.
-      ...(side === 'yes' ? { yes_price: price } : { no_price: price }),
+      price: yesPriceDollars.toFixed(4),
+      // GTC — Kalshi's own default — stated explicitly rather than relying
+      // on a server default that could change. Never anything time-boxed:
+      // this is still a limit order meant to sit at the price the decision
+      // was made on, not a market order in a GTC costume.
+      time_in_force: 'good_till_canceled',
       // The same logical order retried is the same order, not a second one.
       client_order_id: clientOrderId ?? randomUUID(),
     },
@@ -99,7 +134,7 @@ export async function placeOrder(
   const { order, error } = buildOrder({ ticker, side, contracts, limitCents, clientOrderId, action });
   if (error) return { status: 'rejected', error, order: null };
 
-  const path = '/portfolio/orders';
+  const path = '/portfolio/events/orders';
   if (!ORDER_PATHS.includes(path)) {
     return { status: 'rejected', error: `refusing to sign ${path}`, order: null };
   }
@@ -137,7 +172,10 @@ export async function placeOrder(
       };
     }
 
-    return { status: 'placed', error: null, order, body, orderId: body?.order?.order_id ?? null };
+    // V2's create-order ack is a thin, TOP-LEVEL object — {order_id,
+    // fill_count, remaining_count, ...} — not the full order nested under an
+    // "order" key the way v1 returned it.
+    return { status: 'placed', error: null, order, body, orderId: body?.order_id ?? null };
   } catch (error_) {
     // Timed out or the socket died. The order's fate is genuinely unknown.
     return {
@@ -159,7 +197,8 @@ export async function placeOrder(
  * does not.
  */
 export function orderCostDollars(result, { contracts, limitCents }) {
-  const filled = Number(result?.body?.order?.taker_fill_count ?? result?.body?.order?.count);
+  // V2's ack reports fill_count at the top level, not nested under "order".
+  const filled = Number(result?.body?.fill_count);
   const count = Number.isFinite(filled) && filled > 0 ? filled : Math.floor(Number(contracts) || 0);
   const price = Number(limitCents);
   if (!(count > 0) || !isPriceCents(price)) return 0;

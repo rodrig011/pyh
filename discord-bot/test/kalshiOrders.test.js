@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { generateKeyPairSync } from 'node:crypto';
 
 import {
   MAXIMUM_CONTRACTS,
+  ORDER_PATHS,
+  bookSide,
   buildOrder,
   orderCostDollars,
   orderRecord,
@@ -20,12 +23,32 @@ const creds = {
   privateKeyPem: null,
 };
 
-test('limit orders only — never market', () => {
+/**
+ * Kalshi retired /portfolio/orders for /portfolio/events/orders — a
+ * different schema entirely: no more separate yes/no sides or buy/sell
+ * actions, just one book side ("bid"/"ask"), always priced in
+ * YES-denominated dollars. Every order this file builds now goes through
+ * that translation, so it is the one place a wrong-side or wrong-price bug
+ * would live — hence the exhaustive coverage below, cross-checked against
+ * two independent open-source Kalshi clients rather than guessed at.
+ */
+
+test('bookSide maps buy/sell x yes/no onto the single V2 book side', () => {
+  assert.equal(bookSide('buy', 'yes'), 'bid');
+  assert.equal(bookSide('sell', 'yes'), 'ask');
+  assert.equal(bookSide('buy', 'no'), 'ask');
+  assert.equal(bookSide('sell', 'no'), 'bid');
+});
+
+test('a limit order is always a limit order — there is no field for anything else', () => {
   // A market order on a thin book fills wherever the book happens to be, and
   // this exchange served us a live contract with liquidity_dollars 0.0000.
+  // V2 has no order "type" at all — every order carries a price, which is
+  // what makes it a limit order by construction. No price, no order.
   const { order } = buildOrder({ ticker: 'T', side: 'yes', contracts: 10, limitCents: 44 });
-  assert.equal(order.type, 'limit');
-  assert.equal(order.yes_price, 44);
+  assert.equal(order.type, undefined);
+  assert.ok(Number.isFinite(Number(order.price)));
+  assert.equal(order.time_in_force, 'good_till_canceled');
 });
 
 test('a price of 0 or 100 is a market order in disguise and is refused', () => {
@@ -33,11 +56,28 @@ test('a price of 0 or 100 is a market order in disguise and is refused', () => {
   assert.ok(buildOrder({ ticker: 'T', side: 'yes', contracts: 1, limitCents: 100 }).error);
 });
 
-test('a NO order is priced in NO cents, not YES cents', () => {
-  // Getting this backwards would place every down trade at the wrong price.
-  const { order } = buildOrder({ ticker: 'T', side: 'no', contracts: 5, limitCents: 62 });
-  assert.equal(order.no_price, 62);
-  assert.equal(order.yes_price, undefined);
+test('a YES order is priced as-is, in YES dollars', () => {
+  const { order } = buildOrder({ ticker: 'T', side: 'yes', contracts: 5, limitCents: 62, action: 'buy' });
+  assert.equal(order.side, 'bid');
+  assert.equal(order.price, '0.6200');
+});
+
+test('a NO order is converted to its YES-complement price, not sent in NO cents', () => {
+  // Getting this backwards would place every down trade at the wrong price —
+  // V2 has no no_price field at all, so silently sending 62 unconverted
+  // would buy YES at 62c instead of NO at 62c, which is not the same trade.
+  const { order } = buildOrder({ ticker: 'T', side: 'no', contracts: 5, limitCents: 62, action: 'buy' });
+  assert.equal(order.side, 'ask'); // BUY NO -> ask, per bookSide
+  assert.equal(order.price, '0.3800'); // 1 - 0.62
+});
+
+test('a SELL order flips the book side from the equivalent BUY', () => {
+  const buyYes = buildOrder({ ticker: 'T', side: 'yes', contracts: 1, limitCents: 50, action: 'buy' }).order;
+  const sellYes = buildOrder({ ticker: 'T', side: 'yes', contracts: 1, limitCents: 50, action: 'sell' }).order;
+  assert.equal(buyYes.side, 'bid');
+  assert.equal(sellYes.side, 'ask');
+  // Price is still YES-denominated either way — only the side flips.
+  assert.equal(buyYes.price, sellYes.price);
 });
 
 test('every order carries a client order id, so a retry is not a second trade', () => {
@@ -96,6 +136,33 @@ test('a 4xx is a real rejection — the exchange saw it and said no', async () =
   assert.notEqual(result.status, 'placed');
 });
 
+test('a placed order is signed and sent to the current V2 path, and reads back the top-level order_id', async () => {
+  const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const creds2 = { keyId: 'k', privateKeyPem: privateKey.export({ type: 'pkcs8', format: 'pem' }) };
+
+  let requestedUrl = null;
+  let sentBody = null;
+  const result = await placeOrder(
+    creds2,
+    { ticker: 'KXBTC-1', side: 'no', contracts: 3, limitCents: 33, action: 'buy' },
+    {
+      fetchImpl: async (url, init) => {
+        requestedUrl = url;
+        sentBody = JSON.parse(init.body);
+        // V2's real ack shape: a thin, top-level object.
+        return { ok: true, status: 200, json: async () => ({ order_id: 'ord-123', fill_count: 0, remaining_count: 3 }) };
+      },
+    },
+  );
+
+  assert.equal(result.status, 'placed');
+  assert.equal(result.orderId, 'ord-123');
+  assert.ok(requestedUrl.endsWith(ORDER_PATHS[0]), `sent to ${requestedUrl}, not the current order path`);
+  assert.equal(sentBody.side, 'ask'); // BUY NO -> ask
+  assert.equal(sentBody.price, '0.6700'); // 1 - 0.33
+  assert.equal(sentBody.time_in_force, 'good_till_canceled');
+});
+
 test('a timeout is UNKNOWN, never a rejection', async () => {
   // Treating an unknown as a rejection is how a daily limit gets quietly
   // doubled: the order may be live, and the next one is placed anyway.
@@ -114,7 +181,9 @@ test('a timeout is UNKNOWN, never a rejection', async () => {
 });
 
 test('a partial fill is costed on what filled, not on what was asked for', () => {
-  const result = { body: { order: { taker_fill_count: 4 } } };
+  // V2's ack reports fill_count at the TOP level, not nested under "order"
+  // the way v1's response was.
+  const result = { body: { fill_count: 4 } };
   assert.equal(orderCostDollars(result, { contracts: 10, limitCents: 50 }), 2);
 });
 
