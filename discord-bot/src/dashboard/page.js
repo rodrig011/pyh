@@ -358,6 +358,20 @@ export function dashboardPage(brandName) {
 
     <div id="viewIndicators" class="view hidden">
       <div class="section">
+        <div class="section-head">
+          <span class="section-title">Model track record</span>
+          <span class="badge amber" id="trackBadge">COLLECTING</span>
+        </div>
+        <div class="grid" style="margin-bottom:0">
+          <div class="stat"><div class="label">Settled</div><div class="value" id="trackSettled">—</div></div>
+          <div class="stat"><div class="label">Markets</div><div class="value" id="trackMarkets">—</div></div>
+          <div class="stat"><div class="label">Model Brier</div><div class="value" id="trackModelBrier">—</div></div>
+          <div class="stat"><div class="label">Market Brier</div><div class="value" id="trackMarketBrier">—</div></div>
+        </div>
+        <div class="live-note" id="trackNote">Not enough settled markets yet — this fills in on its own as windows close.</div>
+      </div>
+
+      <div class="section">
         <div class="section-head"><span class="section-title">Trend &amp; momentum</span></div>
         <div class="grid">
           <div class="stat"><div class="label">EMA 9/21/50</div><div class="value" id="emaStack">—</div></div>
@@ -763,12 +777,40 @@ export function dashboardPage(brandName) {
     document.getElementById('liveBudgetFill').style.width = pct + '%';
   }
 
+  function paintTrackRecord(tr) {
+    var badge = document.getElementById('trackBadge');
+    var note = document.getElementById('trackNote');
+
+    document.getElementById('trackSettled').textContent = tr && Number.isFinite(tr.settled) ? String(tr.settled) : '—';
+    document.getElementById('trackMarkets').textContent = tr && tr.ready ? String(tr.markets) : '—';
+    document.getElementById('trackModelBrier').textContent = tr && Number.isFinite(tr.modelBrier) ? tr.modelBrier.toFixed(3) : '—';
+    document.getElementById('trackMarketBrier').textContent = tr && Number.isFinite(tr.marketBrier) ? tr.marketBrier.toFixed(3) : '—';
+
+    if (!tr || !tr.ready) {
+      badge.textContent = 'COLLECTING'; badge.className = 'badge amber';
+      note.textContent = 'Not enough settled markets yet — this fills in on its own as windows close.';
+      return;
+    }
+
+    if (tr.modelBeatsMarket === true) {
+      badge.textContent = 'MODEL AHEAD'; badge.className = 'badge up';
+      note.textContent = 'The model is the better forecaster here, by more than the noise between them.';
+    } else if (tr.modelBeatsMarket === false) {
+      badge.textContent = 'MARKET AHEAD'; badge.className = 'badge down';
+      note.textContent = 'The market is the better forecaster on what has settled so far — no measured edge to trade.';
+    } else {
+      badge.textContent = 'TOO CLOSE'; badge.className = 'badge blue';
+      note.textContent = 'The gap between model and market has not cleared the noise yet. Same measurement as /picks edge in Discord.';
+    }
+  }
+
   function paint(data) {
     paintPosition(data.position);
     paintRecord(data.record);
     paintIndicators(data.indicators);
     paintConfluence(data.confluence, data.confluenceMeasured);
     paintLiveTrading(data.liveTrading);
+    paintTrackRecord(data.trackRecord);
     document.getElementById('asset').textContent = data.asset + (data.ticker ? ' · ' + data.ticker : '');
     var callEl = document.getElementById('call');
     if (data.call === 'up') {
@@ -910,8 +952,14 @@ export function dashboardPage(brandName) {
   document.getElementById('exitBtn').addEventListener('click', exitManual);
   document.getElementById('exitBtn2').addEventListener('click', exitManual);
 
-  initCharts();
+  // The frame has to be visible BEFORE the chart is created — Lightweight
+  // Charts measures its container's clientWidth once, at creation time, and
+  // a display:none ancestor measures as zero. Creating the chart first and
+  // unhiding the frame a line later was the actual bug behind "candles never
+  // show on desktop": a real chart, correctly fed real data, permanently
+  // sized to zero pixels wide.
   frame.classList.remove('hidden');
+  initCharts();
   poll();
   setInterval(poll, 4000);
 })();

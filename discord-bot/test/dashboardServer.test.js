@@ -8,7 +8,7 @@ function get(port, path, headers = {}) {
     const req = request({ host: '127.0.0.1', port, path, method: 'GET', headers }, (res) => {
       let data = '';
       res.on('data', (chunk) => (data += chunk));
-      res.on('end', () => resolve({ status: res.statusCode, body: data }));
+      res.on('end', () => resolve({ status: res.statusCode, body: data, headers: res.headers }));
     });
     req.on('error', reject);
     req.end();
@@ -70,6 +70,12 @@ test('the page loads and mentions the brand name', async (t) => {
   const response = await get(port, '/');
   assert.equal(response.status, 200);
   assert.match(response.body, /Test Room/);
+});
+
+test('the page is never cached — a phone holding yesterday\'s HTML looks exactly like a live bug', async (t) => {
+  const { port } = await startServer(t);
+  const response = await get(port, '/');
+  assert.equal(response.headers['cache-control'], 'no-store');
 });
 
 test('the read endpoint answers with a reason when Kalshi is off', async (t) => {

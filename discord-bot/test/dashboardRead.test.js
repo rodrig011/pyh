@@ -168,6 +168,33 @@ test('live-trading status reflects the real risk state when one exists', async (
   assert.equal(result.liveTrading.remaining, 16);
 });
 
+test('the track record says so before anything has settled, rather than showing zeros as if measured', async () => {
+  const now = Date.now();
+  const result = await computeRead(fakeStore, config, {
+    openBoard: async () => board(50, 65_000, now + 500_000),
+    fetchSpotPrice: async () => ({ price: 65_000 }),
+    now,
+  });
+  assert.equal(result.trackRecord.ready, false);
+});
+
+test('the track record is the exact same measurement /picks edge reports, from the same recorded quotes', async () => {
+  const now = Date.now();
+  const quotes = [
+    { at: now - 1000, ticker: 'K-1', asset: 'BTC', spot: 65_000, strike: 64_800, bid: 40, ask: 42, secondsLeft: 100, model: 0.6, outcome: 1 },
+    { at: now - 1000, ticker: 'K-2', asset: 'BTC', spot: 65_000, strike: 65_200, bid: 55, ask: 57, secondsLeft: 100, model: 0.4, outcome: 0 },
+  ];
+  const store = { ...fakeStore, listQuotes: () => quotes, putQuotes: () => quotes };
+  const result = await computeRead(store, config, {
+    openBoard: async () => board(50, 65_000, now + 500_000),
+    fetchSpotPrice: async () => ({ price: 65_000 }),
+    now,
+  });
+  assert.equal(result.trackRecord.ready, true);
+  assert.equal(result.trackRecord.settled, 2);
+  assert.equal(result.trackRecord.markets, 2);
+});
+
 test('the expected range straddles spot and widens with more time left', async () => {
   const now = Date.now();
   const soon = await computeRead(fakeStore, config, {

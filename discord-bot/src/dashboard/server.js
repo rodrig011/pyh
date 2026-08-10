@@ -86,7 +86,11 @@ export function startDashboardServer({ store, config, deps = {} }) {
     }
 
     if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/dashboard')) {
-      response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      // No cache, ever. This page changes with every deploy, and a phone
+      // browser holding onto yesterday's HTML looks exactly like a bug in
+      // today's — a stale layout, missing panels, none of it reproducible
+      // from the server that already moved on.
+      response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
       response.end(page);
       return;
     }

@@ -16,6 +16,8 @@ import {
 } from '../signals/indicators.js';
 import { confluenceRead } from '../signals/confluence.js';
 import { confluencePatterns, settleConfluenceRecords } from '../signals/confluenceLog.js';
+import { measureEdge } from '../signals/measure.js';
+import { settleObservations } from '../signals/recorder.js';
 import { PROFILES } from '../picks/paper.js';
 import { riskSummary } from '../picks/riskLimits.js';
 import { buildCandles, buildVolume, rsiSeries } from './candles.js';
@@ -279,6 +281,17 @@ export async function computeRead(
   }
   const confluenceMeasured = confluencePatterns(settledConfluence.log);
 
+  // The model's own track record — the exact same measurement /picks edge
+  // reports in Discord, read from the same recorded quotes, so the number on
+  // this page can never disagree with the one people already trust. Settled
+  // lazily here too, same reasoning as confluence above.
+  const settledQuotes = settleObservations(store.listQuotes?.(asset) ?? [], {
+    now,
+    samples: store.listSamples(asset),
+  });
+  if (settledQuotes.settled > 0 && store.putQuotes) store.putQuotes(asset, settledQuotes.log, { flush: true });
+  const trackRecord = measureEdge(settledQuotes.log);
+
   // The model's own uncertainty, drawn as a range rather than left as a
   // single number: `sigma` is already scaled to the time left, so ±1σ in log
   // space is the band spot is expected to land inside of by the close, at
@@ -335,6 +348,7 @@ export async function computeRead(
     confluence,
     confluenceMeasured,
     liveTrading,
+    trackRecord,
     at: now,
   };
 }
