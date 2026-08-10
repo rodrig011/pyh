@@ -828,12 +828,41 @@ async function liveExit(client, store, config, { held, candidates, context, plac
   if (!quotes) return { traded: false };
 
   const heldBid = held.side === 'up' ? quotes.yesBidCents : quotes.noBidCents;
-  const call = scalpDecision({
-    position: { entryCents: held.entryCents, side: held.side },
-    nowCents: heldBid,
-    signal: read.result,
-    secondsLeft: context.secondsLeft,
-  });
+
+  // Two hard overrides, checked before the model gets a say — see
+  // config.js's trading.takeProfitPercent/stopLossDollars. "15% and cap the
+  // loss at $5" was asked for explicitly, as a per-trade rule independent of
+  // what scalpDecision would otherwise do with the position.
+  const proceedsNow = heldBid > 0 ? (held.contracts * heldBid) / 100 : 0;
+  const profitDollarsNow = proceedsNow - held.costDollars;
+  const profitPercent = held.costDollars > 0 ? profitDollarsNow / held.costDollars : 0;
+  const takeProfitPercent = Number.isFinite(trading.takeProfitPercent) ? trading.takeProfitPercent : 0.15;
+  const stopLossDollars = Number.isFinite(trading.stopLossDollars) ? trading.stopLossDollars : 5;
+
+  let call;
+  if (heldBid > 0 && profitPercent >= takeProfitPercent) {
+    call = { action: SCALP_ACTIONS.EXIT, reason: `take profit +${Math.round(profitPercent * 100)}%` };
+  } else if (heldBid > 0 && profitDollarsNow <= -stopLossDollars) {
+    call = { action: SCALP_ACTIONS.EXIT, reason: `stop loss -$${Math.abs(profitDollarsNow).toFixed(2)}` };
+  } else {
+    // Otherwise graded in scalp's own terms, whatever profile the position
+    // was entered under — the same rule the dashboard already follows. An
+    // exit is a different question from an entry: "is this still worth
+    // holding" wants the faster, later-banking rule regardless of how
+    // conservatively it got in. Without this, scalpDecision fell back to its
+    // own defaults, which are careful's numbers (0.5c margin, no exit
+    // inside the last 2 minutes) — meaning a live position never actually
+    // scalped out early, no matter what KALSHI_TRADING_PROFILE said.
+    call = scalpDecision(
+      {
+        position: { entryCents: held.entryCents, side: held.side },
+        nowCents: heldBid,
+        signal: read.result,
+        secondsLeft: context.secondsLeft,
+      },
+      PROFILES.scalp.scalp,
+    );
+  }
 
   if (call.action !== SCALP_ACTIONS.EXIT || !(heldBid > 0)) return { traded: false };
 

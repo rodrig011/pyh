@@ -8,6 +8,7 @@ import {
   scalpDecision,
   tripsSupported,
 } from '../src/signals/scalp.js';
+import { PROFILES } from '../src/picks/paper.js';
 
 // Trading the same market four times is four times the compounding at the same
 // size — and the reason nobody should do it blindly is priced in here.
@@ -226,6 +227,28 @@ test('a loser the model still defends is held, not cut at the bottom', () => {
 
   assert.equal(call.action, SCALP_ACTIONS.WAIT);
   assert.equal(call.reason, 'holding');
+});
+
+test("watch.js's liveExit grades every held position on scalp's own margin, not the profile it entered under", () => {
+  // A swing that nets 0.4c after both fees: past scalp's 0.25c bar, short of
+  // careful's 0.5c one. scalpDecision's own built-in defaults happen to equal
+  // careful's numbers, so calling it with no options at all -- the bug this
+  // guards against -- silently graded every live exit on careful's terms
+  // regardless of KALSHI_TRADING_PROFILE.
+  const fixture = {
+    position: { entryCents: 65, side: 'up' },
+    nowCents: 69.4,
+    signal: edge('up', 8, 0.695),
+    secondsLeft: 400,
+  };
+
+  const bare = scalpDecision(fixture);
+  assert.equal(bare.action, SCALP_ACTIONS.WAIT);
+  assert.equal(bare.reason, 'holding');
+
+  const graded = scalpDecision(fixture, PROFILES.scalp.scalp);
+  assert.equal(graded.action, SCALP_ACTIONS.EXIT);
+  assert.equal(graded.reason, 'move banked');
 });
 
 test('no price is a wait, never a guess', () => {

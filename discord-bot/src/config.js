@@ -305,6 +305,15 @@ export function loadVipConfig() {
             const raw = str('KALSHI_FORCE_LOSS_LIMIT_DOLLARS');
             return raw ? Number.parseFloat(raw) : null;
           })(),
+          // Two hard, per-trade overrides that apply to every held position
+          // regardless of profile or how it entered — checked before the
+          // model gets any say. Explicitly requested in place of the
+          // model-driven scalp exits alone: those bank a move once it clears
+          // the round-trip fee with no ceiling on the upside and no dollar
+          // floor on the downside, which is a different shape than "take 15%
+          // and cap the loss at $5" on purpose.
+          takeProfitPercent: Number.parseFloat(str('KALSHI_TAKE_PROFIT_PERCENT', '0.15')),
+          stopLossDollars: Number.parseFloat(str('KALSHI_STOP_LOSS_DOLLARS', '5')),
           // Deliberately NOT settable from the environment. Arming is an
           // explicit act performed by a person in Discord, so that a copied
           // environment or a restored backup can never start a bot that trades.
