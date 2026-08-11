@@ -223,6 +223,23 @@ export function loadVipConfig() {
       announceChannelId: str('PICKS_ANNOUNCE_CHANNEL_ID'),
       // Where the room's own verdict is published once the voting closes.
       resultChannelId: str('PICKS_RESULT_CHANNEL_ID', str('PICKS_CHANNEL_ID')),
+      // A second, independent room: same console, same mechanics, its own
+      // channel — built so non-VIP members get real calls worth trading,
+      // without ever letting a free-room button touch a VIP position or vice
+      // versa. Which room a call belongs to is decided by which channel the
+      // console was pressed in, not a flag anyone has to remember to set —
+      // see pickSettingsForChannel in picks/commands.js.
+      free: {
+        channelId: str('PICKS_FREE_CHANNEL_ID'),
+        // VIP tier roles pinging in the free channel would ping nobody who is
+        // actually there. Empty (no ping) until set to a role free members
+        // actually hold.
+        pingRoleIds: list('PICKS_FREE_PING_ROLE_IDS'),
+        // Both default to the free channel itself — one room, one channel —
+        // unless a split chat/results channel is wanted later, same as VIP's.
+        announceChannelId: str('PICKS_FREE_ANNOUNCE_CHANNEL_ID'),
+        resultChannelId: str('PICKS_FREE_RESULT_CHANNEL_ID'),
+      },
       voteMinutes: int('PICKS_VOTE_MINUTES', 20),
       // Who gets tagged when the room is asked how it went. Defaults to the
       // tiers that are in the room to answer — tier 1 buys signals, not chat.

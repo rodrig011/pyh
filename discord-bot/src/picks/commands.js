@@ -134,6 +134,7 @@ export const PICK_DEFAULTS = {
   repostPanel: true,
   announceChannelId: null,
   resultChannelId: null,
+  free: { channelId: null, pingRoleIds: [], announceChannelId: null, resultChannelId: null },
   voteMinutes: 20,
   votePingRoleIds: [],
   kalshi: { enabled: false },
@@ -163,6 +164,64 @@ export function pingFor(settings) {
  */
 export function pickSettings(config) {
   return { ...PICK_DEFAULTS, ...(config.picks ?? {}) };
+}
+
+/**
+ * Which room a call belongs to.
+ *
+ * Two rooms — VIP and free — share every mechanic (console, sizing, grading,
+ * voting) and must never share an open position: a call opened in one room
+ * cannot be closed by a button pressed in the other, or counted against the
+ * "no opposite call open" rule that is meant to stop an analyst holding both
+ * sides of the same contract.
+ *
+ * The room is decided by which channel the interaction actually happened in
+ * — not a flag threaded through every call site, which is exactly the kind
+ * of thing that gets forgotten on the one path that matters. Any channel
+ * other than the configured free channel is the VIP room, unchanged from
+ * before this existed.
+ */
+export function pickSettingsForChannel(config, channelId) {
+  const settings = pickSettings(config);
+  const free = settings.free ?? {};
+  if (free.channelId && channelId === free.channelId) {
+    return {
+      ...settings,
+      channelId: free.channelId,
+      announceChannelId: free.announceChannelId ?? free.channelId,
+      resultChannelId: free.resultChannelId ?? free.channelId,
+      pingRoleIds: free.pingRoleIds ?? [],
+      // VIP tier roles voting-pinged into the free channel would reach nobody
+      // who is actually there, same reasoning as pingRoleIds above.
+      votePingRoleIds: free.pingRoleIds ?? [],
+    };
+  }
+  return settings;
+}
+
+/** The same lookup, keyed by where a pick already landed — for the paths
+ * that grade or announce a pick well after the interaction that opened it
+ * is gone (a scheduled sweep has no channel of its own to ask). */
+export function pickSettingsForPick(config, pick) {
+  return pickSettingsForChannel(config, pick?.channelId ?? null);
+}
+
+/**
+ * Which room a channel belongs to, for scoping "is this call mine to see".
+ *
+ * Deliberately NOT "does this channel id match settings.channelId" — an
+ * install that has never set PICKS_CHANNEL_ID posts wherever a command was
+ * run, so VIP calls can legitimately carry different channel ids from each
+ * other, and comparing against one fixed value would wrongly split them into
+ * different rooms. Only the free channel is its own room; every other
+ * channel — one, several, or none configured — is "the rest", exactly the
+ * single shared room this worked as before free rooms existed. With no free
+ * channel configured this always returns 'vip', so nothing changes for an
+ * install that has not set one up.
+ */
+function roomKey(config, channelId) {
+  const free = pickSettings(config).free?.channelId ?? null;
+  return free && channelId === free ? 'free' : 'vip';
 }
 
 export function buildPickCommands(config) {
@@ -762,9 +821,14 @@ export async function refreshCallMessage(client, config, pick) {
     .catch(() => false);
 }
 
-/** Mirrors a one-line version into the chat channel, when one is configured. */
-async function announce(client, config, payload) {
-  const settings = pickSettings(config);
+/**
+ * Mirrors a one-line version into the chat channel, when one is configured.
+ *
+ * Takes the room's already-resolved settings rather than the raw config, so
+ * a free-room call announces into the free room's chat channel and not the
+ * VIP one.
+ */
+async function announce(client, settings, payload) {
   if (!settings.announceChannelId) return false;
 
   const channel = await client.channels.fetch(settings.announceChannelId).catch(() => null);
@@ -781,7 +845,10 @@ async function announce(client, config, payload) {
  * two can never drift into recording different things.
  */
 export async function openCall(interaction, { store, config }, overrides = {}) {
-  const settings = pickSettings(config);
+  // Which room this is decided by where the button was actually pressed —
+  // see pickSettingsForChannel. `/call` typed directly in either channel
+  // gets the same answer, since it reads the same interaction.channel.
+  const settings = pickSettingsForChannel(config, interaction.channel?.id ?? null);
   const asset = overrides.asset ?? settings.defaultAsset;
 
   // A call without a size is half an instruction. The room can act on "long
@@ -795,14 +862,18 @@ export async function openCall(interaction, { store, config }, overrides = {}) {
   // Telling the room to buy UP while a DOWN is still open is telling them to
   // hold both sides of the same contract. On Kalshi that is not a hedge, it is
   // paying two spreads to be flat — and whichever exit is pressed next would be
-  // applied to whichever call happens to be newest.
+  // applied to whichever call happens to be newest. Scoped to THIS room's
+  // channel too: the free room and the VIP room are different books, and an
+  // analyst running both must be free to be long in one and short in the
+  // other without either room seeing a conflict that is not really there.
   const conflicting = store
     .listPicks(
       (pick) =>
         !pick.outcome &&
         pick.asset === asset &&
         pick.analystId === interaction.user.id &&
-        pick.direction !== overrides.direction,
+        pick.direction !== overrides.direction &&
+        roomKey(config, pick.channelId ?? null) === roomKey(config, interaction.channel?.id ?? null),
     )
     .sort((a, b) => b.createdAt - a.createdAt)[0];
   if (conflicting) {
@@ -877,7 +948,7 @@ export async function openCall(interaction, { store, config }, overrides = {}) {
   pick.channelId = channel.id;
   store.recordPick(pick);
 
-  await announce(interaction.client, config, simpleAnnouncement({
+  await announce(interaction.client, settings, simpleAnnouncement({
     ...pick,
     entryLabel: pick.entry == null ? null : priceLabel(pick, pick.entry),
   }));
@@ -2551,16 +2622,19 @@ export async function handleVoteButton(interaction, { store }) {
  * Holding changes nothing, so it leaves the call running.
  */
 async function postManagement(interaction, { store, config }, { action, note = null }) {
-  const settings = pickSettings(config);
+  const settings = pickSettingsForChannel(config, interaction.channel?.id ?? null);
 
   // Your own open call first — if you have one running, that is the one you
   // mean. Failing that, the room's: the console is shared, one call runs at a
   // time, and whoever is at the desk when it needs closing is not always the
   // one who opened it. Refusing there left a live call with nobody able to
-  // close it but its author.
+  // close it but its author. Scoped to THIS room's channel, same as the
+  // conflict check in openCall — a free-room button must never be able to
+  // reach for, and close, a VIP call, or the other way round.
   const guildId = interaction.guildId ?? config.guildId;
+  const here = roomKey(config, interaction.channel?.id ?? null);
   const openCalls = store
-    .listPicks((pick) => pick.guildId === guildId && !pick.outcome)
+    .listPicks((pick) => pick.guildId === guildId && !pick.outcome && roomKey(config, pick.channelId ?? null) === here)
     .sort((a, b) => b.createdAt - a.createdAt);
 
   const open = openCalls.find((pick) => pick.analystId === interaction.user.id) ?? openCalls[0];
@@ -2648,7 +2722,7 @@ async function postManagement(interaction, { store, config }, { action, note = n
   const room = roomVersusAnalyst(store.listFollows(), open);
   await announce(
     interaction.client,
-    config,
+    settings,
     simpleExit({
       pick: open,
       outcome: verdict.outcome,
@@ -2684,7 +2758,7 @@ async function postManagement(interaction, { store, config }, { action, note = n
  * a question nobody sees is a question nobody answers.
  */
 export async function openVote(client, store, config, pick) {
-  const settings = pickSettings(config);
+  const settings = pickSettingsForPick(config, pick);
   if (store.getVote(pick.id)) return null;
 
   const channelId = settings.announceChannelId ?? pick.channelId ?? settings.channelId;
@@ -2718,7 +2792,6 @@ export async function openVote(client, store, config, pick) {
  * the single most useful thing this whole feature can surface.
  */
 export async function publishVoteResults(client, store, config, now = Date.now()) {
-  const settings = pickSettings(config);
   const due = votesDue(store.listVotes(), now);
   let published = 0;
 
@@ -2730,6 +2803,9 @@ export async function publishVoteResults(client, store, config, now = Date.now()
       continue;
     }
 
+    // Per pick, not hoisted — a run of due votes can span both rooms, and
+    // each one's result belongs in its own room's channel.
+    const settings = pickSettingsForPick(config, pick);
     const channelId = settings.resultChannelId ?? pick.channelId ?? settings.channelId;
     const channel = await client.channels.fetch(channelId).catch(() => null);
     if (!channel?.isTextBased()) continue;
@@ -2978,7 +3054,7 @@ export async function syncKalshiAccount(client, store, config, { fetchImpl, now 
     store.recordPick(pick);
     published += 1;
 
-    await announce(client, config, simpleAnnouncement({
+    await announce(client, settings, simpleAnnouncement({
       ...pick,
       entryLabel: priceLabel(pick, pick.entry),
     }));
@@ -2998,7 +3074,7 @@ export async function syncKalshiAccount(client, store, config, { fetchImpl, now 
     closed += 1;
 
     await refreshCallMessage(client, config, pick);
-    await announce(client, config, simpleExit({
+    await announce(client, settings, simpleExit({
       pick,
       outcome: pick.outcome,
       entryLabel: priceLabel(pick, pick.entry),
@@ -3016,11 +3092,12 @@ export async function syncKalshiAccount(client, store, config, { fetchImpl, now 
 
 export async function promptDueSettlements(client, store, config, now = Date.now()) {
   const due = dueForSettlement(store.listPicks(), now).filter((pick) => !pick.promptedAt);
-  const settings = pickSettings(config);
   let graded = 0;
   let asked = 0;
 
   for (const pick of due) {
+    // Per pick, not hoisted — a run of due settlements can span both rooms.
+    const settings = pickSettingsForPick(config, pick);
     const channel = await client.channels
       .fetch(pick.channelId ?? settings.channelId)
       .catch(() => null);
@@ -3057,7 +3134,7 @@ export async function promptDueSettlements(client, store, config, now = Date.now
       await refreshCallMessage(client, config, pick);
       await announce(
         client,
-        config,
+        settings,
         simpleExit({
           pick,
           outcome: verdict.outcome,
