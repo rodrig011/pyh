@@ -1131,7 +1131,19 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
     } catch (error) {
       return interaction.editReply(`Discord refused the post: **${error.message}**`);
     }
-    return interaction.editReply('Console posted. Pin it — only analysts can press the buttons.');
+
+    // Says out loud which room this console feeds and where its calls will
+    // actually land — the fastest way to catch "PICKS_FREE_CHANNEL_ID is not
+    // set, so this is still the VIP room" without anyone having to guess from
+    // a call posting in the wrong place.
+    const freeChannelId = pickSettings(config).free?.channelId ?? null;
+    const isFreeRoom = Boolean(freeChannelId) && interaction.channel.id === freeChannelId;
+    const roomSettings = pickSettingsForChannel(config, interaction.channel.id);
+    return interaction.editReply(
+      `Console posted for the **${isFreeRoom ? 'FREE' : 'VIP'}** room. Calls pressed here go to ` +
+        `${roomSettings.channelId ? `<#${roomSettings.channelId}>` : 'wherever this console lives (no channel configured)'}. ` +
+        'Pin it — only analysts can press the buttons.',
+    );
   }
 
   if (sub === 'edit') {

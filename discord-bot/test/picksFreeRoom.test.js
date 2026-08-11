@@ -4,7 +4,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createStore } from '../src/lib/store.js';
-import { handleCall, handlePanelButton, pickSettingsForChannel } from '../src/picks/commands.js';
+import { handleCall, handlePanelButton, handlePicks, pickSettingsForChannel } from '../src/picks/commands.js';
 
 /**
  * The free room: a second, independent picks channel, built so non-VIP
@@ -197,4 +197,49 @@ test('cash out pressed in the free room closes only the free room\'s call, leavi
   const closed = store.listPicks((p) => p.outcome);
   assert.equal(closed.length, 1);
   assert.equal(closed[0].channelId, FREE_CHANNEL);
+});
+
+function fakePanelSubInteraction({ channelId, admin = true }) {
+  const replies = [];
+  const posts = [];
+  return {
+    replies,
+    guildId: 'g',
+    user: { id: 'analyst1', tag: 'analyst#1', username: 'analyst' },
+    memberPermissions: { has: () => admin },
+    member: { roles: { cache: { has: () => admin } } },
+    options: { getSubcommand: () => 'panel' },
+    channel: {
+      id: channelId,
+      isTextBased: () => true,
+      send: async (payload) => {
+        posts.push(payload);
+        return { id: 'msg-1' };
+      },
+    },
+    deferReply: async () => {},
+    editReply: async (payload) => {
+      replies.push(payload);
+      return payload;
+    },
+  };
+}
+
+test('/picks panel names which room it just posted the console for', async () => {
+  const store = freshStore();
+
+  const inFree = fakePanelSubInteraction({ channelId: FREE_CHANNEL });
+  await handlePicks(inFree, { store, config });
+  assert.match(String(inFree.replies.at(-1)), /\*\*FREE\*\* room/);
+
+  const inVip = fakePanelSubInteraction({ channelId: VIP_CHANNEL });
+  await handlePicks(inVip, { store, config });
+  assert.match(String(inVip.replies.at(-1)), /\*\*VIP\*\* room/);
+});
+
+test('/picks panel posted somewhere that is neither configured channel is labelled VIP, not silently mislabelled free', async () => {
+  const store = freshStore();
+  const elsewhere = fakePanelSubInteraction({ channelId: 'some-other-channel' });
+  await handlePicks(elsewhere, { store, config });
+  assert.match(String(elsewhere.replies.at(-1)), /\*\*VIP\*\* room/);
 });
