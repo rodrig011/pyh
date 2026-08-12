@@ -131,8 +131,14 @@ export async function handleParlayCommand(interaction, { store, config }) {
       return interaction.editReply(error.message);
     }
 
-    const channel = settings.parlayChannelId
-      ? await interaction.client.channels.fetch(settings.parlayChannelId).catch(() => null)
+    // The free parlay channel is its own room — posted to when the command
+    // was run there, same as the picks console. Any other channel keeps the
+    // old behaviour exactly: the configured PARLAY_CHANNEL_ID, or wherever
+    // the command was run if that is unset.
+    const inFreeRoom = Boolean(settings.parlayFreeChannelId) && interaction.channel?.id === settings.parlayFreeChannelId;
+    const targetChannelId = inFreeRoom ? settings.parlayFreeChannelId : settings.parlayChannelId;
+    const channel = targetChannelId
+      ? await interaction.client.channels.fetch(targetChannelId).catch(() => null)
       : interaction.channel;
 
     if (!channel?.isTextBased()) {

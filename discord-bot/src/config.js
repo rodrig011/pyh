@@ -215,6 +215,13 @@ export function loadVipConfig() {
       // Where /parlay post lands. Falls back to the channel the command was
       // run in, same as PICKS_CHANNEL_ID.
       parlayChannelId: str('PARLAY_CHANNEL_ID'),
+      // A second, free parlay channel — same /parlay post and /parlay board,
+      // its own room. A parlay is graded by pressing WIN/LOSS/PUSH on the
+      // exact message that was posted, so unlike the picks console there is
+      // no shared "which open call is this" state to keep the two rooms
+      // apart: routing which channel /parlay post lands in is the only thing
+      // that needs deciding, by whichever channel the command was run in.
+      parlayFreeChannelId: str('PARLAY_FREE_CHANNEL_ID'),
       // Put the console back under the channel after a call closes, so the next
       // signal is never fifty messages away from the button that sends it.
       repostPanel: bool('PICKS_REPOST_PANEL', true),
