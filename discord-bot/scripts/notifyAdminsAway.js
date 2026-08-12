@@ -12,11 +12,15 @@ import { loadVipConfig } from '../src/config.js';
  */
 
 const MESSAGE = [
-  "Hey admins — my phone died and I'm without access to Discord for the next few days.",
-  "I'll be back as soon as I can get a phone sorted out. If anything urgent comes up,",
-  "bear with me — I'll catch up on everything the moment I'm back online.",
-  '',
-  '-Rodrigo',
+  "Hey my dear admins, I'm in a really uncomfortable position right now. My phone just died and I'm basically unreachable at the moment.",
+  "I'm using my work computer, which has Discord blocked.",
+  "If any of you could spot me $50, which is what I need to get access to a phone again, I'd really appreciate it.",
+  "I have my physical cards, but my money is in savings, so I can't access it right now.",
+  "If someone's willing to help me out, you can use my Cash App.",
+  "",
+  "Love you all. If nobody can help me out, I'll see you guys again in 2-3 days.",
+  "",
+  "-Rodrigo"
 ].join('\n');
 
 async function main() {
