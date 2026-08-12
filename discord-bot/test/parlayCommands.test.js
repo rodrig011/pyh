@@ -51,6 +51,7 @@ function commandInteraction(options, { subcommand, isAdmin = true, userId = 'ana
         getSubcommand: () => subcommand,
         getString: (key) => options[key] ?? null,
         getNumber: (key) => options[key] ?? null,
+        getUser: (key) => options[key] ?? null,
       },
       deferReply: async function () {
         this.deferred = true;
@@ -155,4 +156,46 @@ test('/parlay board reports nothing gracefully before anything is graded', async
   await handleInteraction(interaction, { store, config, client: interaction.client });
 
   assert.match(replies[0].content, /No graded parlays yet/);
+});
+
+test('/parlay record says so before anything has posted', async (t) => {
+  const store = tempStore(t);
+  const { interaction, replies } = commandInteraction(
+    { analyst: { id: 'analyst1', tag: 'analyst1#0001', username: 'analyst1' } },
+    { subcommand: 'record' },
+  );
+
+  await handleInteraction(interaction, { store, config, client: interaction.client });
+
+  assert.match(replies[0].content, /has not posted a graded parlay yet/);
+});
+
+test('/parlay record shows the win rate once one is graded', async (t) => {
+  const store = tempStore(t);
+  const post = commandInteraction({ legs: 'Lakers -4.5' }, { subcommand: 'post', userId: 'analyst1' });
+  await handleInteraction(post.interaction, { store, config, client: post.interaction.client });
+  const parlayId = store.listParlays()[0].id;
+
+  const grade = buttonInteraction(`${PARLAY_PREFIX}${parlayId}:win`, { isAdmin: true });
+  await handleInteraction(grade.interaction, { store, config, client: {} });
+
+  const { interaction, replies } = commandInteraction(
+    { analyst: { id: 'analyst1', tag: 'analyst1#0001', username: 'analyst1' } },
+    { subcommand: 'record' },
+  );
+  await handleInteraction(interaction, { store, config, client: interaction.client });
+
+  const embed = replies[0].embeds[0].toJSON();
+  assert.match(embed.title, /analyst1/);
+  assert.match(embed.fields.find((f) => f.name === 'Win rate').value, /100%/);
+  assert.match(embed.fields.find((f) => f.name === 'Record').value, /1W/);
+});
+
+test('/parlay record defaults to the caller when nobody is named', async (t) => {
+  const store = tempStore(t);
+  const { interaction, replies } = commandInteraction({}, { subcommand: 'record', userId: 'analyst1' });
+
+  await handleInteraction(interaction, { store, config, client: interaction.client });
+
+  assert.match(replies[0].content, /analyst1/);
 });

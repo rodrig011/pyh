@@ -9,7 +9,8 @@ import {
 } from 'discord.js';
 import { COLORS } from '../lib/brand.js';
 import { isParlayAnalyst, parlayCallerRoleIds, pickSettings } from './commands.js';
-import { PARLAY_OUTCOMES, buildParlay, parlayLeaderboard, settleParlay } from './parlay.js';
+import { formatWinRate } from './picks.js';
+import { PARLAY_OUTCOMES, buildParlay, parlayLeaderboard, parlayRecord, settleParlay } from './parlay.js';
 
 export const PARLAY_PREFIX = 'parlay:settle:';
 
@@ -39,7 +40,15 @@ export function buildParlayCommand(config) {
         )
         .addStringOption((option) => option.setName('note').setDescription('Anything else').setRequired(false)),
     )
-    .addSubcommand((sub) => sub.setName('board').setDescription('Win rate by whoever has posted parlays'));
+    .addSubcommand((sub) => sub.setName('board').setDescription('Win rate by whoever has posted parlays'))
+    .addSubcommand((sub) =>
+      sub
+        .setName('record')
+        .setDescription("An analyst's parlay record")
+        .addUserOption((option) =>
+          option.setName('analyst').setDescription('Whose record (default: yours)').setRequired(false),
+        ),
+    );
 
   return [command.toJSON()];
 }
@@ -175,6 +184,30 @@ export async function handleParlayCommand(interaction, { store, config }) {
           )
           .join('\n'),
       );
+
+    return interaction.reply({ embeds: [embed] });
+  }
+
+  if (sub === 'record') {
+    const user = interaction.options.getUser('analyst') ?? interaction.user;
+    const parlays = store.listParlays((parlay) => parlay.guildId === (interaction.guildId ?? config.guildId));
+    const record = parlayRecord(parlays, user.id);
+
+    if (record.decided === 0 && record.pushes === 0) {
+      return interaction.reply({
+        content: `<@${user.id}> has not posted a graded parlay yet.`,
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
+    const embed = new EmbedBuilder()
+      .setColor(COLORS.gold)
+      .setTitle(`🏀 Parlay record — ${user.username}`)
+      .addFields(
+        { name: 'Win rate', value: `**${formatWinRate(record.winRate)}**`, inline: true },
+        { name: 'Record', value: `${record.wins}W — ${record.losses}L${record.pushes ? ` — ${record.pushes} push` : ''}`, inline: true },
+      )
+      .setTimestamp();
 
     return interaction.reply({ embeds: [embed] });
   }
