@@ -168,6 +168,32 @@ test('live-trading status reflects the real risk state when one exists', async (
   assert.equal(result.liveTrading.remaining, 16);
 });
 
+test("live trading carries today's own orders, newest first, for a person asking which trade lost", async () => {
+  const now = Date.now();
+  const yesterday = now - 25 * 60 * 60 * 1000;
+  const store = {
+    ...fakeStore,
+    riskState: () => ({ armed: true, killed: false, dailyLimitDollars: 20 }),
+    listTradeOrders: () => [
+      { at: now - 2000, status: 'filled', side: 'yes', contracts: 3, limitCents: 60, costDollars: 1.8, profitDollars: -0.6 },
+      { at: now - 1000, status: 'filled', side: 'no', contracts: 2, limitCents: 40, costDollars: 0.8, profitDollars: null },
+      { at: now - 3000, status: 'rejected', side: 'yes', contracts: 5, limitCents: 50, costDollars: 0 },
+      { at: yesterday, status: 'filled', side: 'yes', contracts: 1, limitCents: 50, costDollars: 0.5, profitDollars: 0.2 },
+    ],
+  };
+  const result = await computeRead(store, config, {
+    openBoard: async () => board(50, 65_000, now + 500_000),
+    fetchSpotPrice: async () => ({ price: 65_000 }),
+    now,
+  });
+
+  const orders = result.liveTrading.recentOrders;
+  assert.equal(orders.length, 2, 'the rejected order and yesterday\'s order are both excluded');
+  assert.equal(orders[0].at, now - 1000, 'newest first');
+  assert.equal(orders[0].profitDollars, null, 'still open, not guessed at');
+  assert.equal(orders[1].profitDollars, -0.6);
+});
+
 test('the track record says so before anything has settled, rather than showing zeros as if measured', async () => {
   const now = Date.now();
   const result = await computeRead(fakeStore, config, {

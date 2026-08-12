@@ -94,6 +94,20 @@ export function dashboardPage(brandName) {
   .record b { color: var(--ink); }
   .record .up { color: var(--up); } .record .down { color: var(--down); }
 
+  .order-list { display: flex; flex-direction: column; gap: 1px; }
+  .order-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 7px 2px; border-bottom: 1px solid var(--border-soft); font-family: var(--mono); font-size: 11px;
+  }
+  .order-row:last-child { border-bottom: none; }
+  .order-left { display: flex; align-items: center; gap: 8px; color: var(--dim); min-width: 0; }
+  .order-side { text-transform: uppercase; letter-spacing: 0.03em; font-weight: 600; color: var(--ink); }
+  .order-side.down { color: var(--down); }
+  .order-side.up { color: var(--up); }
+  .order-forced { font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--amber); border: 1px solid rgba(226,166,63,0.35); border-radius: 4px; padding: 1px 4px; }
+  .order-right { font-weight: 600; white-space: nowrap; }
+  .order-empty { color: var(--dim2); font-family: var(--mono); font-size: 11px; text-align: center; padding: 10px 0; }
+
   .enter-row { display: flex; gap: 10px; margin-bottom: 12px; }
   .enterBtn {
     flex: 1; padding: 12px; border-radius: 8px; font-family: var(--sans); font-size: 12px; letter-spacing: 0.04em;
@@ -419,6 +433,10 @@ export function dashboardPage(brandName) {
           <div class="stat"><div class="label">Realised</div><div class="value" id="liveRealised">—</div></div>
         </div>
         <div class="budget-bar" style="margin-bottom:0"><div class="fill" id="liveBudgetFill" style="width:0%"></div></div>
+      </div>
+      <div class="section">
+        <div class="section-head"><span class="section-title">Today's orders</span></div>
+        <div class="order-list" id="liveOrders"></div>
       </div>
       <div class="live-note" id="liveNote">Arming and disarming real money only happens in Discord — /picks live — never from this page, on purpose.</div>
     </div>
@@ -775,6 +793,37 @@ export function dashboardPage(brandName) {
 
     var pct = lt.limit > 0 ? Math.min(100, (lt.spent / lt.limit) * 100) : 0;
     document.getElementById('liveBudgetFill').style.width = pct + '%';
+
+    var list = document.getElementById('liveOrders');
+    var orders = lt.recentOrders || [];
+    if (!orders.length) {
+      list.innerHTML = '<div class="order-empty">No orders yet today.</div>';
+    } else {
+      list.innerHTML = orders.map(function (o) {
+        var time = o.at ? new Date(o.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
+        var side = o.side === 'yes' ? 'UP' : o.side === 'no' ? 'DOWN' : (o.side || '—').toUpperCase();
+        var sideClass = o.side === 'yes' ? 'up' : o.side === 'no' ? 'down' : '';
+        var forced = o.forced ? '<span class="order-forced">forced</span>' : '';
+        var right;
+        if (Number.isFinite(o.profitDollars)) {
+          right = '<span class="' + (o.profitDollars > 0 ? 'up' : o.profitDollars < 0 ? 'down' : '') + '">' +
+            (o.profitDollars >= 0 ? '+' : '') + money(o.profitDollars) + '</span>';
+        } else if (o.status === 'unknown') {
+          right = '<span style="color:var(--amber)">unknown</span>';
+        } else {
+          right = '<span style="color:var(--dim)">open</span>';
+        }
+        return '<div class="order-row">' +
+          '<div class="order-left">' +
+            '<span>' + time + '</span>' +
+            '<span class="order-side ' + sideClass + '">' + side + '</span>' +
+            '<span>' + (Number.isFinite(o.contracts) ? o.contracts + 'x @ ' + o.limitCents + '%' : '') + '</span>' +
+            forced +
+          '</div>' +
+          '<div class="order-right">' + right + '</div>' +
+        '</div>';
+      }).join('');
+    }
   }
 
   function paintTrackRecord(tr) {

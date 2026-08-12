@@ -19,7 +19,7 @@ import { confluencePatterns, settleConfluenceRecords } from '../signals/confluen
 import { measureEdge } from '../signals/measure.js';
 import { settleObservations } from '../signals/recorder.js';
 import { PROFILES } from '../picks/paper.js';
-import { riskSummary } from '../picks/riskLimits.js';
+import { dayKey, riskSummary } from '../picks/riskLimits.js';
 import { buildCandles, buildVolume, rsiSeries } from './candles.js';
 
 /** How much chart history to keep, independent of the 1h window the model itself reads. */
@@ -319,6 +319,24 @@ export async function computeRead(
   // riskLimits.js's own docstring on why arming is deliberately not
   // something any API surface, this one included, can do.
   const liveTrading = riskSummary(store.riskState?.() ?? null, store.listTradeOrders?.() ?? [], { now });
+
+  // Today's own orders, newest first — the aggregate stats above answer "how
+  // is the day going", not "which trade was that $2 loss". Without this the
+  // only way to answer that question was asking a person to dig through logs.
+  liveTrading.recentOrders = (store.listTradeOrders?.() ?? [])
+    .filter((order) => order?.status !== 'rejected' && dayKey(order?.at ?? 0) === dayKey(now))
+    .sort((a, b) => (b.at ?? 0) - (a.at ?? 0))
+    .slice(0, 12)
+    .map((order) => ({
+      at: order.at,
+      side: order.side,
+      contracts: order.contracts,
+      limitCents: order.limitCents,
+      costDollars: order.costDollars,
+      profitDollars: Number.isFinite(order.profitDollars) ? order.profitDollars : null,
+      forced: Boolean(order.forced),
+      status: order.status,
+    }));
 
   return {
     ok: true,
