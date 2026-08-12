@@ -187,7 +187,7 @@ test('an opposite call is refused while one is still open', async () => {
   assert.equal(store.listPicks().length, 1);
   const said = String(interaction.replies.at(-1));
   assert.match(said, /still have a/);
-  assert.match(said, /CASH OUT/);
+  assert.match(said, /\*\*OUT\*\*/);
 });
 
 test('the same direction is not treated as a conflict', async () => {

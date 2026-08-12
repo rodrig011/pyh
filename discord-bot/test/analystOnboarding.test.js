@@ -23,10 +23,9 @@ test('never fires with no watched roles configured', () => {
   assert.equal(gainedWatchedRole([], ['analyst'], undefined), false);
 });
 
-test('the guide actually explains all four buttons', () => {
+test('the guide actually explains every button on the console', () => {
   assert.match(ANALYST_GUIDE_MESSAGE, /BUY UP/);
   assert.match(ANALYST_GUIDE_MESSAGE, /BUY DOWN/);
-  assert.match(ANALYST_GUIDE_MESSAGE, /CASH OUT/);
-  assert.match(ANALYST_GUIDE_MESSAGE, /CUT LOSS/);
+  assert.match(ANALYST_GUIDE_MESSAGE, /\*\*OUT\*\*/);
   assert.match(ANALYST_GUIDE_MESSAGE, /HOLD/);
 });

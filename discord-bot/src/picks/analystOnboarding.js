@@ -24,7 +24,7 @@ export const ANALYST_GUIDE_MESSAGE = [
   '',
   '**3. How much?**\nAfter direction, size buttons show up (25% / 50% / 75% / FULL PORT). Tap one — a pick needs a size before it sends.',
   '',
-  '**4. Closing it out.**\nBack on the same panel: 💸 **CASH OUT** (exit in profit), ❌ **CUT LOSS** (exit at a loss), ✋ **HOLD** (do nothing, still running). No half-exits. If you never touch it, it grades itself automatically when the window closes.',
+  '**4. Closing it out.**\nBack on the same panel: 🚪 **OUT** (exit now — the bot grades win or loss from the real price, you don\'t have to say which), ✋ **HOLD** (do nothing, still running). No half-exits. If you never touch it, it grades itself automatically when the window closes.',
   '',
   "That's it. Questions go to the mods, not into the picks channel.",
 ].join('\n');

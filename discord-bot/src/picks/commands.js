@@ -1001,7 +1001,7 @@ function whyNotPosted(reason, conflicting) {
     return (
       `You still have a **${DIRECTION_LABEL[conflicting.direction]} ${conflicting.asset}** call open` +
       (Number.isFinite(conflicting.entry) ? ` from ${priceLabel(conflicting, conflicting.entry)}` : '') +
-      '. Close it with 💸 **CASH OUT** or ❌ **CUT LOSS** first — the room cannot hold both sides of the same contract, ' +
+      '. Close it with 🚪 **OUT** first — the room cannot hold both sides of the same contract, ' +
       'and an exit pressed now would land on whichever call is newest.'
     );
   }
@@ -2689,6 +2689,26 @@ async function postManagement(interaction, { store, config }, { action, note = n
   });
 
   const closes = CLOSING_ACTIONS.has(action);
+
+  // OUT is now the one exit button, and it no longer says which way the call
+  // went — so with no live price to grade it against, guessing a result is
+  // no longer defensible the way it was when a separate CUT LOSS button meant
+  // the analyst had already said so. Ask by hand instead, the same fallback
+  // the window-close path already uses. (A stale CUT LOSS button from a
+  // console posted before this changed still gets the old, explicit answer
+  // below — it already said what happened.)
+  if (closes && open && quote.price === null && action !== PANEL_ACTIONS.CUT_LOSS) {
+    await channel
+      .send({
+        content: `<@${open.analystId}> your **${open.asset}** ${open.minutes}m call is closing, and I could not read a price. How did it go?`,
+        embeds: [pickEmbed(open, config)],
+        components: [settleRow(open.id)],
+        allowedMentions: { users: [open.analystId] },
+      })
+      .catch(() => null);
+    return interaction.editReply(`No live price right now — <@${open.analystId}>, say how it went in ${channel}.`);
+  }
+
   let verdict = null;
 
   if (closes && open) {
@@ -2696,7 +2716,9 @@ async function postManagement(interaction, { store, config }, { action, note = n
       quote.price !== null && open.entry !== null
         ? gradeQuote(open, quote.price)
         : {
-            outcome: action === PANEL_ACTIONS.CUT_LOSS ? OUTCOMES.LOSS : OUTCOMES.WIN,
+            // Only reachable via a stale CUT LOSS button now — everything
+            // else with no price falls into the settle-by-hand branch above.
+            outcome: OUTCOMES.LOSS,
             changePercent: null,
           };
 

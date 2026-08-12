@@ -70,13 +70,12 @@ export function analystPanel(config, settings) {
         `One tap sends the call to the room. **${settings.defaultAsset}** on a **${settings.defaultMinutes}-minute** window,`,
         'with the live price stamped on it — so it grades itself when the window closes.',
         '',
-'__Opening__',
+        '__Opening__',
         '🟢 **BUY UP** / 🔴 **BUY DOWN** — then say **how much of the port** goes in.',
         '_Every call carries a size. The room cannot act on a direction alone._',
         '',
         '__Closing__ — a position comes out whole, never in pieces',
-        '💸 **CASH OUT** — everything out with the profit. The call closes and is scored.',
-        '❌ **CUT LOSS** — everything out at a loss.',
+        '🚪 **OUT** — everything out, now. Win or loss is graded from the real price — you do not have to say which.',
         '✋ **HOLD** — nothing has changed, stay in.',
       ].join('\n'),
     )
@@ -98,18 +97,15 @@ export function analystPanel(config, settings) {
           .setEmoji('🔴'),
       ),
       new ActionRowBuilder().addComponents(
+        // One exit button, not two. The bot already grades win vs loss from
+        // the real price the moment this closes — asking the analyst to
+        // pre-declare which one it was was a second decision that added
+        // nothing but a chance to pick the wrong button under time pressure.
         new ButtonBuilder()
           .setCustomId(`${PANEL_PREFIX}${PANEL_ACTIONS.CASH_OUT}`)
-          .setStyle(ButtonStyle.Success)
-          .setLabel('CASH OUT')
-          .setEmoji('💸'),
-        // The counterpart to cashing out. A console that can only announce
-        // wins teaches the room to sit through the losers.
-        new ButtonBuilder()
-          .setCustomId(`${PANEL_PREFIX}${PANEL_ACTIONS.CUT_LOSS}`)
-          .setStyle(ButtonStyle.Danger)
-          .setLabel('CUT LOSS')
-          .setEmoji('❌'),
+          .setStyle(ButtonStyle.Primary)
+          .setLabel('OUT')
+          .setEmoji('🚪'),
         new ButtonBuilder()
           .setCustomId(`${PANEL_PREFIX}${PANEL_ACTIONS.HOLD}`)
           .setStyle(ButtonStyle.Secondary)
@@ -129,12 +125,32 @@ export function analystPanel(config, settings) {
 export function managementMessage({ action, analystId, pick, note = null, price = null, verdict = null }) {
   const subject = pick ? `**${pick.asset}** ${pick.minutes}m` : 'your open position';
 
+  // OUT is one button for both outcomes — the price says which one it was,
+  // not the analyst, so the headline reads off the real verdict rather than
+  // assuming a win the way a single "cash out" label used to.
+  const outCopy =
+    verdict?.outcome === 'loss'
+      ? {
+          colour: COLORS.danger,
+          title: '❌ Out at a loss',
+          body: `<@${analystId}> is out of ${subject} — **everything**. The call is wrong, take the loss and move on.`,
+        }
+      : verdict?.outcome === 'break_even'
+        ? {
+            colour: COLORS.warning,
+            title: '➖ Out flat',
+            body: `<@${analystId}> is out of ${subject} — **everything**, flat.`,
+          }
+        : {
+            colour: COLORS.success,
+            title: '💸 Cash out',
+            body: `<@${analystId}> is out of ${subject} — **everything**, with the profit. Close your whole position.`,
+          };
+
   const copy = {
-    [PANEL_ACTIONS.CASH_OUT]: {
-      colour: COLORS.success,
-      title: '💸 Cash out',
-      body: `<@${analystId}> is out of ${subject} — **everything**, with the profit. Close your whole position.`,
-    },
+    [PANEL_ACTIONS.CASH_OUT]: outCopy,
+    // Kept for any console message posted before this simplification — an
+    // old CUT LOSS button still works exactly as it always did.
     [PANEL_ACTIONS.CUT_LOSS]: {
       colour: COLORS.danger,
       title: '❌ Cut the loss',
@@ -214,11 +230,11 @@ export function guideMessage(config, settings) {
           'comfortable losing.',
       },
       {
-        name: '💸 CASH OUT — everything, in profit',
+        name: '🚪 OUT — everything, right now',
         value:
-          '**Sell your whole position now.** Your money comes out with the profit on it. ' +
-          'There is no half-way here — a position on Kalshi comes out whole. ' +
-          'The call ends and goes on the record at this price.',
+          '**Sell your whole position now.** There is no half-way here — a position on Kalshi ' +
+          'comes out whole. The call ends here, and the price decides whether it goes on the ' +
+          'record as a win or a loss — the analyst does not have to say which.',
       },
       {
         name: '🗳️ After a call closes — you get a vote',
@@ -226,12 +242,6 @@ export function guideMessage(config, settings) {
           'The bot asks whether **you** actually made money. It scores the direction from the price; ' +
           'only you know when you got in and out. Both answers are published together — ' +
           'a call the bot scored a win where the room lost money means it came too late to act on.',
-      },
-      {
-        name: '❌ CUT LOSS — get out',
-        value:
-          '**The call is wrong. Sell the whole position and take the loss.** ' +
-          'This goes on the analyst\'s record as a loss — that is the point. Do not average down.',
       },
       {
         name: '✋ HOLD — do nothing',

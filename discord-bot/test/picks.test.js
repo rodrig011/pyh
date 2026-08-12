@@ -520,7 +520,7 @@ test('CUT LOSS is a real action with its own message', () => {
   assert.match(embed.description, /take the loss/i);
 });
 
-test('the console offers every action, cutting losses included', () => {
+test('the console has one exit button, not two — the price grades win vs loss now', () => {
   const panel = analystPanel(pinging, pickSettings(pinging));
   const ids = panel.components.flatMap((row) =>
     row.toJSON().components.map((component) => component.custom_id),
@@ -530,7 +530,6 @@ test('the console offers every action, cutting losses included', () => {
     'pick:panel:up',
     'pick:panel:down',
     'pick:panel:cash_out',
-    'pick:panel:cut_loss',
     'pick:panel:hold',
   ]);
 });
@@ -608,6 +607,14 @@ function withPrice(t, amount) {
   });
 }
 
+function withNoPrice(t) {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: false, json: async () => ({}) });
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+}
+
 test('cashing out in profit closes the call there and then', async (t) => {
   const store = routingStore(t);
   const pick = openCallIn(store, { direction: DIRECTIONS.DOWN, entry: 63297.58 });
@@ -657,6 +664,34 @@ test('cutting a loss closes the call too', async (t) => {
 
   assert.equal(store.getPick(pick.id).outcome, OUTCOMES.LOSS);
   assert.equal(store.getPick(pick.id).closedBy, 'exit');
+});
+
+test('OUT with no live price asks by hand instead of guessing a win', async (t) => {
+  const store = routingStore(t);
+  const pick = openCallIn(store, { direction: DIRECTIONS.UP, entry: 63300 });
+  withNoPrice(t);
+
+  const { interaction, replies, posted } = panelPress('cash_out');
+  await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
+
+  assert.equal(store.getPick(pick.id).outcome, null, 'still open until a human says which way it went');
+  assert.match(replies[0], /No live price/i);
+  const asked = posted.find((message) => message.components?.length);
+  assert.ok(asked, 'the grading buttons were offered');
+  assert.match(asked.content, /How did it go/i);
+});
+
+test('a real loss on OUT is worded as a loss, not glossed as a cash out', async (t) => {
+  const store = routingStore(t);
+  const pick = openCallIn(store, { direction: DIRECTIONS.UP, entry: 63300 });
+  withPrice(t, 63200);
+
+  const { interaction, posted } = panelPress('cash_out');
+  await handleInteraction(interaction, { store, config: routingConfig, client: interaction.client });
+
+  assert.equal(store.getPick(pick.id).outcome, OUTCOMES.LOSS);
+  const closeMessage = posted.find((message) => message.embeds?.[0]);
+  assert.match(closeMessage.embeds[0].toJSON().title, /Out at a loss/);
 });
 
 test('holding leaves the call running', async (t) => {
@@ -834,7 +869,7 @@ test('the guide explains every button the console has', () => {
   const guide = guideMessage(routingConfig, pickSettings(routingConfig));
   const text = JSON.stringify(guide.embeds[0].toJSON());
 
-  for (const phrase of ['LONG', 'SHORT', 'of port', 'CASH OUT', 'CUT LOSS', 'HOLD']) {
+  for (const phrase of ['LONG', 'SHORT', 'of port', 'OUT', 'HOLD']) {
     assert.ok(text.includes(phrase), `the guide never mentions ${phrase}`);
   }
   assert.match(text, /own money and your own size/, 'and says whose risk it is');
