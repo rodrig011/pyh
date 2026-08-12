@@ -29,6 +29,7 @@ import { storefrontMessage } from '../vip/storefront.js';
 import { shouldGreetDm } from '../vip/dmGreeting.js';
 import { banAlertText, isBanned } from '../vip/banlist.js';
 import { promptDueSettlements, publishVoteResults, syncKalshiAccount } from '../picks/commands.js';
+import { checkPicksChannelSetup } from '../picks/channelSetup.js';
 import { collectOnce } from '../signals/collector.js';
 import { observeOnce } from '../signals/recorder.js';
 import { evaluate } from '../signals/engine.js';
@@ -173,6 +174,9 @@ export function createVipBot(config = loadVipConfig()) {
     } else {
       const problems = await checkRoleSetup(guild, config);
       for (const problem of problems) log.warn(problem);
+
+      const channelProblems = await checkPicksChannelSetup(guild, config);
+      for (const problem of channelProblems) log.warn(problem);
     }
 
     watcher.start();
