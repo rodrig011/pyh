@@ -197,6 +197,12 @@ export function loadVipConfig() {
     picks: {
       channelId: str('PICKS_CHANNEL_ID'),
       analystRoleIds: list('PICKS_ANALYST_ROLE_IDS'),
+      // A role that may post PARLAYS specifically, without also getting the
+      // Kalshi picks console — "Sports" people who only do sports parlays,
+      // not BTC calls. Every analystRoleId can still post parlays too (see
+      // isParlayAnalyst in commands.js); this list only ADDS a narrower door,
+      // it never takes the wider one away.
+      parlayAnalystRoleIds: list('PARLAY_ANALYST_ROLE_IDS'),
       defaultMinutes: int('PICKS_DEFAULT_MINUTES', 15),
       defaultAsset: str('PICKS_DEFAULT_ASSET', 'BTC'),
       minimumForBoard: int('PICKS_BOARD_MINIMUM', 5),

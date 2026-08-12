@@ -126,6 +126,7 @@ export const SETTLE_PREFIX = 'pick:settle:';
 export const PICK_DEFAULTS = {
   channelId: null,
   analystRoleIds: [],
+  parlayAnalystRoleIds: [],
   defaultMinutes: 15,
   defaultAsset: 'BTC',
   minimumForBoard: 5,
@@ -550,6 +551,25 @@ export function isAnalyst(interaction, config) {
   // With no analyst roles set, only administrators may call. Manage Messages is
   // held by every moderator in most servers, and a member pressing BUY UP by
   // accident sends a real signal to everyone paying for one.
+  if (allowed.length === 0) return false;
+  const roles = interaction.member?.roles?.cache;
+  return Boolean(roles && allowed.some((roleId) => roles.has(roleId)));
+}
+
+/**
+ * Everyone allowed to post a sports parlay: every regular analyst, PLUS
+ * parlayAnalystRoleIds — a narrower role for people who only do sports and
+ * were never meant to get the Kalshi picks console. Adds a door, never
+ * removes the wider one an existing analyst already has.
+ */
+export function parlayCallerRoleIds(config) {
+  return [...callerRoleIds(config), ...pickSettings(config).parlayAnalystRoleIds];
+}
+
+/** Only parlay-eligible people may post one. Administrators always pass. */
+export function isParlayAnalyst(interaction, config) {
+  if (interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return true;
+  const allowed = parlayCallerRoleIds(config);
   if (allowed.length === 0) return false;
   const roles = interaction.member?.roles?.cache;
   return Boolean(roles && allowed.some((roleId) => roles.has(roleId)));

@@ -8,7 +8,7 @@ import {
   SlashCommandBuilder,
 } from 'discord.js';
 import { COLORS } from '../lib/brand.js';
-import { callerRoleIds, isAnalyst, pickSettings } from './commands.js';
+import { isParlayAnalyst, parlayCallerRoleIds, pickSettings } from './commands.js';
 import { PARLAY_OUTCOMES, buildParlay, parlayLeaderboard, settleParlay } from './parlay.js';
 
 export const PARLAY_PREFIX = 'parlay:settle:';
@@ -19,10 +19,10 @@ export function buildParlayCommand(config) {
     .setDescription('Post and track sports parlays — a separate board from the Kalshi calls')
     .setDMPermission(false)
     // Discord can gate visibility on a permission bit but never on a role, so
-    // the isAnalyst() check inside is the real authority — this only decides
-    // who sees the command at all.
+    // the isParlayAnalyst() check inside is the real authority — this only
+    // decides who sees the command at all.
     .setDefaultMemberPermissions(
-      callerRoleIds(config).length > 0 ? null : PermissionFlagsBits.ManageMessages,
+      parlayCallerRoleIds(config).length > 0 ? null : PermissionFlagsBits.ManageMessages,
     )
     .addSubcommand((sub) =>
       sub
@@ -107,7 +107,7 @@ export async function handleParlayCommand(interaction, { store, config }) {
   const settings = pickSettings(config);
 
   if (sub === 'post') {
-    if (!isAnalyst(interaction, config)) {
+    if (!isParlayAnalyst(interaction, config)) {
       return interaction.reply({
         content: 'Only the analysts and mods can post a parlay.',
         flags: MessageFlags.Ephemeral,
