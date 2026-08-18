@@ -15,6 +15,7 @@ import {
   trendFit,
 } from '../signals/indicators.js';
 import { confluenceRead } from '../signals/confluence.js';
+import { scanPatterns } from '../signals/patterns.js';
 import { confluencePatterns, settleConfluenceRecords } from '../signals/confluenceLog.js';
 import { measureEdge } from '../signals/measure.js';
 import { settleObservations } from '../signals/recorder.js';
@@ -240,6 +241,12 @@ export async function computeRead(
   // the RSI reported above, which reads the raw tick history instead.
   const rsiOverTime = rsiSeries(candles);
 
+  // Real swing-point geometry over the same candles the chart draws — see
+  // patterns.js. Purely descriptive, same as whales and confluence: never
+  // fed into the call above, and comes back null for whatever it does not
+  // actually find rather than a guess dressed up as a reading.
+  const patterns = scanPatterns(candles);
+
   // Same descriptive layer the engine's own comments describe as "what price
   // has been doing" — none of it feeds the trade decision above, it explains
   // the read rather than replacing it. Trend and momentum read the last 20
@@ -362,6 +369,7 @@ export async function computeRead(
     flipProbability: flip,
     whales: whales && whales.count > 0 ? { ...whales, line: whaleLine(whales) } : null,
     orderFlow,
+    patterns,
     candles,
     rsiSeries: rsiOverTime,
     volume,

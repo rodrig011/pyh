@@ -205,6 +205,16 @@ export function dashboardPage(brandName) {
   .agree-stat .value { font-size: 13px; font-weight: 700; color: var(--ink); }
   .agree-stat .n { font-family: var(--mono); font-size: 9px; color: var(--dim2); }
 
+  .pattern-list { display: flex; flex-direction: column; gap: 6px; }
+  .pattern-row { padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border-soft); background: var(--panel); }
+  .pattern-row.active { border-color: var(--border); box-shadow: 0 0 14px -8px var(--glow-cyan); }
+  .pattern-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .pattern-label { font-family: var(--sans); font-size: 12px; font-weight: 600; color: var(--ink); }
+  .pattern-status { font-family: var(--mono); font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--dim2); white-space: nowrap; }
+  .pattern-status.up { color: var(--up); text-shadow: 0 0 8px var(--glow-up); }
+  .pattern-status.down { color: var(--down); text-shadow: 0 0 8px var(--glow-down); }
+  .pattern-note { font-family: var(--mono); font-size: 10px; color: var(--dim); margin-top: 4px; line-height: 1.5; }
+
   .rails { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 12px; padding: 10px; border-radius: 8px; }
   .rails.armed { background: rgba(255,77,109,0.1); border: 1px solid rgba(255,77,109,0.45); box-shadow: 0 0 24px -8px var(--glow-down); animation: armedPulse 2.4s ease-in-out infinite; }
   @keyframes armedPulse { 0%,100% { box-shadow: 0 0 24px -8px var(--glow-down); } 50% { box-shadow: 0 0 34px -6px var(--glow-down); } }
@@ -420,6 +430,15 @@ export function dashboardPage(brandName) {
           <div class="stat"><div class="label">Trend R²</div><div class="value" id="trendR2b">—</div></div>
           <div class="stat"><div class="label">Session</div><div class="value" id="session">—</div></div>
         </div>
+      </div>
+
+      <div class="section">
+        <div class="section-head">
+          <span class="section-title">Pattern sonar — real swing geometry, not a guess</span>
+          <span class="badge" id="patternBadge">SCANNING</span>
+        </div>
+        <div class="pattern-list" id="patternList"></div>
+        <div class="live-note">Checked against the actual candles on every read. Most of the time none of these are real, and this says so rather than finding one anyway.</div>
       </div>
 
       <div class="section">
@@ -774,6 +793,47 @@ export function dashboardPage(brandName) {
     document.getElementById('trendR2b').textContent = Number.isFinite(ind.trendR2) ? ind.trendR2.toFixed(2) : '—';
   }
 
+  var PATTERN_LABELS = {
+    doubleTop: 'Double Top',
+    doubleBottom: 'Double Bottom',
+    headAndShoulders: 'Head & Shoulders',
+    inverseHeadAndShoulders: 'Inverse Head & Shoulders',
+    cupAndHandle: 'Cup & Handle',
+    reverseCupAndHandle: 'Reverse Cup & Handle',
+    bearFlag: 'Bear Flag',
+  };
+
+  function paintPatterns(patterns) {
+    var list = document.getElementById('patternList');
+    var badge = document.getElementById('patternBadge');
+    if (!patterns) {
+      list.innerHTML = '';
+      badge.textContent = 'NO DATA'; badge.className = 'badge';
+      return;
+    }
+
+    var keys = Object.keys(PATTERN_LABELS);
+    var found = keys.filter(function (key) { return patterns[key]; });
+    badge.textContent = found.length ? found.length + (found.length === 1 ? ' FOUND' : ' FOUND') : 'SCANNING';
+    badge.className = 'badge' + (found.length ? ' blue' : '');
+
+    list.innerHTML = keys.map(function (key) {
+      var p = patterns[key];
+      var label = PATTERN_LABELS[key];
+      if (!p) {
+        return '<div class="pattern-row">' +
+          '<div class="pattern-top"><span class="pattern-label">' + label + '</span><span class="pattern-status">scanning</span></div>' +
+        '</div>';
+      }
+      var cls = p.bias === 'bullish' ? 'up' : 'down';
+      var status = (p.confirmed ? 'confirmed · ' : '') + p.quality + '/100';
+      return '<div class="pattern-row active">' +
+        '<div class="pattern-top"><span class="pattern-label">' + label + '</span><span class="pattern-status ' + cls + '">' + status + '</span></div>' +
+        '<div class="pattern-note">' + p.note + '</div>' +
+      '</div>';
+    }).join('');
+  }
+
   function paintConfluence(confluence, measured) {
     var leanEl = document.getElementById('confLean');
     var badge = document.getElementById('confBadge');
@@ -968,6 +1028,7 @@ export function dashboardPage(brandName) {
     paintRecord(data.record);
     paintIndicators(data.indicators);
     paintConfluence(data.confluence, data.confluenceMeasured);
+    paintPatterns(data.patterns);
     paintLiveTrading(data.liveTrading);
     paintOrderFlow(data.orderFlow);
     paintTrackRecord(data.trackRecord);

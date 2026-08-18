@@ -317,6 +317,54 @@ test('order flow is computed from the same tape as the whale reading, and is nul
   assert.equal(withoutFlow.orderFlow, null);
 });
 
+test('patterns come back as a real object, all null, when there is not enough candle history', async () => {
+  const now = Date.now();
+  const result = await computeRead(fakeStore, config, {
+    openBoard: async () => board(50, 65_000, now + 500_000),
+    fetchSpotPrice: async () => ({ price: 65_000 }),
+    now,
+  });
+  assert.ok(result.patterns);
+  assert.deepEqual(Object.keys(result.patterns).sort(), [
+    'bearFlag',
+    'cupAndHandle',
+    'doubleBottom',
+    'doubleTop',
+    'headAndShoulders',
+    'inverseHeadAndShoulders',
+    'reverseCupAndHandle',
+  ]);
+  assert.ok(Object.values(result.patterns).every((v) => v === null));
+});
+
+test('a real double-top shape in the price history is actually detected end to end', async () => {
+  const now = Date.now();
+  // One sample per minute for 40 minutes, ramping to a peak, back down, up to
+  // an equal second peak, then down again -- bucketed by computeRead into
+  // the 1-minute candles patterns.js reads.
+  const anchors = [64_800, 65_200, 64_900, 65_210, 64_700];
+  const perLeg = 10;
+  const samples = [];
+  let minute = 0;
+  for (let a = 0; a < anchors.length - 1; a += 1) {
+    for (let i = 0; i < perLeg; i += 1) {
+      const price = anchors[a] + (anchors[a + 1] - anchors[a]) * (i / perLeg);
+      samples.push({ at: now - (anchors.length * perLeg - minute) * 60_000, price });
+      minute += 1;
+    }
+  }
+  const shapedStore = { listSamples: () => samples };
+
+  const result = await computeRead(shapedStore, config, {
+    openBoard: async () => board(50, 65_000, now + 500_000),
+    fetchSpotPrice: async () => ({ price: 65_000 }),
+    now,
+  });
+
+  assert.ok(result.patterns.doubleTop, 'the shape built into the fixture was actually found');
+  assert.equal(result.patterns.doubleTop.label, 'Double Top');
+});
+
 const positionDeps = { spot: 65_000, prices: history };
 
 test('positionAction is null with nothing held', () => {
