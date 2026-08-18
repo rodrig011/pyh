@@ -1,13 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  CLAIM_WINDOW_DAYS,
+  NEW_ACCOUNT_DAYS,
   REFERRAL_REWARD_DOLLARS,
+  approveReferralClaim,
   buildReferralClaim,
   creditReferral,
   markReferralPaid,
   outstandingPayouts,
   referralBalance,
+  rejectReferralClaim,
 } from '../src/vip/referrals.js';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 test('a claim starts uncredited and unpaid', () => {
   const claim = buildReferralClaim({ referredId: 'new1', referrerId: 'ref1', guildId: 'g' });
@@ -57,4 +63,111 @@ test('outstandingPayouts lists only referrers who are actually owed something, m
   assert.deepEqual(rows.map((r) => r.referrerId), ['big', 'small']);
   assert.equal(rows[0].owedDollars, 20);
   assert.equal(rows[1].owedDollars, 10);
+});
+
+// Fraud resistance: a bot cannot tell a real referral from two people
+// agreeing to fake one, but it CAN flag the two shapes that pattern almost
+// always takes -- a throwaway account, or a claim filed well after the fact.
+
+test('a brand new Discord account flags the claim as needing review', () => {
+  const now = Date.now();
+  const claim = buildReferralClaim({
+    referredId: 'new1',
+    referrerId: 'ref1',
+    guildId: 'g',
+    now,
+    referredAccountCreatedAt: now - 2 * DAY_MS,
+  });
+
+  assert.equal(claim.flagged, true);
+  assert.deepEqual(claim.flagReasons, ['new_account']);
+});
+
+test('an account older than the threshold is not flagged for age', () => {
+  const now = Date.now();
+  const claim = buildReferralClaim({
+    referredId: 'new1',
+    referrerId: 'ref1',
+    guildId: 'g',
+    now,
+    referredAccountCreatedAt: now - (NEW_ACCOUNT_DAYS + 1) * DAY_MS,
+  });
+
+  assert.equal(claim.flagged, false);
+});
+
+test('claiming long after actually joining the server flags the claim', () => {
+  const now = Date.now();
+  const claim = buildReferralClaim({
+    referredId: 'new1',
+    referrerId: 'ref1',
+    guildId: 'g',
+    now,
+    referredJoinedAt: now - (CLAIM_WINDOW_DAYS + 1) * DAY_MS,
+  });
+
+  assert.equal(claim.flagged, true);
+  assert.deepEqual(claim.flagReasons, ['stale_claim']);
+});
+
+test('claiming right after joining is not flagged', () => {
+  const now = Date.now();
+  const claim = buildReferralClaim({
+    referredId: 'new1',
+    referrerId: 'ref1',
+    guildId: 'g',
+    now,
+    referredJoinedAt: now - 1000,
+  });
+
+  assert.equal(claim.flagged, false);
+});
+
+test('a flagged claim cannot be credited, even once the payment clears', () => {
+  const now = Date.now();
+  const claim = buildReferralClaim({
+    referredId: 'new1',
+    referrerId: 'ref1',
+    guildId: 'g',
+    now,
+    referredAccountCreatedAt: now,
+  });
+
+  const attempt = creditReferral(claim);
+  assert.equal(attempt.creditedAt, null, 'the flag holds the credit back');
+});
+
+test('approving a flagged claim clears the flag and allows crediting', () => {
+  const now = Date.now();
+  const claim = buildReferralClaim({
+    referredId: 'new1',
+    referrerId: 'ref1',
+    guildId: 'g',
+    now,
+    referredAccountCreatedAt: now,
+  });
+
+  const approved = approveReferralClaim(claim);
+  assert.equal(approved.flagged, false);
+  assert.ok(approved.reviewedAt);
+
+  const credited = creditReferral(approved);
+  assert.ok(credited.creditedAt, 'now creditable');
+});
+
+test('rejecting a flagged claim locks it out for good, even if later "approved"', () => {
+  const now = Date.now();
+  const claim = buildReferralClaim({
+    referredId: 'new1',
+    referrerId: 'ref1',
+    guildId: 'g',
+    now,
+    referredAccountCreatedAt: now,
+  });
+
+  const rejected = rejectReferralClaim(claim);
+  assert.equal(rejected.rejected, true);
+
+  const attempt = creditReferral(rejected);
+  assert.equal(attempt.creditedAt, null);
 });

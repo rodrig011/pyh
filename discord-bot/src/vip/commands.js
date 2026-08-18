@@ -70,7 +70,12 @@ import {
   handleParlayButton,
   handleParlayCommand,
 } from '../picks/parlayCommands.js';
-import { buildReferralCommand, handleReferralCommand } from './referralCommands.js';
+import {
+  REFERRAL_REVIEW_PREFIX,
+  buildReferralCommand,
+  handleReferralCommand,
+  handleReferralReviewButton,
+} from './referralCommands.js';
 
 const commandLog = createLogger('commands');
 
@@ -1903,6 +1908,9 @@ export async function handleInteraction(interaction, context) {
   }
   if (interaction.isButton() && interaction.customId?.startsWith(PARLAY_PREFIX)) {
     return handleParlayButton(interaction, context);
+  }
+  if (interaction.isButton() && interaction.customId?.startsWith(REFERRAL_REVIEW_PREFIX)) {
+    return handleReferralReviewButton(interaction, context);
   }
   if (interaction.isButton()) return handleButton(interaction, context);
   if (interaction.isUserSelectMenu?.()) return handleAssignSelect(interaction, context);

@@ -6,7 +6,7 @@ import { markOrderPaid, matchPayment } from './orders.js';
 import { sendDm, sendLog } from './notify.js';
 import { grantTierRoles } from './roles.js';
 import { upsertSubscription } from './subscriptions.js';
-import { creditReferral } from './referrals.js';
+import { creditAndNotifyReferral } from './referrals.js';
 
 const log = createLogger('payments');
 
@@ -151,39 +151,14 @@ export async function processPayment(client, store, config, payment) {
   const renewal = subscription.renewals > 0;
 
   // A referral pays out once -- on the referred member's FIRST payment, never
-  // on a renewal from someone who already converted. See referrals.js.
+  // on a renewal from someone who already converted. A flagged claim (new
+  // account, or claimed long after actually joining) is held back until a
+  // mod approves it -- see referrals.js's creditReferral and
+  // creditAndNotifyReferral, which is the single place this and a mod's
+  // approval button both go through.
   if (!renewal) {
     const claim = store.getReferralClaim(order.userId);
-    if (claim && !claim.creditedAt) {
-      const credited = creditReferral(claim);
-      store.putReferralClaim(credited);
-
-      await sendDm(
-        client,
-        claim.referrerId,
-        new EmbedBuilder()
-          .setColor(COLORS.success)
-          .setTitle('🤝 Referral paid off!')
-          .setDescription(
-            `<@${order.userId}> just made their first payment — you earned **$${credited.rewardDollars}**.\n` +
-              'Check `/referral balance` any time. A mod pays you out by hand and runs `/referral markpaid`.',
-          )
-          .setTimestamp(),
-      );
-
-      await sendLog(
-        client,
-        config,
-        new EmbedBuilder()
-          .setColor(COLORS.success)
-          .setTitle('🤝 Referral converted')
-          .setDescription(
-            `<@${claim.referrerId}> referred <@${order.userId}>, who just paid. **$${credited.rewardDollars}** owed — see \`/referral payouts\`.`,
-          )
-          .setTimestamp(),
-        { ping: true },
-      );
-    }
+    if (claim) await creditAndNotifyReferral(client, store, config, claim);
   }
 
   await sendDm(
