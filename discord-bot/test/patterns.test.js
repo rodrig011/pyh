@@ -69,6 +69,7 @@ test('double top: two equal peaks with a real valley between them', () => {
   assert.equal(result.label, 'Double Top');
   assert.equal(result.bias, 'bearish');
   assert.ok(result.quality > 50);
+  assert.equal(result.invalidate, Math.max(...result.peaks));
 });
 
 test('double top confirms only once price actually breaks the neckline', () => {
@@ -93,6 +94,7 @@ test('double bottom: the mirror of a double top', () => {
   assert.ok(result);
   assert.equal(result.label, 'Double Bottom');
   assert.equal(result.bias, 'bullish');
+  assert.equal(result.invalidate, Math.min(...result.troughs));
 });
 
 test('head and shoulders: a higher head between two roughly-equal shoulders', () => {

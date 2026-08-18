@@ -16,6 +16,7 @@ import {
 } from '../signals/indicators.js';
 import { confluenceRead } from '../signals/confluence.js';
 import { scanPatterns } from '../signals/patterns.js';
+import { findFairValueGaps, findSupportResistance } from '../signals/levels.js';
 import { confluencePatterns, settleConfluenceRecords } from '../signals/confluenceLog.js';
 import { measureEdge } from '../signals/measure.js';
 import { settleObservations } from '../signals/recorder.js';
@@ -247,6 +248,11 @@ export async function computeRead(
   // actually find rather than a guess dressed up as a reading.
   const patterns = scanPatterns(candles);
 
+  // Auto support/resistance and open fair-value gaps — same source candles,
+  // same rule: a level or gap only appears when the real geometry backs it.
+  const levels = findSupportResistance(candles);
+  const fairValueGaps = findFairValueGaps(candles);
+
   // Same descriptive layer the engine's own comments describe as "what price
   // has been doing" — none of it feeds the trade decision above, it explains
   // the read rather than replacing it. Trend and momentum read the last 20
@@ -370,6 +376,8 @@ export async function computeRead(
     whales: whales && whales.count > 0 ? { ...whales, line: whaleLine(whales) } : null,
     orderFlow,
     patterns,
+    levels,
+    fairValueGaps,
     candles,
     rsiSeries: rsiOverTime,
     volume,

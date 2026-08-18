@@ -96,6 +96,7 @@ export function detectDoubleTop(
     return say('bearish', (peakScore * 0.5 + depthScore * 0.5) * 100, {
       label: 'Double Top',
       neckline: valley.price,
+      invalidate: Math.max(p1.price, p2.price),
       peaks: [p1.price, p2.price],
       confirmed,
       note: confirmed
@@ -138,6 +139,7 @@ export function detectDoubleBottom(
     return say('bullish', (troughScore * 0.5 + heightScore * 0.5) * 100, {
       label: 'Double Bottom',
       neckline: peak.price,
+      invalidate: Math.min(t1.price, t2.price),
       troughs: [t1.price, t2.price],
       confirmed,
       note: confirmed

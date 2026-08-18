@@ -335,6 +335,8 @@ test('patterns come back as a real object, all null, when there is not enough ca
     'reverseCupAndHandle',
   ]);
   assert.ok(Object.values(result.patterns).every((v) => v === null));
+  assert.deepEqual(result.levels, []);
+  assert.deepEqual(result.fairValueGaps, []);
 });
 
 test('a real double-top shape in the price history is actually detected end to end', async () => {
@@ -363,6 +365,14 @@ test('a real double-top shape in the price history is actually detected end to e
 
   assert.ok(result.patterns.doubleTop, 'the shape built into the fixture was actually found');
   assert.equal(result.patterns.doubleTop.label, 'Double Top');
+  assert.ok(result.patterns.doubleTop.invalidate > Math.max(...result.patterns.doubleTop.peaks) - 1);
+
+  // The same two peaks that make this a double top are, independently, a
+  // resistance level real enough for findSupportResistance to pick up.
+  const resistance = result.levels.find((level) => level.type === 'resistance');
+  assert.ok(resistance, 'the twice-tested peak should read as a resistance level');
+  assert.ok(resistance.touches >= 2);
+  assert.ok(Array.isArray(result.fairValueGaps));
 });
 
 const positionDeps = { spot: 65_000, prices: history };

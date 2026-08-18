@@ -526,6 +526,7 @@ export function dashboardPage(brandName) {
   var timeframe = 5;
   var chart = null, candleSeries = null, volumeSeries = null;
   var strikeLine = null, spotLine = null, rangeHiLine = null, rangeLoLine = null;
+  var srLines = [], fvgLines = [], patternLines = [];
   var rsiChart = null, rsiSeries = null;
   var lastRsiPoints = [];
 
@@ -692,6 +693,67 @@ export function dashboardPage(brandName) {
         price: data.expectedRange.low, color: 'rgba(167,139,250,0.55)', lineWidth: 1,
         lineStyle: LightweightCharts.LineStyle.SparseDotted, axisLabelVisible: true, title: '~68% lo',
       });
+    }
+
+    // Auto support/resistance, drawn straight from findSupportResistance --
+    // the title carries the same two real numbers the list view shows
+    // (touches, quality) instead of a plain unlabeled line.
+    srLines.forEach(function (line) { candleSeries.removePriceLine(line); });
+    srLines = (data.levels || []).map(function (level) {
+      var up = level.type === 'support';
+      return candleSeries.createPriceLine({
+        price: level.price,
+        color: up ? 'rgba(33,230,161,0.65)' : 'rgba(255,77,109,0.65)',
+        lineWidth: 1,
+        lineStyle: LightweightCharts.LineStyle.Solid,
+        axisLabelVisible: true,
+        title: level.type.toUpperCase() + ' · ' + level.touches + (level.touches === 1 ? ' touch' : ' touches') + ' · ' + level.quality + '/100',
+      });
+    });
+
+    // Open fair value gaps -- each one drawn as its top and bottom edge, the
+    // same two-line technique already used for the ~68% range above. A
+    // filled gap is, by definition, no longer in data.fairValueGaps, so it
+    // just stops being drawn rather than needing an "invalidated" state.
+    fvgLines.forEach(function (line) { candleSeries.removePriceLine(line); });
+    fvgLines = [];
+    (data.fairValueGaps || []).forEach(function (gap) {
+      var color = gap.bias === 'bullish' ? 'rgba(33,230,161,0.4)' : 'rgba(255,77,109,0.4)';
+      var label = gap.bias.toUpperCase() + ' FVG';
+      fvgLines.push(candleSeries.createPriceLine({
+        price: gap.high, color: color, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted,
+        axisLabelVisible: true, title: label,
+      }));
+      fvgLines.push(candleSeries.createPriceLine({
+        price: gap.low, color: color, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted,
+        axisLabelVisible: false, title: '',
+      }));
+    });
+
+    // The strongest pattern Pattern Sonar actually found, drawn on the chart
+    // itself: neckline (the real trigger level) plus, when the detector
+    // reports one, the price that proves the read wrong.
+    patternLines.forEach(function (line) { candleSeries.removePriceLine(line); });
+    patternLines = [];
+    var activePattern = data.patterns && Object.keys(data.patterns)
+      .map(function (key) { return data.patterns[key]; })
+      .find(function (p) { return p && Number.isFinite(p.neckline); });
+    if (activePattern) {
+      var pColor = activePattern.bias === 'bullish' ? '#21e6a1' : '#ff4d6d';
+      patternLines.push(candleSeries.createPriceLine({
+        price: activePattern.neckline, color: pColor, lineWidth: 2,
+        lineStyle: activePattern.confirmed ? LightweightCharts.LineStyle.Solid : LightweightCharts.LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: activePattern.label + ' · ' + (activePattern.confirmed ? 'CONFIRMED' : 'TRIGGER') + ' · ' + activePattern.quality + '/100',
+      }));
+      if (Number.isFinite(activePattern.invalidate)) {
+        var above = activePattern.invalidate > activePattern.neckline;
+        patternLines.push(candleSeries.createPriceLine({
+          price: activePattern.invalidate, color: 'rgba(255,209,102,0.7)', lineWidth: 1,
+          lineStyle: LightweightCharts.LineStyle.SparseDotted, axisLabelVisible: true,
+          title: 'INVALIDATE ' + (above ? 'ABOVE' : 'BELOW'),
+        }));
+      }
     }
 
     if (volumeSeries) {
