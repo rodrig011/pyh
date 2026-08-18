@@ -7,10 +7,12 @@
  * of an approximation of one. If the CDN cannot be reached the page still
  * works; the chart panel just says so instead of crashing.
  *
- * Visual language: a plain, restrained "verified ledger" report rather than a
- * sci-fi HUD — hairline-bordered sections with a small label and status badge
- * each, muted state colors, no glow or motion for its own sake. The data
- * earns the attention, not the chrome around it.
+ * Visual language: a dark HUD/terminal look — glowing hairline borders, a
+ * mono-heavy type rhythm, cyan/pink/amber accents on top of near-black.
+ * Every number on the page is still something the bot actually computed;
+ * the glow changed, the honesty rule that earned this dashboard its content
+ * did not — see read.js and its refusal to report anything the trading
+ * path itself would not stand behind.
  *
  * Kept as a template string rather than a static file so the brand name can
  * be baked in without a second templating layer for one variable.
@@ -27,18 +29,22 @@ export function dashboardPage(brandName) {
 <style>
   :root {
     color-scheme: dark;
-    --bg: #0a0b0d;
-    --card: #17181b;
-    --panel: #1c1e22;
-    --border: rgba(255,255,255,0.09);
-    --border-soft: rgba(255,255,255,0.06);
-    --ink: #f2f3f4;
-    --dim: #90959d;
-    --dim2: #5a5f68;
-    --up: #3ecf8e;
-    --down: #f2555a;
-    --blue: #5b9df5;
-    --amber: #e2a63f;
+    --bg: #05070a;
+    --card: #0b0e14;
+    --panel: #0e121a;
+    --border: rgba(34,211,238,0.22);
+    --border-soft: rgba(34,211,238,0.12);
+    --ink: #eaf2f7;
+    --dim: #7c8aa0;
+    --dim2: #4a5568;
+    --up: #21e6a1;
+    --down: #ff4d6d;
+    --blue: #22d3ee;
+    --amber: #ffb020;
+    --violet: #a78bfa;
+    --glow-cyan: rgba(34,211,238,0.35);
+    --glow-up: rgba(33,230,161,0.35);
+    --glow-down: rgba(255,77,109,0.4);
     --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
     --mono: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
   }
@@ -46,7 +52,10 @@ export function dashboardPage(brandName) {
   html, body { height: 100%; }
   body {
     margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
-    background: var(--bg);
+    background:
+      radial-gradient(circle at 15% 0%, rgba(34,211,238,0.08), transparent 45%),
+      radial-gradient(circle at 100% 20%, rgba(167,139,250,0.06), transparent 40%),
+      var(--bg);
     font-family: var(--sans);
     color: var(--ink);
     padding: 28px 14px;
@@ -59,36 +68,40 @@ export function dashboardPage(brandName) {
     border-radius: 14px; padding: 22px 22px 18px;
     background: var(--card);
     border: 1px solid var(--border);
-    box-shadow: 0 24px 60px rgba(0,0,0,0.45);
+    box-shadow: 0 0 0 1px rgba(34,211,238,0.05), 0 24px 60px rgba(0,0,0,0.6), 0 0 40px -20px var(--glow-cyan);
   }
 
   .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
   .brand { font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
-  .live { display: flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; color: var(--dim); text-transform: uppercase; }
-  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--up); animation: pulse 2s ease-in-out infinite; }
+  .live { display: flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; color: var(--up); text-transform: uppercase; text-shadow: 0 0 10px var(--glow-up); }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--up); box-shadow: 0 0 8px 1px var(--glow-up); animation: pulse 2s ease-in-out infinite; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
 
   /* A bordered block with a small label + optional status badge — the
-     repeated unit the whole page is built from, the same way the reference
-     report is a stack of labelled cards rather than one continuous screen. */
-  .section { border: 1px solid var(--border-soft); border-radius: 10px; padding: 14px 16px 16px; margin-bottom: 10px; background: rgba(255,255,255,0.012); }
+     repeated unit the whole page is built from, each one a small HUD panel
+     with a faint cyan edge rather than a flat divider. */
+  .section {
+    border: 1px solid var(--border-soft); border-radius: 10px; padding: 14px 16px 16px; margin-bottom: 10px;
+    background: linear-gradient(180deg, rgba(34,211,238,0.03), transparent 40%), rgba(255,255,255,0.012);
+    position: relative;
+  }
   .section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-  .section-title { font-size: 10px; letter-spacing: 0.13em; text-transform: uppercase; color: var(--dim); font-weight: 600; }
+  .section-title { font-size: 10px; letter-spacing: 0.13em; text-transform: uppercase; color: var(--blue); font-weight: 600; opacity: 0.85; }
   .badge { font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; font-weight: 700; padding: 3px 9px; border-radius: 20px; background: rgba(255,255,255,0.07); color: var(--ink); }
-  .badge.up { color: var(--up); background: rgba(62,207,142,0.12); }
-  .badge.down { color: var(--down); background: rgba(242,85,90,0.12); }
-  .badge.blue { color: var(--blue); background: rgba(91,157,245,0.12); }
-  .badge.amber { color: var(--amber); background: rgba(226,166,63,0.12); }
+  .badge.up { color: var(--up); background: rgba(33,230,161,0.12); box-shadow: 0 0 12px -4px var(--glow-up); }
+  .badge.down { color: var(--down); background: rgba(255,77,109,0.14); box-shadow: 0 0 12px -4px var(--glow-down); }
+  .badge.blue { color: var(--blue); background: rgba(34,211,238,0.12); box-shadow: 0 0 12px -4px var(--glow-cyan); }
+  .badge.amber { color: var(--amber); background: rgba(255,176,32,0.14); box-shadow: 0 0 12px -4px rgba(255,176,32,0.4); }
 
   .cashout {
     text-align: center; margin-bottom: 12px; padding: 14px; border-radius: 10px;
-    border: 1px solid rgba(226,166,63,0.4); background: rgba(226,166,63,0.08);
+    border: 1px solid rgba(255,176,32,0.45); background: rgba(255,176,32,0.08); box-shadow: 0 0 24px -10px rgba(255,176,32,0.5);
   }
-  .cashout-title { font-size: 22px; font-weight: 800; letter-spacing: 0.02em; color: var(--amber); }
+  .cashout-title { font-size: 22px; font-weight: 800; letter-spacing: 0.02em; color: var(--amber); text-shadow: 0 0 16px rgba(255,176,32,0.4); }
   .cashout-sub { font-family: var(--mono); font-size: 11px; color: var(--amber); opacity: 0.85; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.03em; }
   .holding {
     text-align: center; margin-bottom: 12px; padding: 9px; border-radius: 8px; font-family: var(--mono); font-size: 11px;
-    letter-spacing: 0.03em; color: var(--blue); border: 1px solid var(--border); background: rgba(91,157,245,0.06);
+    letter-spacing: 0.03em; color: var(--blue); border: 1px solid var(--border); background: rgba(34,211,238,0.06);
   }
   .record { text-align: center; font-family: var(--mono); font-size: 11px; letter-spacing: 0.03em; color: var(--dim); margin-bottom: 10px; text-transform: uppercase; }
   .record b { color: var(--ink); }
@@ -104,19 +117,19 @@ export function dashboardPage(brandName) {
   .order-side { text-transform: uppercase; letter-spacing: 0.03em; font-weight: 600; color: var(--ink); }
   .order-side.down { color: var(--down); }
   .order-side.up { color: var(--up); }
-  .order-forced { font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--amber); border: 1px solid rgba(226,166,63,0.35); border-radius: 4px; padding: 1px 4px; }
+  .order-forced { font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--amber); border: 1px solid rgba(255,176,32,0.4); border-radius: 4px; padding: 1px 4px; }
   .order-right { font-weight: 600; white-space: nowrap; }
   .order-empty { color: var(--dim2); font-family: var(--mono); font-size: 11px; text-align: center; padding: 10px 0; }
 
   .enter-row { display: flex; gap: 10px; margin-bottom: 12px; }
   .enterBtn {
     flex: 1; padding: 12px; border-radius: 8px; font-family: var(--sans); font-size: 12px; letter-spacing: 0.04em;
-    text-transform: uppercase; font-weight: 700; cursor: pointer; border: 1px solid; background: transparent; transition: background 0.15s ease;
+    text-transform: uppercase; font-weight: 700; cursor: pointer; border: 1px solid; background: transparent; transition: all 0.15s ease;
   }
-  .enterBtn.up { color: var(--up); border-color: rgba(62,207,142,0.4); }
-  .enterBtn.up:hover { background: rgba(62,207,142,0.08); }
-  .enterBtn.down { color: var(--down); border-color: rgba(242,85,90,0.4); }
-  .enterBtn.down:hover { background: rgba(242,85,90,0.08); }
+  .enterBtn.up { color: var(--up); border-color: rgba(33,230,161,0.45); }
+  .enterBtn.up:hover { background: rgba(33,230,161,0.08); box-shadow: 0 0 16px -6px var(--glow-up); }
+  .enterBtn.down { color: var(--down); border-color: rgba(255,77,109,0.45); }
+  .enterBtn.down:hover { background: rgba(255,77,109,0.08); box-shadow: 0 0 16px -6px var(--glow-down); }
   .enterBtn:disabled { opacity: 0.4; cursor: default; }
 
   .clearBtn {
@@ -130,8 +143,9 @@ export function dashboardPage(brandName) {
   .call-wrap { display: flex; align-items: center; justify-content: center; margin: 4px 0; }
   .ring { display: none; }
   .call { text-align: center; font-size: 34px; font-weight: 800; letter-spacing: 0.01em; }
-  .call.up { color: var(--up); } .call.down { color: var(--down); }
-  .call.none { color: var(--dim); font-size: 20px; letter-spacing: 0.1em; }
+  .call.up { color: var(--up); text-shadow: 0 0 24px var(--glow-up); }
+  .call.down { color: var(--down); text-shadow: 0 0 24px var(--glow-down); }
+  .call.none { color: var(--dim); font-size: 20px; letter-spacing: 0.1em; text-shadow: none; }
   .sub { text-align: center; color: var(--dim); font-size: 11px; letter-spacing: 0.03em; margin-bottom: 14px; text-transform: uppercase; }
 
   .chart-toolbar { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-bottom: 6px; }
@@ -139,9 +153,10 @@ export function dashboardPage(brandName) {
     font-family: var(--mono); font-size: 10px; letter-spacing: 0.05em; padding: 4px 10px; border-radius: 5px;
     border: 1px solid var(--border); background: transparent; color: var(--dim); cursor: pointer;
   }
-  .tf-btn.active { color: var(--ink); border-color: var(--dim2); background: rgba(255,255,255,0.06); }
+  .tf-btn.active { color: var(--blue); border-color: var(--border); background: rgba(34,211,238,0.08); box-shadow: 0 0 12px -6px var(--glow-cyan); }
   .chart-wrap {
     position: relative; border-radius: 8px; border: 1px solid var(--border-soft); background: var(--panel); margin-bottom: 10px; overflow: hidden;
+    box-shadow: inset 0 0 40px -30px var(--glow-cyan);
   }
   #chartMain { width: 100%; height: 300px; }
   .ohlc-legend {
@@ -162,14 +177,17 @@ export function dashboardPage(brandName) {
   .stat { background: var(--panel); border: 1px solid var(--border-soft); border-radius: 8px; padding: 10px 8px; text-align: center; }
   .stat .label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); margin-bottom: 6px; }
   .stat .value { font-size: 16px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
-  .stat .value.up { color: var(--up); } .stat .value.down { color: var(--down); } .stat .value.amber { color: var(--amber); } .stat .value.violet { color: var(--blue); }
+  .stat .value.up { color: var(--up); text-shadow: 0 0 10px var(--glow-up); }
+  .stat .value.down { color: var(--down); text-shadow: 0 0 10px var(--glow-down); }
+  .stat .value.amber { color: var(--amber); text-shadow: 0 0 10px rgba(255,176,32,0.35); }
+  .stat .value.violet { color: var(--violet); text-shadow: 0 0 10px rgba(167,139,250,0.35); }
 
   .view-tabs { display: flex; gap: 4px; margin-bottom: 14px; padding: 3px; background: var(--panel); border: 1px solid var(--border-soft); border-radius: 9px; }
   .view-tab {
     flex: 1; font-family: var(--sans); font-size: 11px; letter-spacing: 0.02em; font-weight: 600; padding: 7px 6px;
     border-radius: 6px; border: none; background: transparent; color: var(--dim); cursor: pointer;
   }
-  .view-tab.active { color: var(--ink); background: var(--card); }
+  .view-tab.active { color: var(--ink); background: var(--card); box-shadow: 0 0 0 1px var(--border), 0 0 14px -6px var(--glow-cyan); }
   .view.hidden { display: none; }
 
   .panel-title { font-size: 10px; letter-spacing: 0.13em; text-transform: uppercase; color: var(--dim); margin: 14px 0 8px; font-weight: 600; }
@@ -188,31 +206,33 @@ export function dashboardPage(brandName) {
   .agree-stat .n { font-family: var(--mono); font-size: 9px; color: var(--dim2); }
 
   .rails { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 12px; padding: 10px; border-radius: 8px; }
-  .rails.armed { background: rgba(242,85,90,0.08); border: 1px solid rgba(242,85,90,0.35); }
+  .rails.armed { background: rgba(255,77,109,0.1); border: 1px solid rgba(255,77,109,0.45); box-shadow: 0 0 24px -8px var(--glow-down); animation: armedPulse 2.4s ease-in-out infinite; }
+  @keyframes armedPulse { 0%,100% { box-shadow: 0 0 24px -8px var(--glow-down); } 50% { box-shadow: 0 0 34px -6px var(--glow-down); } }
   .rails.disarmed { background: var(--panel); border: 1px solid var(--border-soft); }
-  .rails.killed { background: rgba(226,166,63,0.08); border: 1px solid rgba(226,166,63,0.35); }
+  .rails.killed { background: rgba(255,176,32,0.08); border: 1px solid rgba(255,176,32,0.4); }
   .rails-label { font-size: 13px; font-weight: 800; letter-spacing: 0.02em; }
-  .rails.armed .rails-label { color: var(--down); }
+  .rails.armed .rails-label { color: var(--down); text-shadow: 0 0 14px var(--glow-down); }
   .rails.disarmed .rails-label { color: var(--dim); }
-  .rails.killed .rails-label { color: var(--amber); }
+  .rails.killed .rails-label { color: var(--amber); text-shadow: 0 0 14px rgba(255,176,32,0.4); }
   .budget-bar { height: 6px; border-radius: 4px; background: var(--panel); overflow: hidden; margin: 4px 0 14px; }
-  .budget-bar .fill { height: 100%; background: var(--blue); transition: width 0.4s ease; }
+  .budget-bar .fill { height: 100%; background: var(--blue); box-shadow: 0 0 10px var(--glow-cyan); transition: width 0.4s ease; }
   .live-note { text-align: center; font-family: var(--mono); font-size: 10px; color: var(--dim); margin-top: 10px; letter-spacing: 0.01em; line-height: 1.6; }
 
   .bar-row { margin-bottom: 8px; }
   .bar-row .labels { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 10px; letter-spacing: 0.03em; text-transform: uppercase; color: var(--dim); margin-bottom: 4px; }
   .bar { height: 6px; border-radius: 4px; background: var(--panel); overflow: hidden; position: relative; }
   .bar .fill { position: absolute; inset: 0; border-radius: 4px; transition: width 0.4s ease; }
-  .bar .fill.model { background: var(--blue); }
+  .bar .fill.model { background: var(--blue); box-shadow: 0 0 8px var(--glow-cyan); }
   .bar .fill.market { background: var(--dim2); }
+  .bar .fill.flow { background: linear-gradient(90deg, var(--down), var(--up)); }
 
   .whale { margin-top: 10px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border-soft); background: var(--panel); font-family: var(--mono); font-size: 12px; color: var(--dim); transition: all 0.3s ease; min-height: 16px; }
-  .whale.active { border-color: rgba(226,166,63,0.3); background: rgba(226,166,63,0.05); color: var(--amber); }
+  .whale.active { border-color: rgba(255,176,32,0.35); background: rgba(255,176,32,0.06); color: var(--amber); box-shadow: 0 0 16px -8px rgba(255,176,32,0.5); }
 
   .reason { text-align: center; font-family: var(--mono); font-size: 11px; color: var(--dim); margin-top: 10px; letter-spacing: 0.01em; }
   .clock-row { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border-soft); }
   .clock-row .label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); }
-  .clock { font-family: var(--mono); font-size: 17px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .clock { font-family: var(--mono); font-size: 17px; font-weight: 700; color: var(--blue); font-variant-numeric: tabular-nums; text-shadow: 0 0 12px var(--glow-cyan); }
   .stale { text-align: center; margin-top: 10px; font-family: var(--mono); font-size: 11px; color: var(--down); visibility: hidden; letter-spacing: 0.03em; }
 
   .gate { display: flex; align-items: center; justify-content: center; min-height: 100vh; flex-direction: column; gap: 16px; }
@@ -220,12 +240,12 @@ export function dashboardPage(brandName) {
     background: var(--panel); border: 1px solid var(--border); color: var(--ink);
     padding: 12px 16px; border-radius: 8px; font-size: 16px; width: min(260px, 80vw); text-align: center; font-family: var(--sans);
   }
-  .gate input:focus { outline: none; border-color: var(--dim2); }
+  .gate input:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 1px var(--blue), 0 0 20px -8px var(--glow-cyan); }
   .gate button {
-    background: var(--panel); color: var(--ink); border: 1px solid var(--border); padding: 12px 22px;
+    background: var(--panel); color: var(--blue); border: 1px solid var(--border); padding: 12px 22px;
     border-radius: 8px; cursor: pointer; font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; font-family: var(--sans); font-weight: 600;
   }
-  .gate button:hover { background: rgba(255,255,255,0.08); }
+  .gate button:hover { background: rgba(34,211,238,0.08); box-shadow: 0 0 20px -8px var(--glow-cyan); }
   .hidden { display: none; }
 
   /* Phones — portrait, roughly iPhone SE up to a large Android in portrait. */
@@ -295,6 +315,7 @@ export function dashboardPage(brandName) {
     <div class="view-tabs">
       <button class="view-tab active" data-view="viewSignal">Signal</button>
       <button class="view-tab" data-view="viewIndicators">Indicators</button>
+      <button class="view-tab" data-view="viewFlow">Flow</button>
       <button class="view-tab" data-view="viewLive">Live $</button>
     </div>
 
@@ -420,6 +441,33 @@ export function dashboardPage(brandName) {
       </div>
     </div>
 
+    <div id="viewFlow" class="view hidden">
+      <div class="section">
+        <div class="section-head">
+          <span class="section-title">Order flow — live tape, trailing 60s</span>
+          <span class="badge" id="flowBadge">READING</span>
+        </div>
+        <div class="grid">
+          <div class="stat"><div class="label">YES flow</div><div class="value up" id="flowYes">—</div></div>
+          <div class="stat"><div class="label">NO flow</div><div class="value down" id="flowNo">—</div></div>
+          <div class="stat"><div class="label">Net flow</div><div class="value" id="flowNet">—</div></div>
+          <div class="stat"><div class="label">Dominance</div><div class="value" id="flowDom">—</div></div>
+        </div>
+        <div class="bar-row" style="margin-top:2px">
+          <div class="labels"><span>NO</span><span>YES</span></div>
+          <div class="bar"><div class="fill flow" id="flowDomBar" style="width:50%"></div></div>
+        </div>
+        <div class="live-note">Which side paid to cross the spread on THIS contract — not a spot BTC buy/sell tape. YES flow is pressure toward the window finishing up, NO flow toward it finishing down.</div>
+      </div>
+      <div class="section">
+        <div class="section-head">
+          <span class="section-title">Tape</span>
+          <span class="badge blue" id="flowTradesBadge">0 prints</span>
+        </div>
+        <div class="order-list" id="flowRecent"></div>
+      </div>
+    </div>
+
     <div id="viewLive" class="view hidden">
       <div class="rails disarmed" id="railsBox">
         <span class="rails-label" id="railsLabel">DISARMED</span>
@@ -478,11 +526,11 @@ export function dashboardPage(brandName) {
       return;
     }
     var common = {
-      layout: { background: { color: 'transparent' }, textColor: '#90959d', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif', fontSize: 10 },
-      grid: { vertLines: { color: 'rgba(255,255,255,0.04)' }, horzLines: { color: 'rgba(255,255,255,0.04)' } },
+      layout: { background: { color: 'transparent' }, textColor: '#7c8aa0', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif', fontSize: 10 },
+      grid: { vertLines: { color: 'rgba(34,211,238,0.05)' }, horzLines: { color: 'rgba(34,211,238,0.05)' } },
       crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-      timeScale: { borderColor: 'rgba(255,255,255,0.1)', timeVisible: true, secondsVisible: false },
-      rightPriceScale: { borderColor: 'rgba(255,255,255,0.1)' },
+      timeScale: { borderColor: 'rgba(34,211,238,0.15)', timeVisible: true, secondsVisible: false },
+      rightPriceScale: { borderColor: 'rgba(34,211,238,0.15)' },
       handleScroll: true, handleScale: true,
     };
 
@@ -490,8 +538,8 @@ export function dashboardPage(brandName) {
       width: document.getElementById('chartMain').clientWidth, height: 260,
     }, common));
     candleSeries = chart.addCandlestickSeries({
-      upColor: '#3ecf8e', downColor: '#f2555a', borderVisible: false,
-      wickUpColor: '#3ecf8e', wickDownColor: '#f2555a',
+      upColor: '#21e6a1', downColor: '#ff4d6d', borderVisible: false,
+      wickUpColor: '#21e6a1', wickDownColor: '#ff4d6d',
     });
 
     // Real Kalshi contract volume, sparse by nature — see buildVolume server
@@ -501,7 +549,7 @@ export function dashboardPage(brandName) {
     volumeSeries = chart.addHistogramSeries({
       priceFormat: { type: 'volume' },
       priceScaleId: 'volume',
-      color: 'rgba(144,149,157,0.45)',
+      color: 'rgba(34,211,238,0.4)',
     });
     chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
 
@@ -522,10 +570,10 @@ export function dashboardPage(brandName) {
 
     rsiChart = LightweightCharts.createChart(document.getElementById('chartRsi'), Object.assign({
       width: document.getElementById('chartRsi').clientWidth, height: 90,
-    }, common, { rightPriceScale: { borderColor: 'rgba(255,255,255,0.1)' } }));
-    rsiSeries = rsiChart.addLineSeries({ color: '#5b9df5', lineWidth: 2 });
-    rsiSeries.createPriceLine({ price: 70, color: 'rgba(242,85,90,0.4)', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: '70' });
-    rsiSeries.createPriceLine({ price: 30, color: 'rgba(62,207,142,0.4)', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: '30' });
+    }, common, { rightPriceScale: { borderColor: 'rgba(34,211,238,0.15)' } }));
+    rsiSeries = rsiChart.addLineSeries({ color: '#22d3ee', lineWidth: 2 });
+    rsiSeries.createPriceLine({ price: 70, color: 'rgba(255,77,109,0.5)', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: '70' });
+    rsiSeries.createPriceLine({ price: 30, color: 'rgba(33,230,161,0.5)', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: '30' });
     rsiChart.priceScale('right').applyOptions({ scaleMargins: { top: 0.15, bottom: 0.15 } });
 
     // Keep both time axes in step when one is panned or zoomed.
@@ -598,7 +646,7 @@ export function dashboardPage(brandName) {
     if (strikeLine) { candleSeries.removePriceLine(strikeLine); strikeLine = null; }
     if (Number.isFinite(data.strike)) {
       strikeLine = candleSeries.createPriceLine({
-        price: data.strike, color: '#90959d', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed,
+        price: data.strike, color: '#7c8aa0', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed,
         axisLabelVisible: true, title: 'strike',
       });
     }
@@ -606,7 +654,7 @@ export function dashboardPage(brandName) {
     if (spotLine) { candleSeries.removePriceLine(spotLine); spotLine = null; }
     if (Number.isFinite(data.spot)) {
       spotLine = candleSeries.createPriceLine({
-        price: data.spot, color: '#5b9df5', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted,
+        price: data.spot, color: '#22d3ee', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted,
         axisLabelVisible: true, title: 'now',
       });
     }
@@ -618,11 +666,11 @@ export function dashboardPage(brandName) {
     if (rangeLoLine) { candleSeries.removePriceLine(rangeLoLine); rangeLoLine = null; }
     if (data.expectedRange) {
       rangeHiLine = candleSeries.createPriceLine({
-        price: data.expectedRange.high, color: 'rgba(91,157,245,0.5)', lineWidth: 1,
+        price: data.expectedRange.high, color: 'rgba(167,139,250,0.55)', lineWidth: 1,
         lineStyle: LightweightCharts.LineStyle.SparseDotted, axisLabelVisible: true, title: '~68% hi',
       });
       rangeLoLine = candleSeries.createPriceLine({
-        price: data.expectedRange.low, color: 'rgba(91,157,245,0.5)', lineWidth: 1,
+        price: data.expectedRange.low, color: 'rgba(167,139,250,0.55)', lineWidth: 1,
         lineStyle: LightweightCharts.LineStyle.SparseDotted, axisLabelVisible: true, title: '~68% lo',
       });
     }
@@ -826,6 +874,68 @@ export function dashboardPage(brandName) {
     }
   }
 
+  function paintOrderFlow(flow) {
+    var money = function (n) {
+      return Number.isFinite(n) ? '$' + Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—';
+    };
+    var badge = document.getElementById('flowBadge');
+    var tradesBadge = document.getElementById('flowTradesBadge');
+    var list = document.getElementById('flowRecent');
+
+    if (!flow) {
+      document.getElementById('flowYes').textContent = '—';
+      document.getElementById('flowNo').textContent = '—';
+      document.getElementById('flowNet').textContent = '—';
+      document.getElementById('flowDom').textContent = '—';
+      document.getElementById('flowDomBar').style.width = '50%';
+      badge.textContent = 'NO TAPE'; badge.className = 'badge';
+      tradesBadge.textContent = '0 prints';
+      list.innerHTML = '<div class="order-empty">No trade tape available right now.</div>';
+      return;
+    }
+
+    document.getElementById('flowYes').textContent = money(flow.yesDollars);
+    document.getElementById('flowNo').textContent = money(flow.noDollars);
+    var netEl = document.getElementById('flowNet');
+    netEl.textContent = (flow.netDollars >= 0 ? '+' : '-') + money(flow.netDollars);
+    netEl.className = 'value ' + (flow.netDollars > 0 ? 'up' : flow.netDollars < 0 ? 'down' : '');
+
+    var domPct = Number.isFinite(flow.yesDominance) ? Math.round(flow.yesDominance * 100) : null;
+    document.getElementById('flowDom').textContent = domPct === null ? '—' : domPct + ' / ' + (100 - domPct);
+    document.getElementById('flowDomBar').style.width = (domPct === null ? 50 : domPct) + '%';
+
+    if (flow.trades === 0) {
+      badge.textContent = 'QUIET'; badge.className = 'badge';
+    } else if (domPct !== null && domPct >= 60) {
+      badge.textContent = 'YES LEANING'; badge.className = 'badge up';
+    } else if (domPct !== null && domPct <= 40) {
+      badge.textContent = 'NO LEANING'; badge.className = 'badge down';
+    } else {
+      badge.textContent = 'MIXED'; badge.className = 'badge blue';
+    }
+    tradesBadge.textContent = flow.trades + (flow.trades === 1 ? ' print' : ' prints');
+
+    var rows = flow.recent || [];
+    if (!rows.length) {
+      list.innerHTML = '<div class="order-empty">No prints on the tape yet.</div>';
+      return;
+    }
+    list.innerHTML = rows.map(function (t) {
+      var time = t.at ? new Date(t.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
+      var side = t.side === 'yes' ? 'YES' : 'NO';
+      var cls = t.side === 'yes' ? 'up' : 'down';
+      var dollars = Number.isFinite(t.priceCents) ? money((t.count * t.priceCents) / 100) : '—';
+      return '<div class="order-row">' +
+        '<div class="order-left">' +
+          '<span>' + time + '</span>' +
+          '<span class="order-side ' + cls + '">' + side + '</span>' +
+          '<span>' + t.count + 'x @ ' + Math.round(t.priceCents) + '%</span>' +
+        '</div>' +
+        '<div class="order-right">' + dollars + '</div>' +
+      '</div>';
+    }).join('');
+  }
+
   function paintTrackRecord(tr) {
     var badge = document.getElementById('trackBadge');
     var note = document.getElementById('trackNote');
@@ -859,6 +969,7 @@ export function dashboardPage(brandName) {
     paintIndicators(data.indicators);
     paintConfluence(data.confluence, data.confluenceMeasured);
     paintLiveTrading(data.liveTrading);
+    paintOrderFlow(data.orderFlow);
     paintTrackRecord(data.trackRecord);
     document.getElementById('asset').textContent = data.asset + (data.ticker ? ' · ' + data.ticker : '');
     var callEl = document.getElementById('call');

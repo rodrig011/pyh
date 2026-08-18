@@ -119,6 +119,51 @@ export function whaleActivity(trades, { minimumContracts = WHALE_CONTRACTS, sinc
   };
 }
 
+/**
+ * Every print on the tape, not just the whale-sized ones — folded into a
+ * buy/sell-style flow reading for the dashboard's order flow panel.
+ *
+ * "Buy" and "sell" do not quite apply to a binary contract the way they do to
+ * a spot market: there is no single asset changing hands, there are two
+ * complementary sides. What is real and worth showing is which side the
+ * aggressor paid to take — YES flow is pressure toward the window finishing
+ * up, NO flow is pressure toward it finishing down — so that is exactly what
+ * gets labelled, rather than borrowing "buy/sell" language that would imply
+ * a single instrument this market does not have.
+ */
+export function orderFlowSummary(trades, { windowMs = 60_000, now = Date.now() } = {}) {
+  const rows = normalizeTrades(trades).filter((trade) => trade.at === null || trade.at >= now - windowMs);
+  const priced = rows.filter((trade) => Number.isFinite(trade.priceCents));
+
+  const dollarsOf = (trade) => (trade.count * trade.priceCents) / 100;
+  const yesRows = priced.filter((trade) => trade.side === 'yes');
+  const noRows = priced.filter((trade) => trade.side === 'no');
+
+  const yesDollars = yesRows.reduce((sum, trade) => sum + dollarsOf(trade), 0);
+  const noDollars = noRows.reduce((sum, trade) => sum + dollarsOf(trade), 0);
+  const total = yesDollars + noDollars;
+
+  const largest = (side) =>
+    side.reduce((best, trade) => (best === null || dollarsOf(trade) > dollarsOf(best) ? trade : best), null);
+
+  return {
+    windowMs,
+    trades: rows.length,
+    yesDollars,
+    noDollars,
+    netDollars: yesDollars - noDollars,
+    // 0.5 = perfectly split. Above = more size paid for YES than NO.
+    yesDominance: total > 0 ? yesDollars / total : null,
+    largestYesDollars: largest(yesRows) ? dollarsOf(largest(yesRows)) : 0,
+    largestNoDollars: largest(noRows) ? dollarsOf(largest(noRows)) : 0,
+    // Newest first, capped — this is a glance at the tape, not the whole log.
+    recent: [...priced]
+      .sort((a, b) => (b.at ?? 0) - (a.at ?? 0))
+      .slice(0, 20)
+      .map((trade) => ({ at: trade.at, side: trade.side, count: trade.count, priceCents: trade.priceCents })),
+  };
+}
+
 export const FLIP_RISK = { NONE: 'none', WATCH: 'watch', HIGH: 'high' };
 
 /**

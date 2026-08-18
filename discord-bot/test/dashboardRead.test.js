@@ -292,6 +292,31 @@ test('reads the whale tape when a fetcher is wired in, and is null when it is no
   assert.equal(withoutWhales.whales, null);
 });
 
+test('order flow is computed from the same tape as the whale reading, and is null without one', async () => {
+  const now = Date.now();
+  const withFlow = await computeRead(fakeStore, config, {
+    openBoard: async () => board(50, 65_000, now + 500_000),
+    fetchSpotPrice: async () => ({ price: 65_000 }),
+    fetchTrades: async () => ({
+      trades: [
+        { created_time: new Date(now).toISOString(), count: 10, taker_side: 'yes', yes_price: 60 },
+        { created_time: new Date(now).toISOString(), count: 5, taker_side: 'no', yes_price: 40 },
+      ],
+    }),
+    now,
+  });
+  assert.ok(withFlow.orderFlow);
+  assert.equal(withFlow.orderFlow.yesDollars, 6);
+  assert.equal(withFlow.orderFlow.noDollars, 2);
+
+  const withoutFlow = await computeRead(fakeStore, config, {
+    openBoard: async () => board(50, 65_000, now + 500_000),
+    fetchSpotPrice: async () => ({ price: 65_000 }),
+    now,
+  });
+  assert.equal(withoutFlow.orderFlow, null);
+});
+
 const positionDeps = { spot: 65_000, prices: history };
 
 test('positionAction is null with nothing held', () => {

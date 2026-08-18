@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { FLIP_RISK, fetchTrades, flipRisk, whaleActivity, whaleLine } from '../src/picks/whales.js';
+import { FLIP_RISK, fetchTrades, flipRisk, orderFlowSummary, whaleActivity, whaleLine } from '../src/picks/whales.js';
 import {
   alertMessage,
   rememberAlert,
@@ -66,6 +66,74 @@ test('notional is what makes a whale mean something to a person', () => {
   const whales = whaleActivity([trade(1000, 'yes', 40)]);
   assert.equal(Math.round(whales.notionalDollars), 400);
   assert.match(whaleLine(whales), /\$400/);
+});
+
+// orderFlowSummary: the dashboard's order-flow panel. Every print counts here,
+// not just whale-sized ones -- this is a picture of the whole tape.
+
+test('yes and no flow are dollars, not raw contract counts', () => {
+  const now = Date.parse('2026-01-01T00:10:30Z');
+  const flow = orderFlowSummary(
+    [trade(100, 'yes', 60, '2026-01-01T00:10:00Z'), trade(50, 'no', 40, '2026-01-01T00:10:10Z')],
+    { now },
+  );
+
+  assert.equal(flow.yesDollars, 60);
+  assert.equal(flow.noDollars, 20);
+  assert.equal(flow.netDollars, 40);
+  assert.equal(flow.trades, 2);
+});
+
+test('dominance is null on an empty tape, not zero pretending to be a reading', () => {
+  const flow = orderFlowSummary([], { now: Date.now() });
+  assert.equal(flow.yesDominance, null);
+  assert.equal(flow.netDollars, 0);
+});
+
+test('dominance leans toward whichever side actually paid more', () => {
+  const now = Date.parse('2026-01-01T00:10:30Z');
+  const flow = orderFlowSummary(
+    [trade(900, 'yes', 50, '2026-01-01T00:10:00Z'), trade(100, 'no', 50, '2026-01-01T00:10:10Z')],
+    { now },
+  );
+  assert.ok(flow.yesDominance > 0.8);
+});
+
+test('a trade outside the window does not count toward flow', () => {
+  const now = Date.parse('2026-01-01T00:10:30Z');
+  const flow = orderFlowSummary(
+    [
+      trade(500, 'yes', 50, '2026-01-01T00:00:00Z'), // 10m30s ago -- outside a 60s window
+      trade(10, 'no', 50, '2026-01-01T00:10:20Z'),
+    ],
+    { now, windowMs: 60_000 },
+  );
+  assert.equal(flow.yesDollars, 0);
+  assert.equal(flow.trades, 1);
+});
+
+test('the largest single print on each side is reported', () => {
+  const now = Date.parse('2026-01-01T00:10:30Z');
+  const flow = orderFlowSummary(
+    [
+      trade(10, 'yes', 50, '2026-01-01T00:10:00Z'),
+      trade(400, 'yes', 50, '2026-01-01T00:10:05Z'),
+      trade(50, 'no', 50, '2026-01-01T00:10:10Z'),
+    ],
+    { now },
+  );
+  assert.equal(flow.largestYesDollars, 200);
+  assert.equal(flow.largestNoDollars, 25);
+});
+
+test('recent trades come back newest first, capped', () => {
+  const now = Date.parse('2026-01-01T00:10:30Z');
+  const many = Array.from({ length: 25 }, (_, i) =>
+    trade(10, 'yes', 50, new Date(Date.parse('2026-01-01T00:10:00Z') + i * 1000).toISOString()),
+  );
+  const flow = orderFlowSummary(many, { now, windowMs: 60_000 });
+  assert.equal(flow.recent.length, 20);
+  assert.ok(flow.recent[0].at > flow.recent[1].at, 'newest first');
 });
 
 test('flip risk combines the arithmetic with the pressure', () => {

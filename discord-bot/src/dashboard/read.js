@@ -1,7 +1,7 @@
 import { closeTimeOf, nearestTheMoneyContract } from '../picks/kalshi.js';
 import { directionalRead } from '../signals/direction.js';
 import { flipProbability } from '../signals/exit.js';
-import { normalizeTrades, whaleActivity, whaleLine } from '../picks/whales.js';
+import { normalizeTrades, orderFlowSummary, whaleActivity, whaleLine } from '../picks/whales.js';
 import { scalpDecision, SCALP_ACTIONS } from '../signals/scalp.js';
 import {
   atr,
@@ -215,9 +215,11 @@ export async function computeRead(
   // rather than failing the whole response over it.
   let whales = null;
   let volume = [];
+  let orderFlow = null;
   if (fetchTrades && market.ticker) {
     const { trades } = await fetchTrades(kalshi, market.ticker).catch(() => ({ trades: [] }));
     whales = whaleActivity(trades);
+    orderFlow = orderFlowSummary(trades, { now });
     // Logged so the chart has real volume to show, on this and every future
     // contract — see store.recordContractTrades for why it cannot be
     // backfilled for anything already rolled over.
@@ -359,6 +361,7 @@ export async function computeRead(
     reason: read.tradeable ? null : (read.result?.explain ?? read.reason),
     flipProbability: flip,
     whales: whales && whales.count > 0 ? { ...whales, line: whaleLine(whales) } : null,
+    orderFlow,
     candles,
     rsiSeries: rsiOverTime,
     volume,
