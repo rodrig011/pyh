@@ -28,7 +28,12 @@ const config = {
   },
 };
 
-const ROUTERS = ['src/vip/commands.js', 'src/picks/commands.js', 'src/picks/parlayCommands.js'];
+const ROUTERS = [
+  'src/vip/commands.js',
+  'src/picks/commands.js',
+  'src/picks/parlayCommands.js',
+  'src/vip/referralCommands.js',
+];
 
 function routedSubcommands() {
   const names = new Set();

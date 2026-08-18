@@ -70,6 +70,7 @@ import {
   handleParlayButton,
   handleParlayCommand,
 } from '../picks/parlayCommands.js';
+import { buildReferralCommand, handleReferralCommand } from './referralCommands.js';
 
 const commandLog = createLogger('commands');
 
@@ -324,7 +325,13 @@ export function buildCommands(config) {
         )),
     );
 
-  return [vip.toJSON(), admin.toJSON(), ...buildPickCommands(config), ...buildParlayCommand(config)];
+  return [
+    vip.toJSON(),
+    admin.toJSON(),
+    ...buildPickCommands(config),
+    ...buildParlayCommand(config),
+    ...buildReferralCommand(),
+  ];
 }
 
 /**
@@ -1911,6 +1918,7 @@ export async function handleInteraction(interaction, context) {
   if (interaction.commandName === 'call') return handleCall(interaction, context);
   if (interaction.commandName === 'picks') return handlePicks(interaction, context);
   if (interaction.commandName === 'parlay') return handleParlayCommand(interaction, context);
+  if (interaction.commandName === 'referral') return handleReferralCommand(interaction, context);
 
   const sub = interaction.options.getSubcommand();
 

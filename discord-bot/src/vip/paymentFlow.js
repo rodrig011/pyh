@@ -6,6 +6,7 @@ import { markOrderPaid, matchPayment } from './orders.js';
 import { sendDm, sendLog } from './notify.js';
 import { grantTierRoles } from './roles.js';
 import { upsertSubscription } from './subscriptions.js';
+import { creditReferral } from './referrals.js';
 
 const log = createLogger('payments');
 
@@ -148,6 +149,42 @@ export async function processPayment(client, store, config, payment) {
   const awaitingJoin = roles.absent;
   const expiresAt = Math.floor(subscription.expiresAt / 1000);
   const renewal = subscription.renewals > 0;
+
+  // A referral pays out once -- on the referred member's FIRST payment, never
+  // on a renewal from someone who already converted. See referrals.js.
+  if (!renewal) {
+    const claim = store.getReferralClaim(order.userId);
+    if (claim && !claim.creditedAt) {
+      const credited = creditReferral(claim);
+      store.putReferralClaim(credited);
+
+      await sendDm(
+        client,
+        claim.referrerId,
+        new EmbedBuilder()
+          .setColor(COLORS.success)
+          .setTitle('🤝 Referral paid off!')
+          .setDescription(
+            `<@${order.userId}> just made their first payment — you earned **$${credited.rewardDollars}**.\n` +
+              'Check `/referral balance` any time. A mod pays you out by hand and runs `/referral markpaid`.',
+          )
+          .setTimestamp(),
+      );
+
+      await sendLog(
+        client,
+        config,
+        new EmbedBuilder()
+          .setColor(COLORS.success)
+          .setTitle('🤝 Referral converted')
+          .setDescription(
+            `<@${claim.referrerId}> referred <@${order.userId}>, who just paid. **$${credited.rewardDollars}** owed — see \`/referral payouts\`.`,
+          )
+          .setTimestamp(),
+        { ping: true },
+      );
+    }
+  }
 
   await sendDm(
     client,

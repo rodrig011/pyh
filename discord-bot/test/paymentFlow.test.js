@@ -174,6 +174,62 @@ test('paying again extends the membership instead of restarting it', async (t) =
   assert.equal(subscription.renewals, 1);
 });
 
+test('a referred member\'s first payment credits the referrer', async (t) => {
+  const store = freshStore(t);
+  const { client, state } = fakeClient();
+
+  store.recordReferralClaim({
+    referredId: 'u1',
+    referrerId: 'ref1',
+    guildId: 'g',
+    claimedAt: Date.now(),
+    creditedAt: null,
+    rewardDollars: 10,
+    paidAt: null,
+  });
+
+  const order = createOrder(store, { userId: 'u1', guildId: 'g', tier: 1, config });
+  await processPayment(client, store, config, { codes: [order.code], amountCents: 5000 });
+
+  const claim = store.getReferralClaim('u1');
+  assert.ok(claim.creditedAt, 'the claim is now credited');
+  // The buyer's own confirmation DM, plus the referrer's payoff DM.
+  assert.equal(state.dms.length, 2);
+});
+
+test('a renewal never credits a referral a second time', async (t) => {
+  const store = freshStore(t);
+  const { client, state } = fakeClient();
+
+  store.recordReferralClaim({
+    referredId: 'u1',
+    referrerId: 'ref1',
+    guildId: 'g',
+    claimedAt: Date.now(),
+    creditedAt: null,
+    rewardDollars: 10,
+    paidAt: null,
+  });
+
+  const first = createOrder(store, { userId: 'u1', guildId: 'g', tier: 1, config });
+  await processPayment(client, store, config, { codes: [first.code], amountCents: 5000 });
+  assert.equal(state.dms.length, 2, 'credited on the first payment');
+
+  const second = createOrder(store, { userId: 'u1', guildId: 'g', tier: 1, config });
+  await processPayment(client, store, config, { codes: [second.code], amountCents: 5000 });
+  assert.equal(state.dms.length, 3, 'only the buyer\'s own renewal DM this time, not a second referral payoff');
+});
+
+test('a payment with no referral claim on record credits nobody', async (t) => {
+  const store = freshStore(t);
+  const { client, state } = fakeClient();
+  const order = createOrder(store, { userId: 'u1', guildId: 'g', tier: 1, config });
+
+  await processPayment(client, store, config, { codes: [order.code], amountCents: 5000 });
+
+  assert.equal(state.dms.length, 1, 'just the buyer\'s own confirmation, nothing referral-related');
+});
+
 // Huntington's Zelle alert drops the memo, confirmed against live mail: real
 // customer payments arrive with codes=[]. Silently filing those as personal
 // transfers loses paying members.

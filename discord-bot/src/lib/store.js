@@ -73,6 +73,9 @@ const EMPTY = {
   // Kalshi call needs, and sharing the array would mean every reader of
   // `picks` has to guard against records that are not calls at all.
   parlays: [],
+  // Referral claims: who says who sent them, and whether that has turned
+  // into an actual paid reward yet. See vip/referrals.js.
+  referrals: [],
 };
 
 /**
@@ -314,6 +317,30 @@ export function createStore(filePath) {
 
     listParlays(filter = () => true) {
       return data.parlays.filter(filter);
+    },
+
+    recordReferralClaim(claim) {
+      data.referrals.push(claim);
+      save();
+      return claim;
+    },
+
+    // Keyed by the referred member -- one claim each, so nobody can be
+    // "referred" twice by two different people fighting over the reward.
+    getReferralClaim(referredId) {
+      return data.referrals.find((claim) => claim.referredId === referredId) ?? null;
+    },
+
+    putReferralClaim(claim) {
+      const index = data.referrals.findIndex((item) => item.referredId === claim.referredId);
+      if (index === -1) data.referrals.push(claim);
+      else data.referrals[index] = claim;
+      save();
+      return claim;
+    },
+
+    listReferralClaims(filter = () => true) {
+      return data.referrals.filter(filter);
     },
 
     /**
