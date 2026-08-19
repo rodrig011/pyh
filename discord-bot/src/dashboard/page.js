@@ -63,6 +63,29 @@ export function dashboardPage(brandName) {
   }
 
   .frame { width: min(720px, 100%); }
+  @media (min-width: 860px) { .frame { width: min(880px, 94vw); } }
+  @media (min-width: 1180px) { .frame { width: min(1180px, 92vw); } }
+
+  /* Below the desktop breakpoint these are just two stacked blocks in
+     document order — identical to how the page has always laid out. Above
+     it, the chart gets the wide left column a real screen has room for, and
+     the read/trend/model sections become a sidebar instead of more scroll. */
+  @media (min-width: 980px) {
+    .signal-layout { display: grid; grid-template-columns: 1.5fr 1fr; gap: 18px; align-items: start; }
+    .side-col .section:last-of-type { margin-bottom: 0; }
+
+    /* Each of these tabs is already just a sequence of self-contained
+       .section blocks, so a real multi-column flow (not a grid, which would
+       pair a tall block with a short one and leave a gap) fills the width
+       the same way a normal site's sidebar-free dashboard page would. */
+    #viewIndicators, #viewFlow, #viewLive {
+      column-count: 2; column-gap: 18px;
+    }
+    #viewIndicators .section, #viewFlow .section, #viewLive .section,
+    #viewLive .rails, #viewFlow .order-list, #viewLive .order-list {
+      break-inside: avoid;
+    }
+  }
 
   .card {
     border-radius: 14px; padding: 22px 22px 18px;
@@ -347,59 +370,65 @@ export function dashboardPage(brandName) {
 
     <div class="record" id="record"></div>
 
-    <div class="asset" id="asset">—</div>
-    <div class="call-wrap">
-      <div class="ring" id="ring"></div>
-      <div class="call none" id="call">SYNCING…</div>
-    </div>
-    <div class="sub" id="sub">—</div>
+    <div class="signal-layout">
+      <div class="hero-col">
+        <div class="asset" id="asset">—</div>
+        <div class="call-wrap">
+          <div class="ring" id="ring"></div>
+          <div class="call none" id="call">SYNCING…</div>
+        </div>
+        <div class="sub" id="sub">—</div>
 
-    <div class="chart-toolbar">
-      <button class="tf-btn" data-tf="1">1m</button>
-      <button class="tf-btn active" data-tf="5">5m</button>
-      <button class="tf-btn" data-tf="15">15m</button>
-    </div>
-    <div class="chart-wrap">
-      <div id="ohlcLegend" class="ohlc-legend"></div>
-      <div id="chartMain"></div>
-      <div id="chartFallback" class="chart-fallback hidden">Chart library unreachable — the read above is still live.</div>
-    </div>
-    <div class="rsi-wrap"><span class="rsi-label">RSI 14</span><div id="chartRsi"></div></div>
+        <div class="chart-toolbar">
+          <button class="tf-btn" data-tf="1">1m</button>
+          <button class="tf-btn active" data-tf="5">5m</button>
+          <button class="tf-btn" data-tf="15">15m</button>
+        </div>
+        <div class="chart-wrap">
+          <div id="ohlcLegend" class="ohlc-legend"></div>
+          <div id="chartMain"></div>
+          <div id="chartFallback" class="chart-fallback hidden">Chart library unreachable — the read above is still live.</div>
+        </div>
+        <div class="rsi-wrap"><span class="rsi-label">RSI 14</span><div id="chartRsi"></div></div>
+      </div>
 
-    <div class="section">
-      <div class="section-head"><span class="section-title">Read</span></div>
-      <div class="grid">
-        <div class="stat"><div class="label">Confidence</div><div class="value" id="conf">—</div></div>
-        <div class="stat"><div class="label">Entry</div><div class="value" id="entry">—</div></div>
-        <div class="stat"><div class="label">Flip odds</div><div class="value amber" id="flip">—</div></div>
-        <div class="stat"><div class="label">Strike</div><div class="value" id="strike">—</div></div>
+      <div class="side-col">
+        <div class="section">
+          <div class="section-head"><span class="section-title">Read</span></div>
+          <div class="grid">
+            <div class="stat"><div class="label">Confidence</div><div class="value" id="conf">—</div></div>
+            <div class="stat"><div class="label">Entry</div><div class="value" id="entry">—</div></div>
+            <div class="stat"><div class="label">Flip odds</div><div class="value amber" id="flip">—</div></div>
+            <div class="stat"><div class="label">Strike</div><div class="value" id="strike">—</div></div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-head"><span class="section-title">Trend &amp; momentum</span></div>
+          <div class="grid">
+            <div class="stat"><div class="label">RSI (14)</div><div class="value violet" id="rsiVal">—</div></div>
+            <div class="stat"><div class="label">Momentum</div><div class="value" id="momentum">—</div></div>
+            <div class="stat"><div class="label">Trend R²</div><div class="value" id="trendR2">—</div></div>
+            <div class="stat"><div class="label">Strike, in σ</div><div class="value" id="sigmaDist">—</div></div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-head"><span class="section-title">Model vs. market</span></div>
+          <div class="bar-row">
+            <div class="labels"><span>Model</span><span id="modelPct">—</span></div>
+            <div class="bar"><div class="fill model" id="modelBar" style="width:0%"></div></div>
+          </div>
+          <div class="bar-row" style="margin-bottom:0">
+            <div class="labels"><span>Market</span><span id="marketPct">—</span></div>
+            <div class="bar"><div class="fill market" id="marketBar" style="width:0%"></div></div>
+          </div>
+        </div>
+
+        <div class="whale" id="whale"></div>
+        <div class="reason" id="reason"></div>
       </div>
     </div>
-
-    <div class="section">
-      <div class="section-head"><span class="section-title">Trend &amp; momentum</span></div>
-      <div class="grid">
-        <div class="stat"><div class="label">RSI (14)</div><div class="value violet" id="rsiVal">—</div></div>
-        <div class="stat"><div class="label">Momentum</div><div class="value" id="momentum">—</div></div>
-        <div class="stat"><div class="label">Trend R²</div><div class="value" id="trendR2">—</div></div>
-        <div class="stat"><div class="label">Strike, in σ</div><div class="value" id="sigmaDist">—</div></div>
-      </div>
-    </div>
-
-    <div class="section">
-      <div class="section-head"><span class="section-title">Model vs. market</span></div>
-      <div class="bar-row">
-        <div class="labels"><span>Model</span><span id="modelPct">—</span></div>
-        <div class="bar"><div class="fill model" id="modelBar" style="width:0%"></div></div>
-      </div>
-      <div class="bar-row" style="margin-bottom:0">
-        <div class="labels"><span>Market</span><span id="marketPct">—</span></div>
-        <div class="bar"><div class="fill market" id="marketBar" style="width:0%"></div></div>
-      </div>
-    </div>
-
-    <div class="whale" id="whale"></div>
-    <div class="reason" id="reason"></div>
     </div>
 
     <div id="viewIndicators" class="view hidden">
