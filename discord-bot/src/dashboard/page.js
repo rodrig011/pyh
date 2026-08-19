@@ -667,6 +667,15 @@ export function dashboardPage(brandName) {
 
   function toChartTime(ms) { return Math.floor(ms / 1000); }
 
+  /** Whether a price sits inside one of the server's already-computed key zones — see keyZones.js. */
+  function findZone(zones, price) {
+    if (!Number.isFinite(price) || !zones) return null;
+    for (var i = 0; i < zones.length; i += 1) {
+      if (Math.abs(zones[i].price - price) / price <= 0.0015) return zones[i];
+    }
+    return null;
+  }
+
   function redrawChart(data) {
     if (!chart || !candleSeries) return;
     var agg = aggregate(rawCandles, timeframe);
@@ -714,32 +723,38 @@ export function dashboardPage(brandName) {
     srLines.forEach(function (line) { candleSeries.removePriceLine(line); });
     srLines = (data.levels || []).map(function (level) {
       var up = level.type === 'support';
+      var zone = findZone(data.keyZones, level.price);
       return candleSeries.createPriceLine({
         price: level.price,
         color: up ? 'rgba(33,230,161,0.65)' : 'rgba(255,77,109,0.65)',
-        lineWidth: 1,
+        lineWidth: zone ? 2 : 1,
         lineStyle: LightweightCharts.LineStyle.Solid,
         axisLabelVisible: true,
-        title: level.type.toUpperCase() + ' · ' + level.touches + (level.touches === 1 ? ' touch' : ' touches') + ' · ' + level.quality + '/100',
+        title: (zone ? '★ ' : '') + level.type.toUpperCase() + ' · ' + level.touches + (level.touches === 1 ? ' touch' : ' touches') + ' · ' + level.quality + '/100' + (zone ? ' · KEY ZONE' : ''),
       });
     });
 
     // Open fair value gaps -- each one drawn as its top and bottom edge, the
     // same two-line technique already used for the ~68% range above. A
     // filled gap is, by definition, no longer in data.fairValueGaps, so it
-    // just stops being drawn rather than needing an "invalidated" state.
+    // just stops being drawn rather than needing an "invalidated" state. A
+    // gap edge sitting on a key zone (see keyZones.js) gets the same star
+    // treatment the S/R line above does -- the two are the same real fact,
+    // seen from the level's side and from the gap's side.
     fvgLines.forEach(function (line) { candleSeries.removePriceLine(line); });
     fvgLines = [];
     (data.fairValueGaps || []).forEach(function (gap) {
       var color = gap.bias === 'bullish' ? 'rgba(33,230,161,0.4)' : 'rgba(255,77,109,0.4)';
       var label = gap.bias.toUpperCase() + ' FVG';
+      var highZone = findZone(data.keyZones, gap.high);
       fvgLines.push(candleSeries.createPriceLine({
-        price: gap.high, color: color, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted,
-        axisLabelVisible: true, title: label,
+        price: gap.high, color: color, lineWidth: highZone ? 2 : 1, lineStyle: LightweightCharts.LineStyle.Dotted,
+        axisLabelVisible: true, title: (highZone ? '★ ' : '') + label + (highZone ? ' · KEY ZONE' : ''),
       }));
+      var lowZone = findZone(data.keyZones, gap.low);
       fvgLines.push(candleSeries.createPriceLine({
-        price: gap.low, color: color, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted,
-        axisLabelVisible: false, title: '',
+        price: gap.low, color: color, lineWidth: lowZone ? 2 : 1, lineStyle: LightweightCharts.LineStyle.Dotted,
+        axisLabelVisible: Boolean(lowZone), title: lowZone ? '★ ' + label + ' · KEY ZONE' : '',
       }));
     });
 

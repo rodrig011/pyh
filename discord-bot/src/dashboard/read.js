@@ -17,6 +17,7 @@ import {
 import { confluenceRead } from '../signals/confluence.js';
 import { scanPatterns } from '../signals/patterns.js';
 import { findFairValueGaps, findSupportResistance } from '../signals/levels.js';
+import { findKeyZones } from '../signals/keyZones.js';
 import { confluencePatterns, settleConfluenceRecords } from '../signals/confluenceLog.js';
 import { patternWinRates, settlePatternRecords } from '../signals/patternLog.js';
 import { roundHistorySummary, settleRoundSnapshots } from '../signals/roundSnapshot.js';
@@ -254,6 +255,11 @@ export async function computeRead(
   // same rule: a level or gap only appears when the real geometry backs it.
   const levels = findSupportResistance(candles);
   const fairValueGaps = findFairValueGaps(candles);
+  // Where a level and a gap happen to land on the same price — see
+  // keyZones.js. Deliberately narrow: only two genuinely independent
+  // mechanisms are combined, never a pattern against the same pivots that
+  // built the level in the first place.
+  const keyZones = findKeyZones({ levels, fairValueGaps });
 
   // Same descriptive layer the engine's own comments describe as "what price
   // has been doing" — none of it feeds the trade decision above, it explains
@@ -407,6 +413,7 @@ export async function computeRead(
     patternTrackRecord,
     levels,
     fairValueGaps,
+    keyZones,
     roundHistory,
     candles,
     rsiSeries: rsiOverTime,
