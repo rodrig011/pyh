@@ -51,20 +51,39 @@ export function dashboardPage(brandName) {
   * { box-sizing: border-box; }
   html, body { height: 100%; }
   body {
-    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    margin: 0; min-height: 100vh;
     background:
       radial-gradient(circle at 15% 0%, rgba(34,211,238,0.08), transparent 45%),
       radial-gradient(circle at 100% 20%, rgba(167,139,250,0.06), transparent 40%),
       var(--bg);
     font-family: var(--sans);
     color: var(--ink);
-    padding: 28px 14px;
     overflow-x: hidden;
   }
+  /* Only the gate (password entry) still centers itself in the viewport --
+     see .gate further down, which already sets min-height:100vh on its own.
+     Everything else is a normal page that starts at the top and flows down,
+     the way a site does rather than a widget. */
 
-  .frame { width: min(720px, 100%); }
+  /* A real site header: fixed to the browser's own edges via the standard
+     "full-bleed inside a centered container" trick (100vw + a negative
+     margin equal to half the viewport), so it spans the window the way a
+     header does on an actual website instead of stopping at the content
+     column's own border like everything else on the page. */
+  .topbar {
+    position: sticky; top: 0; left: 50%; width: 100vw; margin-left: -50vw; z-index: 30;
+    background: rgba(5,7,10,0.86); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .topbar-inner {
+    width: min(1180px, 92vw); margin: 0 auto;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 0;
+  }
+
+  .frame { width: min(720px, 100%); margin: 0 auto; padding: 18px 14px 28px; }
   @media (min-width: 860px) { .frame { width: min(880px, 94vw); } }
-  @media (min-width: 1180px) { .frame { width: min(1180px, 92vw); } }
+  @media (min-width: 1180px) { .frame { width: min(1180px, 92vw); padding-top: 24px; } }
 
   /* Below the desktop breakpoint these are just two stacked blocks in
      document order — identical to how the page has always laid out. Above
@@ -85,6 +104,7 @@ export function dashboardPage(brandName) {
     #viewLive .rails, #viewFlow .order-list, #viewLive .order-list {
       break-inside: avoid;
     }
+
   }
 
   .card {
@@ -92,6 +112,17 @@ export function dashboardPage(brandName) {
     background: var(--card);
     border: 1px solid var(--border);
     box-shadow: 0 0 0 1px rgba(34,211,238,0.05), 0 24px 60px rgba(0,0,0,0.6), 0 0 40px -20px var(--glow-cyan);
+  }
+
+  /* The individual .section blocks already read as cards on their own --
+     wrapping the entire page in a SECOND, bigger card on top of that is
+     what made a wide screen look like one floating widget instead of a
+     page made of panels. Flattened here to plain background; the header
+     above already gives the page its edge. Declared after the base .card
+     rule on purpose: same specificity, so source order is what makes this
+     one win at desktop widths. */
+  @media (min-width: 980px) {
+    .card { background: transparent; border: none; box-shadow: none; padding: 0; border-radius: 0; }
   }
 
   .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
@@ -339,13 +370,15 @@ export function dashboardPage(brandName) {
   <div id="gateError" style="color:var(--down);font-size:12px;font-family:var(--sans);"></div>
 </div>
 
+<div id="topbar" class="topbar hidden">
+  <div class="topbar-inner">
+    <div class="brand">${brandName} / Live Read</div>
+    <div class="live"><span class="dot"></span>LIVE</div>
+  </div>
+</div>
+
 <div id="frame" class="frame hidden">
   <div class="card">
-    <div class="topbar">
-      <div class="brand">${brandName} / Live Read</div>
-      <div class="live"><span class="dot"></span>LIVE</div>
-    </div>
-
     <div class="view-tabs">
       <button class="view-tab active" data-view="viewSignal">Signal</button>
       <button class="view-tab" data-view="viewIndicators">Indicators</button>
@@ -561,6 +594,7 @@ export function dashboardPage(brandName) {
   var token = localStorage.getItem(TOKEN_KEY) || '';
   var gate = document.getElementById('gate');
   var frame = document.getElementById('frame');
+  var topbar = document.getElementById('topbar');
   var closesAtMs = null;
   var lastOkAt = 0;
   var rawCandles = []; // always 1-minute, straight from the server
@@ -1239,6 +1273,7 @@ export function dashboardPage(brandName) {
       var data = await res.json();
       gate.classList.add('hidden');
       frame.classList.remove('hidden');
+      topbar.classList.remove('hidden');
       if (data.ok) {
         lastData = data;
         paint(data);
@@ -1255,6 +1290,7 @@ export function dashboardPage(brandName) {
 
   function showGate(message) {
     frame.classList.add('hidden');
+    topbar.classList.add('hidden');
     gate.classList.remove('hidden');
     document.getElementById('gateError').textContent = message || '';
   }
@@ -1328,6 +1364,7 @@ export function dashboardPage(brandName) {
   // show on desktop": a real chart, correctly fed real data, permanently
   // sized to zero pixels wide.
   frame.classList.remove('hidden');
+  topbar.classList.remove('hidden');
   initCharts();
   poll();
   setInterval(poll, 4000);
