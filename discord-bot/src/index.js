@@ -1,0 +1,107 @@
+import 'dotenv/config';
+import { loadPhotoConfig, loadSignalConfig, loadVipConfig } from './config.js';
+import { createLogger } from './lib/logger.js';
+import { createPhotoBot } from './bots/photoBot.js';
+import { createSignalBot } from './bots/signalBot.js';
+import { createVipBot } from './bots/vipBot.js';
+import { runFarewell } from './vip/farewell.js';
+
+const log = createLogger('main');
+
+/** Logs in with a readable error instead of a raw stack trace on a bad token. */
+async function login(name, client, token) {
+  try {
+    await client.login(token);
+  } catch (error) {
+    const badToken = error.status === 401 || /invalid token/i.test(error.message ?? '');
+    const detail =
+      error.message && error.message !== 'No Description' ? error.message : `HTTP ${error.status ?? 'error'}`;
+    log.error(
+      `${name}: login failed — ${badToken ? 'that token is wrong or was regenerated in the developer portal' : detail}`,
+    );
+    process.exit(1);
+  }
+}
+
+process.on('unhandledRejection', (error) => {
+  log.error(`Unhandled error: ${error?.message ?? error}`);
+});
+
+// Starts both bots in a single process. They are separate Discord applications,
+// so each one uses its own token; if only one token is set, only that one starts.
+const started = [];
+
+if (process.env.VIP_BOT_TOKEN) {
+  const config = loadVipConfig();
+  const { client, watcher, store } = createVipBot(config);
+  started.push({
+    name: 'vip',
+    client,
+    stop: () => {
+      watcher.stop();
+      // Flush before the process dies.
+      //
+      // Price samples are written to memory on every tick and only persisted
+      // every tenth one, so a restart silently threw away up to five minutes
+      // of the volatility estimate's own input, gone, which is
+      // why the engine kept reading 91 samples out of a possible 120.
+      //
+      // Railway sends SIGTERM before killing the container, so there is time.
+      try {
+        store.save();
+      } catch (error) {
+        log.error(`Could not save the store on shutdown: ${error.message}`);
+      }
+    },
+  });
+  await login('VIP bot', client, config.token);
+
+  // Run the one-time farewell after successful VIP bot login. The farewell
+  // module itself ensures the action is only performed once by persisting a flag.
+  try {
+    runFarewell({ client, store, vipConfig: config, log }).catch((err) =>
+      log.warn(`VIP farewell encountered an error: ${err?.message ?? err}`),
+    );
+  } catch (err) {
+    log.warn(`VIP farewell invocation failed: ${err?.message ?? err}`);
+  }
+} else {
+  log.warn('VIP_BOT_TOKEN is not set: the VIP bot will not start');
+}
+
+if (process.env.PHOTO_BOT_TOKEN) {
+  const config = loadPhotoConfig();
+  const client = createPhotoBot(config);
+  started.push({ name: 'photos bot', client, stop: () => {} });
+  await login('photos bot', client, config.token);
+} else {
+  log.warn('PHOTO_BOT_TOKEN is not set: the photos-only bot will not start');
+}
+
+// The signal engine, if it has been given its own application. Separate from
+// the VIP bot on purpose: one handles money and access, the other has opinions
+// about markets, and they should not be able to take each other down.
+if (process.env.SIGNAL_BOT_TOKEN) {
+  const config = loadSignalConfig();
+  const { client } = createSignalBot(config);
+  started.push({ name: 'signal', client, stop: () => {} });
+  await login('signal bot', client, config.token);
+} else {
+  log.debug('SIGNAL_BOT_TOKEN is not set: the signal engine bot will not start');
+}
+
+if (started.length === 0) {
+  log.error('No token configured. Copy .env.example to .env and fill it in.');
+  process.exit(1);
+}
+
+const shutdown = () => {
+  for (const bot of started) {
+    bot.stop();
+    bot.client.destroy();
+  }
+  process.exit(0);
+};
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);

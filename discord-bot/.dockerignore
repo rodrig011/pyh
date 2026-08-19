@@ -1,0 +1,8 @@
+node_modules
+data
+.env
+*.log
+test
+assets/logo-source.png
+assets/avatar-preview.png
+assets/make-avatar.py
