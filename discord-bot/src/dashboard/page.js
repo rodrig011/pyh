@@ -214,6 +214,7 @@ export function dashboardPage(brandName) {
   .pattern-status.up { color: var(--up); text-shadow: 0 0 8px var(--glow-up); }
   .pattern-status.down { color: var(--down); text-shadow: 0 0 8px var(--glow-down); }
   .pattern-note { font-family: var(--mono); font-size: 10px; color: var(--dim); margin-top: 4px; line-height: 1.5; }
+  .pattern-radar { font-family: var(--mono); font-size: 10px; color: var(--violet); margin-top: 4px; line-height: 1.5; }
 
   .rails { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 12px; padding: 10px; border-radius: 8px; }
   .rails.armed { background: rgba(255,77,109,0.1); border: 1px solid rgba(255,77,109,0.45); box-shadow: 0 0 24px -8px var(--glow-down); animation: armedPulse 2.4s ease-in-out infinite; }
@@ -439,6 +440,18 @@ export function dashboardPage(brandName) {
         </div>
         <div class="pattern-list" id="patternList"></div>
         <div class="live-note">Checked against the actual candles on every read. Most of the time none of these are real, and this says so rather than finding one anyway.</div>
+      </div>
+
+      <div class="section">
+        <div class="section-head">
+          <span class="section-title">Our own AI — round history</span>
+          <span class="badge amber" id="aiBadge">COLLECTING</span>
+        </div>
+        <div class="grid" style="margin-bottom:0">
+          <div class="stat"><div class="label">Recorded</div><div class="value" id="aiRecorded">—</div></div>
+          <div class="stat"><div class="label">Settled</div><div class="value" id="aiSettled">—</div></div>
+        </div>
+        <div class="live-note" id="aiNote">Every round's full read (patterns, levels, gaps, indicators) is being saved with its real outcome, starting now. This is the history a real "rounds like this one" search will need — there is no way to back-date it, so it has to accumulate before it can say anything. Nothing here is guessed in the meantime.</div>
       </div>
 
       <div class="section">
@@ -865,7 +878,33 @@ export function dashboardPage(brandName) {
     bearFlag: 'Bear Flag',
   };
 
-  function paintPatterns(patterns) {
+  /** The reversal radar line for one pattern type: its own real settled win rate, or an honest "not yet". */
+  function radarLine(trackRecord, key) {
+    var row = (trackRecord || []).find(function (r) { return r.patternKey === key; });
+    if (!row || !row.enough) {
+      var settled = row ? row.settled : 0;
+      return 'Reversal radar: not enough settled yet (' + settled + '/15)';
+    }
+    var pct = Math.round(row.winRate * 100);
+    return 'Reversal radar: right ' + pct + '% of the time so far (' + row.settled + ' settled)';
+  }
+
+  function paintRoundHistory(rh) {
+    var badge = document.getElementById('aiBadge');
+    var note = document.getElementById('aiNote');
+    document.getElementById('aiRecorded').textContent = rh ? rh.recorded : '—';
+    document.getElementById('aiSettled').textContent = rh ? rh.settled : '—';
+    if (!rh) { badge.textContent = 'NO DATA'; badge.className = 'badge amber'; return; }
+    if (rh.enough) {
+      badge.textContent = 'READY'; badge.className = 'badge blue';
+      note.textContent = rh.settled + ' real settled rounds on file. Enough to start building a similarity search on top of — that matching feature is the next step, not yet live.';
+    } else {
+      badge.textContent = 'COLLECTING'; badge.className = 'badge amber';
+      note.textContent = 'The full read for every round is being saved with its real outcome, starting now (' + rh.settled + '/' + rh.minimumSettled + ' settled). There is no way to back-date this history, so it has to accumulate before any matching feature can say something real instead of a guess.';
+    }
+  }
+
+  function paintPatterns(patterns, trackRecord) {
     var list = document.getElementById('patternList');
     var badge = document.getElementById('patternBadge');
     if (!patterns) {
@@ -889,9 +928,11 @@ export function dashboardPage(brandName) {
       }
       var cls = p.bias === 'bullish' ? 'up' : 'down';
       var status = (p.confirmed ? 'confirmed · ' : '') + p.quality + '/100';
+      var radar = p.confirmed ? '<div class="pattern-radar">' + radarLine(trackRecord, key) + '</div>' : '';
       return '<div class="pattern-row active">' +
         '<div class="pattern-top"><span class="pattern-label">' + label + '</span><span class="pattern-status ' + cls + '">' + status + '</span></div>' +
         '<div class="pattern-note">' + p.note + '</div>' +
+        radar +
       '</div>';
     }).join('');
   }
@@ -1090,7 +1131,8 @@ export function dashboardPage(brandName) {
     paintRecord(data.record);
     paintIndicators(data.indicators);
     paintConfluence(data.confluence, data.confluenceMeasured);
-    paintPatterns(data.patterns);
+    paintPatterns(data.patterns, data.patternTrackRecord);
+    paintRoundHistory(data.roundHistory);
     paintLiveTrading(data.liveTrading);
     paintOrderFlow(data.orderFlow);
     paintTrackRecord(data.trackRecord);

@@ -35,6 +35,12 @@ import { observeOnce } from '../signals/recorder.js';
 import { evaluate } from '../signals/engine.js';
 import { confluenceRead } from '../signals/confluence.js';
 import { appendConfluenceRecord, makeConfluenceRecord } from '../signals/confluenceLog.js';
+import { appendPatternRecord, makePatternRecord } from '../signals/patternLog.js';
+import { appendRoundSnapshot, makeRoundSnapshot } from '../signals/roundSnapshot.js';
+import { scanPatterns } from '../signals/patterns.js';
+import { findFairValueGaps, findSupportResistance } from '../signals/levels.js';
+import { buildCandles } from '../dashboard/candles.js';
+import { emaStack, macd, momentum, rsi, trendFit } from '../signals/indicators.js';
 import { currentContract, closeTimeOf, nearestTheMoneyContract, openBoard } from '../picks/kalshi.js';
 import { fetchTrades } from '../picks/whales.js';
 import { sweepLiveTrading, sweepPaper, sweepSignalAlerts, sweepWatches } from '../picks/watch.js';
@@ -373,6 +379,62 @@ export function createVipBot(config = loadVipConfig()) {
                     asset,
                     appendConfluenceRecord(store.confluenceLog?.(asset) ?? [], record),
                   );
+
+                  // Pattern Sonar's own track record — see patternLog.js. One
+                  // claim recorded per pattern type the instant it confirms,
+                  // graded forward the same way confluence is above.
+                  const now = Date.now();
+                  const candles = buildCandles(
+                    store.listSamples(asset).filter((sample) => sample?.at >= now - 4 * 60 * 60 * 1000),
+                    { bucketMs: 60_000, limit: 240 },
+                  );
+                  const patterns = scanPatterns(candles);
+                  let patternLog = store.patternLog?.(asset) ?? [];
+                  for (const [patternKey, pattern] of Object.entries(patterns ?? {})) {
+                    if (!pattern?.confirmed) continue;
+                    patternLog = appendPatternRecord(
+                      patternLog,
+                      makePatternRecord({
+                        at: now,
+                        spot: result.price,
+                        patternKey,
+                        label: pattern.label,
+                        bias: pattern.bias,
+                        quality: pattern.quality,
+                      }),
+                    );
+                  }
+                  store.putPatternLog?.(asset, patternLog);
+
+                  // A snapshot of the whole board this round — see
+                  // roundSnapshot.js. The raw material for eventually finding
+                  // "rounds that looked like this one"; nothing reads it back
+                  // yet, it only starts the clock on real accumulated history.
+                  if (Number.isFinite(closesAt)) {
+                    const snapshot = makeRoundSnapshot({
+                      at: now,
+                      ticker: contract.market.ticker,
+                      closesAt,
+                      spot: result.price,
+                      strike,
+                      patterns,
+                      levels: findSupportResistance(candles),
+                      fairValueGaps: findFairValueGaps(candles),
+                      indicators: {
+                        rsi: rsi(priceHistory),
+                        momentum: momentum(priceHistory.slice(-20)),
+                        trendR2: trendFit(priceHistory.slice(-20))?.r2 ?? null,
+                        macdHistogram: macd(priceHistory)?.histogram ?? null,
+                        emaStack: emaStack(priceHistory).alignment,
+                      },
+                      confluenceLean: lean.lean,
+                      modelProbability: primary.probability,
+                    });
+                    store.putRoundSnapshots?.(
+                      asset,
+                      appendRoundSnapshot(store.roundSnapshots?.(asset) ?? [], snapshot),
+                    );
+                  }
                 } catch (error) {
                   log.debug(`Confluence record failed: ${error.message}`);
                 }

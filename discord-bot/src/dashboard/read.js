@@ -18,6 +18,8 @@ import { confluenceRead } from '../signals/confluence.js';
 import { scanPatterns } from '../signals/patterns.js';
 import { findFairValueGaps, findSupportResistance } from '../signals/levels.js';
 import { confluencePatterns, settleConfluenceRecords } from '../signals/confluenceLog.js';
+import { patternWinRates, settlePatternRecords } from '../signals/patternLog.js';
+import { roundHistorySummary, settleRoundSnapshots } from '../signals/roundSnapshot.js';
 import { measureEdge } from '../signals/measure.js';
 import { settleObservations } from '../signals/recorder.js';
 import { PROFILES } from '../picks/paper.js';
@@ -296,6 +298,32 @@ export async function computeRead(
   }
   const confluenceMeasured = confluencePatterns(settledConfluence.log);
 
+  // Pattern Sonar's own track record — see patternLog.js. Settled lazily
+  // here too, same reasoning as confluence: only when someone is actually
+  // looking, rather than adding a write to the collector loop that runs
+  // whether or not anyone is.
+  const settledPatterns = settlePatternRecords(store.patternLog?.(asset) ?? [], {
+    now,
+    samples: store.listSamples(asset),
+  });
+  if (settledPatterns.settled > 0 && store.putPatternLog) {
+    store.putPatternLog(asset, settledPatterns.log, { flush: true });
+  }
+  const patternTrackRecord = patternWinRates(settledPatterns.log);
+
+  // The raw material for a future "rounds like this one" search — see
+  // roundSnapshot.js. Only a status line here; nothing matches against it
+  // yet, because there is not enough real settled history for a match to
+  // mean anything.
+  const settledRounds = settleRoundSnapshots(store.roundSnapshots?.(asset) ?? [], {
+    now,
+    samples: store.listSamples(asset),
+  });
+  if (settledRounds.settled > 0 && store.putRoundSnapshots) {
+    store.putRoundSnapshots(asset, settledRounds.log, { flush: true });
+  }
+  const roundHistory = roundHistorySummary(settledRounds.log);
+
   // The model's own track record — the exact same measurement /picks edge
   // reports in Discord, read from the same recorded quotes, so the number on
   // this page can never disagree with the one people already trust. Settled
@@ -376,8 +404,10 @@ export async function computeRead(
     whales: whales && whales.count > 0 ? { ...whales, line: whaleLine(whales) } : null,
     orderFlow,
     patterns,
+    patternTrackRecord,
     levels,
     fairValueGaps,
+    roundHistory,
     candles,
     rsiSeries: rsiOverTime,
     volume,

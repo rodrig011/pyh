@@ -339,6 +339,23 @@ test('patterns come back as a real object, all null, when there is not enough ca
   assert.deepEqual(result.fairValueGaps, []);
 });
 
+test('the reversal radar and round history are honest about having no settled history yet', async () => {
+  const now = Date.now();
+  const result = await computeRead(fakeStore, config, {
+    openBoard: async () => board(50, 65_000, now + 500_000),
+    fetchSpotPrice: async () => ({ price: 65_000 }),
+    now,
+  });
+
+  const overall = result.patternTrackRecord.find((row) => row.patternKey === 'overall');
+  assert.equal(overall.settled, 0);
+  assert.equal(overall.enough, false);
+
+  assert.equal(result.roundHistory.recorded, 0);
+  assert.equal(result.roundHistory.settled, 0);
+  assert.equal(result.roundHistory.enough, false);
+});
+
 test('a real double-top shape in the price history is actually detected end to end', async () => {
   const now = Date.now();
   // One sample per minute for 40 minutes, ramping to a peak, back down, up to

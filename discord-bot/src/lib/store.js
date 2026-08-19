@@ -35,6 +35,16 @@ const EMPTY = {
   // read against reality, so one can never quietly inherit the other's
   // accuracy.
   confluenceLog: {},
+  // Pattern Sonar's own track record, per asset, waiting to be graded — see
+  // signals/patternLog.js. One row per confirmed pattern per type: whether
+  // price actually kept moving the direction the pattern claimed.
+  patternLog: {},
+  // A snapshot of the full board every time a round is read, settled with
+  // the real UP/DOWN outcome once it closes — see signals/roundSnapshot.js.
+  // The raw material for ever finding "rounds that looked like this one";
+  // there is no way to backfill this after the fact, so it starts
+  // accumulating the moment this ships rather than whenever it is needed.
+  roundSnapshots: {},
   watches: [],
   paper: null,
   // Where the signals panel lives, and what has already been announced there.
@@ -566,6 +576,26 @@ export function createStore(filePath) {
 
     putConfluenceLog(asset, log, { flush = false } = {}) {
       data.confluenceLog[asset] = log;
+      if (flush) save();
+      return log;
+    },
+
+    patternLog(asset) {
+      return data.patternLog[asset] ?? [];
+    },
+
+    putPatternLog(asset, log, { flush = false } = {}) {
+      data.patternLog[asset] = log;
+      if (flush) save();
+      return log;
+    },
+
+    roundSnapshots(asset) {
+      return data.roundSnapshots[asset] ?? [];
+    },
+
+    putRoundSnapshots(asset, log, { flush = false } = {}) {
+      data.roundSnapshots[asset] = log;
       if (flush) save();
       return log;
     },
