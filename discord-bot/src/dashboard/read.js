@@ -1,5 +1,6 @@
 import { closeTimeOf, nearestTheMoneyContract } from '../picks/kalshi.js';
 import { directionalRead } from '../signals/direction.js';
+import { executablePrices } from '../signals/cost.js';
 import { flipProbability } from '../signals/exit.js';
 import { normalizeTrades, orderFlowSummary, whaleActivity, whaleLine } from '../picks/whales.js';
 import { scalpDecision, SCALP_ACTIONS } from '../signals/scalp.js';
@@ -141,12 +142,7 @@ export function paperSummary(accounts, marks = {}) {
 export async function enterManualPosition(store, config, side, { openBoard, fetchSpotPrice, now = Date.now() }) {
   const settings = config.picks ?? {};
   const kalshi = settings.kalshi ?? {};
-  const asset = settings.defaultAsset ?? 'BTC';
-
-  const [board, quote] = await Promise.all([
-    openBoard(kalshi, { now }).catch(() => null),
-    fetchSpotPrice(asset),
-  ]);
+  const board = await openBoard(kalshi, { now }).catch(() => null);
 
   const contract = nearestTheMoneyContract(board?.contracts);
   if (!contract) return { ok: false, reason: 'No readable market right now' };
@@ -156,23 +152,22 @@ export async function enterManualPosition(store, config, side, { openBoard, fetc
     ? Number(market.floor_strike)
     : Number(market.cap_strike);
 
-  const prices = store
-    .listSamples(asset)
-    .filter((sample) => sample?.at >= now - 60 * 60 * 1000 && sample?.price > 0)
-    .map((sample) => sample.price);
-  const secondsLeft = Number.isFinite(closeTimeOf(market)) ? (closeTimeOf(market) - now) / 1000 : null;
+  // "I'm in" records a position the person already entered. It only needs
+  // Kalshi's contract price; making it depend on BTC history or the prediction
+  // engine caused a valid button press to fail whenever the analytical read
+  // was temporarily unavailable.
+  const quotes = executablePrices(market, contract.price);
+  if (!quotes) return { ok: false, reason: 'Kalshi did not provide a usable contract price right now' };
 
-  const read = directionalRead({
-    prices,
-    spot: quote?.price ?? null,
-    strike,
-    marketPriceCents: contract.price,
-    market,
-    secondsLeft,
-  }, settings.engine ?? {});
-
-  const entry = manualEntry(side, { ticker: market.ticker, strike, quotes: read.result?.quotes, now });
-  if (!entry) return { ok: false, reason: 'Could not price that side right now' };
+  const entry = manualEntry(side, { ticker: market.ticker, strike, quotes, now });
+  if (!entry) {
+    return {
+      ok: false,
+      reason: `Kalshi did not provide a usable ${side.toUpperCase()} entry price right now`,
+    };
+  }
+  entry.priceQuoted = quotes.quoted;
+  entry.priceSource = contract.priceSource ?? (quotes.quoted ? 'kalshi-book' : 'kalshi-last-trade');
 
   store.setDashboardPosition(entry);
   return { ok: true, position: entry };
@@ -426,6 +421,7 @@ export async function computeRead(
     ticker: market.ticker ?? null,
     strike,
     spot: quote.price,
+    priceSource: quote.source ?? contract.priceSource ?? null,
     secondsLeft,
     action: read.action,
     call: read.call,

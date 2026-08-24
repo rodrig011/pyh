@@ -374,6 +374,10 @@ export function dashboardPage(brandName) {
   .section-help { margin:-5px 0 13px; color:#8291a6; font-size:12px; line-height:1.5; }
   .stat .help { color:var(--dim2); font-size:10px; line-height:1.35; margin-top:5px; min-height:27px; }
   .decision-card { padding:20px; margin-bottom:14px; border:1px solid var(--border-soft); border-radius:12px; background:linear-gradient(135deg,rgba(34,211,238,.055),rgba(255,255,255,.012)); }
+  .toast { position:fixed; z-index:30; top:76px; left:50%; transform:translate(-50%,-12px); min-width:280px; max-width:min(520px,calc(100vw - 32px)); padding:12px 16px; border:1px solid var(--border-soft); border-radius:10px; background:#111a27; color:var(--ink); box-shadow:0 18px 45px rgba(0,0,0,.38); font-size:13px; line-height:1.45; opacity:0; pointer-events:none; transition:opacity .18s ease,transform .18s ease; }
+  .toast.show { opacity:1; transform:translate(-50%,0); }
+  .toast.error { border-color:rgba(251,113,133,.45); }
+  .toast.success { border-color:rgba(52,211,153,.45); }
 
   @media (min-width: 980px) {
     .frame { width:min(1440px,calc(100vw - 64px)); padding:30px 0 42px; }
@@ -413,6 +417,7 @@ export function dashboardPage(brandName) {
 </style>
 </head>
 <body>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 <div id="gate" class="gate hidden">
   <div class="brand">${brandName}</div>
   <input id="tokenInput" type="password" placeholder="ACCESS CODE" />
@@ -1453,16 +1458,26 @@ export function dashboardPage(brandName) {
 
   function authHeaders() { return token ? { 'x-dashboard-token': token } : {}; }
 
+  var toastTimer = null;
+  function showToast(message, kind) {
+    var toast = document.getElementById('toast');
+    toast.textContent = message;
+    toast.className = 'toast show ' + (kind || '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toast.className = 'toast'; }, 4200);
+  }
+
   async function enter(side) {
     var buttons = document.querySelectorAll('.enterBtn');
     buttons.forEach(function (b) { b.disabled = true; });
     try {
       var res = await fetch('/api/enter?side=' + side, { method: 'POST', headers: authHeaders() });
       var data = await res.json();
-      if (!data.ok) alert(data.reason || 'Could not record that entry.');
+      if (!data.ok) showToast(data.reason || 'Could not record that entry.', 'error');
+      else showToast('Position recorded at ' + Math.round(data.position.entryCents) + '¢.', 'success');
       poll();
     } catch (e) {
-      alert('Could not reach the bot.');
+      showToast('Could not reach the bot. Try again in a moment.', 'error');
     } finally {
       buttons.forEach(function (b) { b.disabled = false; });
     }

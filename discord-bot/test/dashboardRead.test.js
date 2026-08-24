@@ -91,6 +91,16 @@ test('a real read carries a call, a confidence and the clock', async () => {
   assert.equal(result.asset, 'BTC');
 });
 
+test('the dashboard exposes the BTC source instead of showing unavailable', async () => {
+  const now = Date.now();
+  const result = await computeRead(fakeStore, config, {
+    openBoard: async () => board(50, 65_000, now + 500_000),
+    fetchSpotPrice: async () => ({ price: 65_000, source: 'kalshi-brti' }),
+    now,
+  });
+  assert.equal(result.priceSource, 'kalshi-brti');
+});
+
 test('carries a flip probability and a candle series', async () => {
   const now = Date.now();
   const result = await computeRead(fakeStore, config, {
@@ -507,6 +517,35 @@ test('enterManualPosition writes a position the next read then picks up', async 
   });
   assert.ok(read.position);
   assert.equal(read.position.manual, true);
+});
+
+test('manual entry works from Kalshi last price when the book is temporarily incomplete', async () => {
+  const now = Date.now();
+  let saved = null;
+  const store = {
+    ...fakeStore,
+    setDashboardPosition: (position) => { saved = position; },
+  };
+  const result = await enterManualPosition(store, config, 'down', {
+    openBoard: async () => ({
+      contracts: [{
+        price: 51,
+        priceSource: 'last_price',
+        market: {
+          ticker: 'K-LAST',
+          floor_strike: 65_000,
+          close_time: new Date(now + 500_000).toISOString(),
+        },
+      }],
+    }),
+    fetchSpotPrice: async () => { throw new Error('manual entry must not depend on BTC feed'); },
+    now,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(saved.entryCents, 49);
+  assert.equal(saved.priceQuoted, false);
+  assert.equal(saved.priceSource, 'last_price');
 });
 
 test('enterManualPosition fails cleanly with no market to price against', async () => {
