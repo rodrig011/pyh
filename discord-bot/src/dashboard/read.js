@@ -223,6 +223,7 @@ export async function computeRead(
   const read = directionalRead({
     prices,
     spot: quote.price,
+    priceSource: quote.source ?? null,
     strike,
     marketPriceCents: contract.price,
     market,

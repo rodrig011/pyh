@@ -360,6 +360,56 @@ export function dashboardPage(brandName) {
     .call { font-size: 22px; }
     #chartMain { height: 190px; }
   }
+
+  /* Desktop product layout. The earlier version was deliberately compact,
+     but on a laptop that made the whole product look like a phone app floating
+     in empty space. This uses the available canvas like a real analytics site:
+     clear hierarchy, readable type and a wide chart with a fixed insight rail. */
+  .page-intro { display:flex; align-items:flex-end; justify-content:space-between; gap:24px; margin:8px 0 22px; }
+  .page-kicker { color:var(--blue); font-size:11px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; margin-bottom:7px; }
+  .page-title { margin:0; font-size:clamp(28px,3vw,44px); line-height:1.05; letter-spacing:-.035em; }
+  .page-copy { margin:9px 0 0; max-width:680px; color:#93a4b8; font-size:14px; line-height:1.55; }
+  .source-pill { display:flex; align-items:center; gap:9px; flex:none; padding:10px 13px; border:1px solid var(--border-soft); border-radius:10px; background:var(--panel); color:var(--dim); font-size:12px; }
+  .source-pill b { color:var(--ink); }
+  .section-help { margin:-5px 0 13px; color:#8291a6; font-size:12px; line-height:1.5; }
+  .stat .help { color:var(--dim2); font-size:10px; line-height:1.35; margin-top:5px; min-height:27px; }
+  .decision-card { padding:20px; margin-bottom:14px; border:1px solid var(--border-soft); border-radius:12px; background:linear-gradient(135deg,rgba(34,211,238,.055),rgba(255,255,255,.012)); }
+
+  @media (min-width: 980px) {
+    .frame { width:min(1440px,calc(100vw - 64px)); padding:30px 0 42px; }
+    .topbar-inner { width:min(1440px,calc(100vw - 64px)); padding:16px 0; }
+    .view-tabs { width:max-content; min-width:620px; padding:5px; margin-bottom:20px; }
+    .view-tab { min-width:145px; padding:10px 18px; font-size:12px; }
+    .signal-layout { grid-template-columns:minmax(0,2fr) minmax(330px,.8fr); gap:20px; }
+    .side-col { position:sticky; top:78px; }
+    .section { padding:18px 20px 20px; margin-bottom:14px; border-radius:12px; }
+    .section-title { font-size:11px; }
+    .asset { text-align:left; margin:0 0 5px; font-size:12px; }
+    .call-wrap { justify-content:flex-start; }
+    .call { font-size:44px; }
+    .call.none { font-size:30px; letter-spacing:.02em; }
+    .sub { text-align:left; font-size:13px; text-transform:none; line-height:1.45; margin-bottom:18px; }
+    .record { text-align:left; font-family:var(--sans); font-size:12px; margin:0 0 12px; }
+    #chartMain { height:520px; }
+    #chartRsi { height:120px; }
+    .chart-wrap,.rsi-wrap { border-radius:12px; }
+    .grid { gap:10px; }
+    .stat { padding:14px 10px; }
+    .stat .label { font-size:10px; }
+    .stat .value { font-size:20px; }
+    .enter-row { max-width:520px; }
+    .enterBtn { padding:13px 18px; }
+    #viewIndicators,#viewFlow,#viewLive { column-count:auto; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; align-items:start; }
+    #viewIndicators.hidden,#viewFlow.hidden,#viewLive.hidden { display:none; }
+    #viewLive .live-note { grid-column:1/-1; }
+    .clock-row { justify-content:flex-end; }
+  }
+
+  @media (max-width: 979px) {
+    .page-intro { align-items:flex-start; flex-direction:column; margin:4px 2px 16px; }
+    .source-pill { width:100%; }
+    .page-title { font-size:28px; }
+  }
 </style>
 </head>
 <body>
@@ -379,11 +429,19 @@ export function dashboardPage(brandName) {
 
 <div id="frame" class="frame hidden">
   <div class="card">
+    <header class="page-intro">
+      <div>
+        <div class="page-kicker">BTC 15-minute decision dashboard</div>
+        <h1 class="page-title">Know when to trade—and when to wait.</h1>
+        <p class="page-copy">One live view of Bitcoin, Kalshi pricing and the bot’s risk checks. Every number below is measured; when the evidence is weak, the dashboard says wait.</p>
+      </div>
+      <div class="source-pill"><span class="dot"></span><span>BTC price source<br><b id="sourceName">Connecting…</b></span></div>
+    </header>
     <div class="view-tabs">
-      <button class="view-tab active" data-view="viewSignal">Signal</button>
-      <button class="view-tab" data-view="viewIndicators">Indicators</button>
-      <button class="view-tab" data-view="viewFlow">Flow</button>
-      <button class="view-tab" data-view="viewLive">Live $</button>
+      <button class="view-tab active" data-view="viewSignal">Overview</button>
+      <button class="view-tab" data-view="viewIndicators">Analysis</button>
+      <button class="view-tab" data-view="viewFlow">Market activity</button>
+      <button class="view-tab" data-view="viewLive">Paper &amp; Live</button>
     </div>
 
     <div id="viewSignal" class="view">
@@ -405,12 +463,14 @@ export function dashboardPage(brandName) {
 
     <div class="signal-layout">
       <div class="hero-col">
+        <div class="decision-card">
         <div class="asset" id="asset">—</div>
         <div class="call-wrap">
           <div class="ring" id="ring"></div>
           <div class="call none" id="call">SYNCING…</div>
         </div>
         <div class="sub" id="sub">—</div>
+        </div>
 
         <div class="chart-toolbar">
           <button class="tf-btn" data-tf="1">1m</button>
@@ -427,27 +487,30 @@ export function dashboardPage(brandName) {
 
       <div class="side-col">
         <div class="section">
-          <div class="section-head"><span class="section-title">Read</span></div>
+          <div class="section-head"><span class="section-title">Trade decision</span></div>
+          <p class="section-help">The four numbers that determine whether this setup is worth taking.</p>
           <div class="grid">
-            <div class="stat"><div class="label">Confidence</div><div class="value" id="conf">—</div></div>
-            <div class="stat"><div class="label">Entry</div><div class="value" id="entry">—</div></div>
-            <div class="stat"><div class="label">Flip odds</div><div class="value amber" id="flip">—</div></div>
-            <div class="stat"><div class="label">Strike</div><div class="value" id="strike">—</div></div>
+            <div class="stat"><div class="label">Bot confidence</div><div class="value" id="conf">—</div><div class="help">How strong the evidence is</div></div>
+            <div class="stat"><div class="label">Maximum entry</div><div class="value" id="entry">—</div><div class="help">Highest contract price worth paying</div></div>
+            <div class="stat"><div class="label">Chance of crossing</div><div class="value amber" id="flip">—</div><div class="help">Odds BTC crosses the target again</div></div>
+            <div class="stat"><div class="label">BTC target</div><div class="value" id="strike">—</div><div class="help">The contract’s settlement level</div></div>
           </div>
         </div>
 
         <div class="section">
-          <div class="section-head"><span class="section-title">Trend &amp; momentum</span></div>
+          <div class="section-head"><span class="section-title">Price behavior</span></div>
+          <p class="section-help">Plain-language context for what Bitcoin is doing right now.</p>
           <div class="grid">
-            <div class="stat"><div class="label">RSI (14)</div><div class="value violet" id="rsiVal">—</div></div>
-            <div class="stat"><div class="label">Momentum</div><div class="value" id="momentum">—</div></div>
-            <div class="stat"><div class="label">Trend R²</div><div class="value" id="trendR2">—</div></div>
-            <div class="stat"><div class="label">Strike, in σ</div><div class="value" id="sigmaDist">—</div></div>
+            <div class="stat"><div class="label">Buying pressure</div><div class="value violet" id="rsiVal">—</div><div class="help">RSI: high means buyers dominate</div></div>
+            <div class="stat"><div class="label">Short-term move</div><div class="value" id="momentum">—</div><div class="help">Recent direction and speed</div></div>
+            <div class="stat"><div class="label">Trend strength</div><div class="value" id="trendR2">—</div><div class="help">How consistent the move is</div></div>
+            <div class="stat"><div class="label">Distance to target</div><div class="value" id="sigmaDist">—</div><div class="help">Volatility-adjusted distance</div></div>
           </div>
         </div>
 
         <div class="section">
-          <div class="section-head"><span class="section-title">Model vs. market</span></div>
+          <div class="section-head"><span class="section-title">Bot probability vs. Kalshi price</span></div>
+          <p class="section-help">A trade only has value when the bot’s probability beats the price after fees.</p>
           <div class="bar-row">
             <div class="labels"><span>Model</span><span id="modelPct">—</span></div>
             <div class="bar"><div class="fill model" id="modelBar" style="width:0%"></div></div>
@@ -615,6 +678,22 @@ export function dashboardPage(brandName) {
     if (!Number.isFinite(s) || s < 0) return '—';
     var m = Math.floor(s / 60), sec = Math.floor(s % 60);
     return m + ':' + String(sec).padStart(2, '0');
+  }
+
+  function plainReason(reason) {
+    if (!reason) return '';
+    var exact = {
+      no_edge: 'The potential profit is too small after fees.',
+      wide_spread: 'The gap between buy and sell prices is too wide.',
+      priced_out: 'The contract is already too expensive to offer value.',
+      too_late: 'There is not enough time left to enter safely.',
+      no_clock: 'Kalshi did not provide a reliable closing time.',
+      no_price: 'A reliable live price is temporarily unavailable.',
+      no_history: 'More price history is needed before the bot can measure risk.',
+      low_liquidity: 'There is not enough money available in this market.',
+    };
+    var key = String(reason).toLowerCase().replace(/\s+/g, '_');
+    return exact[key] || String(reason).replace(/_/g, ' ');
   }
 
   // ---- Charting (TradingView Lightweight Charts) ----
@@ -1244,12 +1323,12 @@ export function dashboardPage(brandName) {
     } else if (data.call === 'down') {
       callEl.textContent = '▼ DOWN'; callEl.className = 'call down';
     } else {
-      callEl.textContent = 'NO READ'; callEl.className = 'call none';
+      callEl.textContent = 'WAIT'; callEl.className = 'call none';
     }
 
     document.getElementById('sub').textContent = data.tradeable
-      ? 'ENGINE WOULD TAKE THIS'
-      : 'NOT CLEARING THE BAR';
+      ? 'The setup clears every price, fee and risk check.'
+      : 'No trade right now—the setup does not clear every safety check.';
     document.getElementById('conf').textContent = (data.likelihood || '—').toUpperCase();
     document.getElementById('entry').textContent = Number.isFinite(data.entryCents) ? Math.round(data.entryCents) + '¢' : '—';
     document.getElementById('flip').textContent = fmtPct(data.flipProbability);
@@ -1269,7 +1348,12 @@ export function dashboardPage(brandName) {
       whaleEl.className = 'whale';
     }
 
-    document.getElementById('reason').textContent = data.reason || '';
+    document.getElementById('reason').textContent = plainReason(data.reason);
+    document.getElementById('sourceName').textContent = data.priceSource === 'kalshi-brti'
+      ? 'Kalshi · CF BRTI'
+      : data.priceSource
+        ? data.priceSource.charAt(0).toUpperCase() + data.priceSource.slice(1) + ' · fallback'
+        : 'Unavailable';
     rawCandles = data.candles || [];
     rawVolume = data.volume || [];
     redrawChart(data);
@@ -1303,8 +1387,9 @@ export function dashboardPage(brandName) {
         lastOkAt = Date.now();
         document.getElementById('stale').style.visibility = 'hidden';
       } else {
-        document.getElementById('call').textContent = (data.reason || 'NO READ').toUpperCase();
+        document.getElementById('call').textContent = 'WAIT';
         document.getElementById('call').className = 'call none';
+        document.getElementById('reason').textContent = plainReason(data.reason);
       }
     } catch (e) {
       if (Date.now() - lastOkAt > 15000) document.getElementById('stale').style.visibility = 'visible';
