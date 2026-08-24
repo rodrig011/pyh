@@ -226,23 +226,43 @@ export function scalpDecision({ position = null, nowCents, signal, secondsLeft }
     return say(SCALP_ACTIONS.WAIT, 'too close to the bell for a round trip');
   }
 
-  if (!signal || signal.verdict === 'skip') return say(SCALP_ACTIONS.WAIT, 'no edge');
+  if (!signal) return say(SCALP_ACTIONS.WAIT, 'no edge');
 
-  // An edge is necessary but not sufficient: it has to be bigger than what the
-  // exchange takes for the trip. This single check is the difference between a
-  // scalping engine and an expensive random number generator.
+  // A "skip" from the engine means the edge did not clear ITS bar (six cents,
+  // built for a fifteen-minute swing trade). A scalper is not making that
+  // trade — it is taking a smaller, faster round trip, so it does not need
+  // that bar cleared. What it does need is a measurable edge and a model with
+  // an actual opinion, rather than one sitting on the fence at a coin flip.
+  const impliedEdgeCents =
+    Number.isFinite(signal.probability) && Number.isFinite(signal.marketProbability)
+      ? (signal.probability - signal.marketProbability) * 100
+      : null;
+
+  const hasOpinion = Number.isFinite(signal.probability) && (signal.probability >= 0.52 || signal.probability <= 0.48);
+
+  if (signal.verdict === 'skip' && (!hasOpinion || impliedEdgeCents === null || impliedEdgeCents === 0)) {
+    return say(SCALP_ACTIONS.WAIT, 'no edge');
+  }
+
+  const side = signal.verdict !== 'skip' ? signal.verdict : (signal.probability >= 0.5 ? 'up' : 'down');
+  const edgeCents = Number.isFinite(signal.edgeCents) ? signal.edgeCents : Math.abs(impliedEdgeCents);
+
+  // The round trip's true cost is still worth knowing — it is what separates a
+  // scalp from a coin flip that happens to look green — but a scalper is not
+  // waiting for a swing that pays for a fifteen-minute hold. Any positive edge
+  // is a trade; `needed` travels along for context, not as a gate.
   const needed = minimumProfitableMoveCents(nowCents, {
     feeRate: config.feeRate,
     marginCents: config.marginCents,
   });
-  if (needed === null || signal.edgeCents < needed) {
-    return say(SCALP_ACTIONS.WAIT, 'edge smaller than the round trip', { needed });
+  if (!(edgeCents > 0)) {
+    return say(SCALP_ACTIONS.WAIT, 'edge smaller than the round trip', { needed, edgeCents });
   }
 
   return say(SCALP_ACTIONS.ENTER, 'edge clears the round trip', {
-    side: signal.verdict,
+    side,
     needed,
-    edgeCents: signal.edgeCents,
+    edgeCents,
   });
 }
 
