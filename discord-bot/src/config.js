@@ -440,13 +440,15 @@ export function loadSignalConfig() {
     maximumFraction: Number.parseFloat(str('SIGNAL_MAX_FRACTION', '0.1')),
     engine: {
       minimumEdgeCents: int('SIGNAL_MIN_EDGE_CENTS', 6),
+      confirmedMinimumEdgeCents: int('SIGNAL_CONFIRMED_MIN_EDGE_CENTS', 4),
       minimumWorstCaseEdgeCents: int('SIGNAL_MIN_WORST_EDGE_CENTS', 2),
       maximumSpreadCents: int('SIGNAL_MAX_SPREAD_CENTS', 3),
       minimumLiquidityDollars: int('SIGNAL_MIN_LIQUIDITY', 25),
-      // A buy needs price value AND an aligned technical read. This defaults
-      // on for the real signal path; the pure engine keeps it configurable so
-      // historical measurements can compare the filter instead of assuming it.
-      requireChartConfirmation: bool('SIGNAL_REQUIRE_CHART_CONFIRMATION', true),
+      // Technical agreement improves an entry; a neutral chart is allowed and
+      // a strong contradiction is refused. The former hard gate produced no
+      // calls whenever indicators were quiet, which confused patience with
+      // prediction quality.
+      requireChartConfirmation: bool('SIGNAL_REQUIRE_CHART_CONFIRMATION', false),
       sampleSeconds: int('SIGNALS_SAMPLE_SECONDS', 30),
     },
   };

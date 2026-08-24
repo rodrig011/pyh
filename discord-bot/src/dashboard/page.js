@@ -1332,9 +1332,9 @@ export function dashboardPage(brandName) {
     document.getElementById('asset').textContent = data.asset + (data.ticker ? ' · ' + data.ticker : '');
     var callEl = document.getElementById('call');
     if (data.action === 'buy_up') {
-      callEl.textContent = '▲ UP'; callEl.className = 'call up';
+      callEl.textContent = '▲ BUY UP'; callEl.className = 'call up';
     } else if (data.action === 'buy_down') {
-      callEl.textContent = '▼ DOWN'; callEl.className = 'call down';
+      callEl.textContent = '▼ BUY DOWN'; callEl.className = 'call down';
     } else {
       callEl.textContent = 'STAY OUT'; callEl.className = 'call none';
     }

@@ -58,6 +58,20 @@ test('chart confirmation refuses an otherwise valuable buy until technical clues
   assert.equal(read.result.chart.lean, null);
 });
 
+test('aligned chart evidence can unlock a measured four-cent entry instead of freezing', () => {
+  const read = directionalRead(
+    market({
+      marketPriceCents: 54,
+      market: { yes_bid_dollars: '0.53', yes_ask_dollars: '0.55', liquidity_dollars: '1000' },
+    }),
+    { maximumTrendFit: 1 },
+  );
+  assert.equal(read.action, ACTIONS.BUY_UP);
+  assert.equal(read.result.chartAgreement, 'aligned');
+  assert.equal(read.result.requiredEdgeCents, 4);
+  assert.ok(read.result.edgeCents >= 4 && read.result.edgeCents < 6);
+});
+
 test('the model has an opinion on a market it would refuse to trade', () => {
   // The whole point. The engine skips when the edge is under six cents, which
   // is most of the time — and a skip was throwing away a perfectly good read.

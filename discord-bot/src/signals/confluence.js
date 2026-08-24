@@ -18,7 +18,10 @@ import { bollingerWidth, emaStack, macd, momentum, rsi, trendFit } from './indic
  * fifteen-minute clock runs.
  */
 
-const SQUEEZE_WIDTH_PERCENT = 0.5;
+// On a 30-second BTC tape, 0.5% labels ordinary ten-minute movement as a
+// squeeze and suppresses almost every lean. Reserve the label for a genuinely
+// compressed band; 0.10% is roughly $65 on BTC at $65k.
+const SQUEEZE_WIDTH_PERCENT = 0.1;
 
 export function confluenceRead({ prices, whales = null } = {}) {
   const reasons = [];

@@ -31,7 +31,7 @@ export const SKIP_REASONS = {
   no_chart_signal:
     'The chart does not have enough aligned evidence yet. The bot is waiting for at least two technical clues.',
   chart_disagrees:
-    'The chart points the other way. Price value and technical direction must agree before a buy.',
+    'Three or more technical clues point the other way. The bot will not fight strong chart evidence.',
 };
 
 export const DEFAULTS = {
@@ -46,6 +46,10 @@ export const DEFAULTS = {
   // times per 300 markets and lost 9% to fees, while at six it trades 27 times
   // and finishes flat. The edge it captures when there IS one is unchanged.
   minimumEdgeCents: 6,
+  // Technical agreement earns a slightly earlier entry, but never below the
+  // measured noise floor used before the hard chart gate existed. Neutral
+  // charts still need the full six cents.
+  confirmedMinimumEdgeCents: 4,
   // What the edge must still be if the volatility read is wrong in the
   // direction that hurts. A named number rather than a fraction of the one
   // above: how much of the edge may depend on the estimate being right is a
@@ -63,6 +67,7 @@ export const DEFAULTS = {
   // A cheap contract is not enough by itself. At least two independent chart
   // clues (EMA, MACD, RSI, trend or momentum) must resolve to the same side.
   requireChartConfirmation: false,
+  strongChartConflictScore: 3,
   feeRate: 0.07,
   sampleSeconds: 30,
   // Kalshi settles crypto contracts on a 60-second average of the CME CF
@@ -235,8 +240,17 @@ export function evaluate(input, options = {}) {
 
   // The gross edge of the side being taken, against the price it is taken at.
   const bestEdgeCents = best.cost.grossCents;
+  const chartAgrees = chart.lean === best.side;
+  const chartOpposes = chart.lean !== null && chart.lean !== best.side;
+  const strongChartConflict =
+    chartOpposes && Math.abs(chart.score) >= config.strongChartConflictScore;
+  const requiredEdgeCents = chartAgrees
+    ? Math.min(config.minimumEdgeCents, config.confirmedMinimumEdgeCents)
+    : config.minimumEdgeCents;
+  read.chartAgreement = chartAgrees ? 'aligned' : chartOpposes ? 'opposed' : 'neutral';
+  read.requiredEdgeCents = requiredEdgeCents;
 
-  if (bestEdgeCents < config.minimumEdgeCents) return skip('no_edge', read);
+  if (bestEdgeCents < requiredEdgeCents) return skip('no_edge', read);
   if (best.cost.netCents <= 0) return skip('fee_eats_it', read);
 
   // Read the chart before calling a buy. The probability/price model finds
@@ -247,7 +261,7 @@ export function evaluate(input, options = {}) {
     notes.push(`Chart score ${chart.score}: at least two aligned clues required`);
     return skip('no_chart_signal', read);
   }
-  if (config.requireChartConfirmation && chart.lean !== best.side) {
+  if ((config.requireChartConfirmation && chart.lean !== best.side) || strongChartConflict) {
     notes.push(`Chart leans ${chart.lean.toUpperCase()} while value points ${best.side.toUpperCase()}`);
     return skip('chart_disagrees', read);
   }
@@ -325,6 +339,8 @@ export function evaluate(input, options = {}) {
     book,
     flow,
     chart,
+    chartAgreement: read.chartAgreement,
+    requiredEdgeCents,
     context: {
       rsi: rsi(prices),
       momentumPercent: momentum(prices.slice(-20)),
