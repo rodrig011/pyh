@@ -15,7 +15,10 @@
  * pinned down against a live account rather than guessed at.
  */
 
-export const DEFAULT_API_BASE = 'https://api.elections.kalshi.com/trade-api/v2';
+// Kalshi's current production host. The old api.elections host still answers
+// some market routes but does not reliably expose newer feeds such as the CF
+// Benchmarks passthrough used for BRTI.
+export const DEFAULT_API_BASE = 'https://external-api.kalshi.com/trade-api/v2';
 
 /**
  * Prices come back in cents (0–100), which is also how the site shows them.

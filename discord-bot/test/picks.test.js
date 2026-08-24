@@ -1,5 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+
+// These command tests intentionally mock the historical public spot-price
+// fallback. Production BTC reads are Kalshi-BRTI-only by default; price.test.js
+// owns that policy and proves Coinbase is never queried there.
+process.env.BTC_ALLOW_EXCHANGE_FALLBACK = 'true';
 import {
   DIRECTIONS,
   OUTCOMES,

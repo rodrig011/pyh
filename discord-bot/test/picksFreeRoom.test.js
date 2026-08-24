@@ -179,9 +179,13 @@ test('cash out pressed in the free room closes only the free room\'s call, leavi
   // The exit price isn't asserted on here, only which call closed -- stubbed
   // so the test does not wait on a real network fetch to time out.
   const originalFetch = globalThis.fetch;
+  const originalFallback = process.env.BTC_ALLOW_EXCHANGE_FALLBACK;
+  process.env.BTC_ALLOW_EXCHANGE_FALLBACK = 'true';
   globalThis.fetch = async () => ({ ok: true, json: async () => ({ data: { amount: '60000' } }) });
   t.after(() => {
     globalThis.fetch = originalFetch;
+    if (originalFallback === undefined) delete process.env.BTC_ALLOW_EXCHANGE_FALLBACK;
+    else process.env.BTC_ALLOW_EXCHANGE_FALLBACK = originalFallback;
   });
 
   await handleCall(fakeCallInteraction({ client, channelId: VIP_CHANNEL, direction: 'up' }), { store, config });

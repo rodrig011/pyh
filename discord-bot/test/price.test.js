@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
 import {
   PRICE_SOURCES,
+  fetchBrtiPrice,
   fetchSpotPrice,
   formatChange,
   formatPrice,
@@ -35,6 +36,41 @@ test('BRTI parser accepts the documented wrapped value shapes', () => {
   assert.equal(readBrti({ data: { payload: { value: '68000.12' } } }), 68000.12);
   assert.equal(readBrti({ data: { payload: { values: { BRTI: { value: '68001.25' } } } } }), 68001.25);
   assert.equal(readBrti({ data: { payload: {} } }), null);
+});
+
+test('the legacy Kalshi host is upgraded for the BRTI passthrough', async () => {
+  const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 1024 });
+  let requested = null;
+  const result = await fetchBrtiPrice({
+    keyId: 'read-only-test',
+    privateKeyPem: privateKey.export({ type: 'pkcs8', format: 'pem' }),
+    apiBase: 'https://api.elections.kalshi.com/trade-api/v2',
+  }, {
+    fetchImpl: async (url) => {
+      requested = url;
+      return { ok: true, json: async () => ({ data: { payload: { value: '68111.22' } } }) };
+    },
+  });
+  assert.match(requested, /^https:\/\/external-api\.kalshi\.com/);
+  assert.equal(result.source, 'kalshi-brti');
+});
+
+test('BTC stays out instead of silently switching from Kalshi to Coinbase', async () => {
+  const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 1024 });
+  let calls = 0;
+  const result = await fetchSpotPrice('BTC', {
+    kalshiCredentials: {
+      keyId: 'read-only-test',
+      privateKeyPem: privateKey.export({ type: 'pkcs8', format: 'pem' }),
+    },
+    fetchImpl: async () => {
+      calls += 1;
+      return { ok: false, status: 403, text: async () => 'not entitled' };
+    },
+  });
+  assert.equal(result.price, null);
+  assert.equal(result.source, 'kalshi-brti');
+  assert.equal(calls, 1, 'Coinbase and other exchanges were never queried');
 });
 
 // The exchange response shapes, pinned. These are what the parser is written
@@ -81,7 +117,7 @@ test('the first working source wins', async () => {
     return { ok: true, json: async () => BODIES.kraken };
   };
 
-  const result = await fetchSpotPrice('BTC', { fetchImpl });
+  const result = await fetchSpotPrice('BTC', { fetchImpl, allowExchangeFallback: true });
   assert.equal(result.source, 'kraken');
   assert.equal(result.price, 97213.45);
   assert.match(result.problems[0], /coinbase/);
@@ -92,7 +128,7 @@ test('every source failing returns null rather than throwing', async () => {
     throw new Error('no network');
   };
 
-  const result = await fetchSpotPrice('BTC', { fetchImpl });
+  const result = await fetchSpotPrice('BTC', { fetchImpl, allowExchangeFallback: true });
   assert.equal(result.price, null);
   assert.equal(result.problems.length, PRICE_SOURCES.length, 'each failure is reported');
 });
@@ -106,7 +142,7 @@ test('an HTTP error is reported and moves on to the next source', async () => {
       : { ok: true, json: async () => BODIES.kraken };
   };
 
-  const result = await fetchSpotPrice('BTC', { fetchImpl });
+  const result = await fetchSpotPrice('BTC', { fetchImpl, allowExchangeFallback: true });
   assert.equal(result.price, 97213.45);
   assert.match(result.problems[0], /429/);
 });

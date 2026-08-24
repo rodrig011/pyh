@@ -200,7 +200,13 @@ export async function computeRead(
 
   const contract = nearestTheMoneyContract(board?.contracts);
   if (!contract) return { ok: false, reason: 'No readable market on the board right now' };
-  if (!(quote?.price > 0)) return { ok: false, reason: `No live ${asset} price right now` };
+  if (!(quote?.price > 0)) {
+    return {
+      ok: false,
+      reason: quote?.error ?? `No live ${asset} price right now`,
+      priceSource: quote?.source ?? (asset === 'BTC' ? 'kalshi-brti' : null),
+    };
+  }
 
   const market = contract.market ?? {};
   const strike = Number.isFinite(Number(market.floor_strike))

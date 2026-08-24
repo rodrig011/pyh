@@ -714,6 +714,14 @@ export function dashboardPage(brandName) {
     return waiting.filter ? 'Blocked by filter: ' + plainReason(waiting.filter) : '';
   }
 
+  function paintSource(source, available) {
+    document.getElementById('sourceName').textContent = source === 'kalshi-brti'
+      ? available === false ? 'Kalshi · CF BRTI unavailable' : 'Kalshi · CF BRTI'
+      : source
+        ? source.charAt(0).toUpperCase() + source.slice(1) + ' · fallback'
+        : 'Unavailable';
+  }
+
   // ---- Charting (TradingView Lightweight Charts) ----
 
   function initCharts() {
@@ -1367,11 +1375,7 @@ export function dashboardPage(brandName) {
     }
 
     document.getElementById('reason').textContent = [plainReason(data.reason), waitingText(data.waitingFor)].filter(Boolean).join(' ');
-    document.getElementById('sourceName').textContent = data.priceSource === 'kalshi-brti'
-      ? 'Kalshi · CF BRTI'
-      : data.priceSource
-        ? data.priceSource.charAt(0).toUpperCase() + data.priceSource.slice(1) + ' · fallback'
-        : 'Unavailable';
+    paintSource(data.priceSource, true);
     rawCandles = data.candles || [];
     rawVolume = data.volume || [];
     redrawChart(data);
@@ -1405,6 +1409,7 @@ export function dashboardPage(brandName) {
         lastOkAt = Date.now();
         document.getElementById('stale').style.visibility = 'hidden';
       } else {
+        paintSource(data.priceSource, false);
         document.getElementById('call').textContent = 'STAY OUT';
         document.getElementById('call').className = 'call none';
         document.getElementById('reason').textContent = plainReason(data.reason);

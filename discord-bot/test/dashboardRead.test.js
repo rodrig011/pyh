@@ -74,6 +74,7 @@ test('reports no price rather than crashing when the feed is down', async () => 
   });
   assert.equal(result.ok, false);
   assert.match(result.reason, /No live BTC price/);
+  assert.equal(result.priceSource, 'kalshi-brti');
 });
 
 test('a real read carries a call, a confidence and the clock', async () => {

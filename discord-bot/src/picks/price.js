@@ -1,3 +1,4 @@
+import { DEFAULT_API_BASE } from './kalshi.js';
 import { readAccount } from './kalshiAccount.js';
 
 /**
@@ -91,10 +92,17 @@ function environmentKalshiCredentials() {
   return { keyId, privateKeyPem, apiBase: process.env.KALSHI_API_BASE?.trim() || undefined };
 }
 
+function officialKalshiCredentials(credentials) {
+  if (!credentials) return null;
+  const configured = credentials.apiBase?.trim();
+  const legacy = configured && new URL(configured).hostname === 'api.elections.kalshi.com';
+  return { ...credentials, apiBase: !configured || legacy ? DEFAULT_API_BASE : configured };
+}
+
 /** Official index Kalshi uses for KXBTC15M settlement. Read-only by construction. */
 export async function fetchBrtiPrice(credentials, options = {}) {
   if (!credentials) return { price: null, source: null, error: 'no Kalshi credentials configured' };
-  const result = await readAccount(credentials, '/cfbenchmarks/values?id=BRTI', options);
+  const result = await readAccount(officialKalshiCredentials(credentials), '/cfbenchmarks/values?id=BRTI', options);
   if (result.error) return { price: null, source: null, error: result.error };
   const price = readBrti(result.body);
   return price > 0
@@ -121,6 +129,7 @@ export async function fetchSpotPrice(
     timeoutMs = 5000,
     fetchImpl = globalThis.fetch,
     kalshiCredentials = environmentKalshiCredentials(),
+    allowExchangeFallback = process.env.BTC_ALLOW_EXCHANGE_FALLBACK?.trim().toLowerCase() === 'true',
   } = {},
 ) {
   const symbol = asset.toUpperCase();
@@ -133,6 +142,16 @@ export async function fetchSpotPrice(
     const brti = await fetchBrtiPrice(kalshiCredentials, { fetchImpl, timeoutMs });
     if (brti.price > 0) return brti;
     problems.push(`kalshi-brti: ${brti.error ?? 'unavailable'}`);
+  }
+
+  // BTC calls settle against BRTI. A live Coinbase number can look healthy
+  // while disagreeing by enough dollars to flip a close market, so the safe
+  // default is no BTC prediction rather than silently changing the ruler.
+  if (symbol === 'BTC' && !allowExchangeFallback) {
+    const error = kalshiCredentials
+      ? problems[0]
+      : 'kalshi-brti: no Kalshi credentials configured';
+    return { price: null, source: 'kalshi-brti', error, at: Date.now(), problems: [error] };
   }
 
   for (const source of sources) {
