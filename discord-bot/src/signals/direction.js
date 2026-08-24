@@ -35,6 +35,12 @@ export const CONFIDENCE = {
   NONE: 'none',
 };
 
+export const ACTIONS = {
+  BUY_UP: 'buy_up',
+  BUY_DOWN: 'buy_down',
+  STAY_OUT: 'stay_out',
+};
+
 /**
  * How far from a coin flip the model actually is, named rather than numbered.
  *
@@ -161,11 +167,13 @@ export function directionalRead(input, options = {}) {
 
   if (!Number.isFinite(probability)) {
     return {
+      action: ACTIONS.STAY_OUT,
       call: null,
       confidence: CONFIDENCE.NONE,
       // The genuine "I do not know": no history, no price, market already shut.
       reason: result.explain ?? result.reason ?? 'no read',
       tradeable: false,
+      stayOut: true,
       result,
     };
   }
@@ -217,7 +225,17 @@ export function directionalRead(input, options = {}) {
   // nothing downstream can mistake a lean for a recommendation.
   const tradeable = result.verdict !== VERDICTS.SKIP;
 
+  // This is the only field a consumer should treat as an instruction. `call`
+  // remains the model's directional/value read for analysis and measurement,
+  // but a rejected market must never leak that lean as if it were a buy.
+  const action = tradeable
+    ? result.verdict === VERDICTS.UP
+      ? ACTIONS.BUY_UP
+      : ACTIONS.BUY_DOWN
+    : ACTIONS.STAY_OUT;
+
   return {
+    action,
     // The side worth owning at what it costs. This is the actionable one.
     call,
     // The side more likely to happen. Informative only.
@@ -271,6 +289,7 @@ export function directionalRead(input, options = {}) {
       marketWinProbability === null ? null : (winProbability - marketWinProbability) * 100,
     // Kept separate on purpose. A read is not a trade.
     tradeable,
+    stayOut: !tradeable,
     whyNotTradeable: tradeable ? null : (result.explain ?? result.reason ?? null),
     entryCents: Number.isFinite(entryCents) ? entryCents : null,
     netEdgeCents: result.cost?.netCents ?? null,

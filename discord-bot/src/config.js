@@ -443,6 +443,10 @@ export function loadSignalConfig() {
       minimumWorstCaseEdgeCents: int('SIGNAL_MIN_WORST_EDGE_CENTS', 2),
       maximumSpreadCents: int('SIGNAL_MAX_SPREAD_CENTS', 3),
       minimumLiquidityDollars: int('SIGNAL_MIN_LIQUIDITY', 25),
+      // A buy needs price value AND an aligned technical read. This defaults
+      // on for the real signal path; the pure engine keeps it configurable so
+      // historical measurements can compare the filter instead of assuming it.
+      requireChartConfirmation: bool('SIGNAL_REQUIRE_CHART_CONFIRMATION', true),
       sampleSeconds: int('SIGNALS_SAMPLE_SECONDS', 30),
     },
   };

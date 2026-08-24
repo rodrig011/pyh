@@ -4,6 +4,7 @@ import { effectiveSecondsLeft } from './settlement.js';
 import { volatilityEstimate } from './volatility.js';
 import { flipProbability } from './exit.js';
 import { bookQuality, distanceInSigma, largePrints, momentum, rsi, trendFit } from './indicators.js';
+import { confluenceRead } from './confluence.js';
 
 export const VERDICTS = { UP: 'up', DOWN: 'down', SKIP: 'skip' };
 
@@ -27,6 +28,10 @@ export const SKIP_REASONS = {
   trending: 'The move is too clean for a random-walk read — the model is least reliable here.',
   vol_uncertain:
     'The edge only exists if the volatility read is exactly right. Too thin to bet on being lucky.',
+  no_chart_signal:
+    'The chart does not have enough aligned evidence yet. The bot is waiting for at least two technical clues.',
+  chart_disagrees:
+    'The chart points the other way. Price value and technical direction must agree before a buy.',
 };
 
 export const DEFAULTS = {
@@ -55,6 +60,9 @@ export const DEFAULTS = {
   // R² above this and the market is trending hard enough that a random-walk
   // probability is the wrong model.
   maximumTrendFit: 0.85,
+  // A cheap contract is not enough by itself. At least two independent chart
+  // clues (EMA, MACD, RSI, trend or momentum) must resolve to the same side.
+  requireChartConfirmation: false,
   feeRate: 0.07,
   sampleSeconds: 30,
   // Kalshi settles crypto contracts on a 60-second average of the CME CF
@@ -198,7 +206,8 @@ export function evaluate(input, options = {}) {
   // market the engine declines to trade, which is why the executable prices
   // travel with it. Handing a refusal the mid instead sends the same
   // half-spread error down a second path.
-  const read = { probability, marketProbability, sigma, volatility: vol, quotes };
+  const chart = confluenceRead({ prices });
+  const read = { probability, marketProbability, sigma, volatility: vol, quotes, chart };
 
   const trend = trendFit(prices.slice(-20));
   if (trend && trend.r2 > config.maximumTrendFit) {
@@ -229,6 +238,19 @@ export function evaluate(input, options = {}) {
 
   if (bestEdgeCents < config.minimumEdgeCents) return skip('no_edge', read);
   if (best.cost.netCents <= 0) return skip('fee_eats_it', read);
+
+  // Read the chart before calling a buy. The probability/price model finds
+  // value; this independent layer answers whether price action is actually
+  // providing a clue now. Silence or disagreement means stay out, never an
+  // unconfirmed arrow.
+  if (config.requireChartConfirmation && !chart.lean) {
+    notes.push(`Chart score ${chart.score}: at least two aligned clues required`);
+    return skip('no_chart_signal', read);
+  }
+  if (config.requireChartConfirmation && chart.lean !== best.side) {
+    notes.push(`Chart leans ${chart.lean.toUpperCase()} while value points ${best.side.toUpperCase()}`);
+    return skip('chart_disagrees', read);
+  }
 
   // Kept for the parts of the signal that still talk in expected value.
   best.value = expectedValue(
@@ -302,6 +324,7 @@ export function evaluate(input, options = {}) {
     secondsLeft,
     book,
     flow,
+    chart,
     context: {
       rsi: rsi(prices),
       momentumPercent: momentum(prices.slice(-20)),

@@ -306,13 +306,20 @@ export async function sweepPaper(client, store, config, deps = {}) {
     const profiles = (paper.profiles ?? ['careful', 'scalp', 'always']).filter((p) => allowed.has(p));
     let changed = false;
     for (const profile of profiles) {
-      if (accounts[profile]) continue;
-      accounts[profile] = {
-        ...newAccount({ bankroll: paper.bankroll > 0 ? paper.bankroll : 100, profile, at: now }),
-        background: true,
-        userId: paper.reportUserId ?? null,
-      };
-      changed = true;
+      if (!accounts[profile]) {
+        accounts[profile] = {
+          ...newAccount({ bankroll: paper.bankroll > 0 ? paper.bankroll : 100, profile, at: now }),
+          background: true,
+          userId: paper.reportUserId ?? null,
+        };
+        changed = true;
+      } else if (!accounts[profile].background) {
+        // Auto-start is a standing instruction, not a one-time boot action.
+        // A configured profile remains active across restarts and older saved
+        // accounts are upgraded in place without resetting bankroll/history.
+        accounts[profile] = { ...accounts[profile], background: true };
+        changed = true;
+      }
     }
     if (changed) store.putPaperAccounts(accounts);
   }

@@ -169,7 +169,7 @@ export async function enterManualPosition(store, config, side, { openBoard, fetc
     marketPriceCents: contract.price,
     market,
     secondsLeft,
-  });
+  }, settings.engine ?? {});
 
   const entry = manualEntry(side, { ticker: market.ticker, strike, quotes: read.result?.quotes, now });
   if (!entry) return { ok: false, reason: 'Could not price that side right now' };
@@ -309,9 +309,9 @@ export async function computeRead(
     session: sessionOf(now),
   };
 
-  // A second, independent read on the same tape — see confluence.js. Never
-  // fed into `read` above; kept separate so the two can be checked against
-  // each other. Settled lazily, here, the same way /picks edge settles
+  // The chart read on the same tape — see confluence.js. When chart
+  // confirmation is enabled it gates a buy; it remains visible separately so
+  // agreement and refusals can be measured. Settled lazily, here, the same way /picks edge settles
   // recorder.js's quotes: only when somebody is actually looking, rather than
   // adding a write to the collector loop that runs whether or not anyone is.
   const confluence = confluenceRead({ prices, whales });
@@ -427,7 +427,20 @@ export async function computeRead(
     strike,
     spot: quote.price,
     secondsLeft,
+    action: read.action,
     call: read.call,
+    leaning: read.leaning ?? null,
+    stayOut: read.stayOut,
+    waitingFor: read.tradeable
+      ? null
+      : read.triggers
+        ? {
+            type: 'price',
+            upAtCents: read.triggers.upAt,
+            downAtCents: read.triggers.downAt,
+            downAtYesPriceCents: read.triggers.downAtYesPrice,
+          }
+        : { type: 'filter', filter: read.blockedBy ?? read.result?.reason ?? null },
     tradeable: read.tradeable,
     confidence: read.confidence,
     likelihood: read.likelihood,

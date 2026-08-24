@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CONFIDENCE, confidenceOf, directionalRead, readRecord } from '../src/signals/direction.js';
+import { ACTIONS, CONFIDENCE, confidenceOf, directionalRead, readRecord } from '../src/signals/direction.js';
 import { VERDICTS } from '../src/signals/engine.js';
 
 // A read on every market, not only the one in ten worth paying to trade.
@@ -31,6 +31,31 @@ const market = (over = {}) => ({
   market: { yes_bid_dollars: '0.54', yes_ask_dollars: '0.56', liquidity_dollars: '1000' },
   secondsLeft: 400,
   ...over,
+});
+
+test('the actionable result is STAY OUT when a directional read fails a filter', () => {
+  const read = directionalRead(market({ marketPriceCents: 50 }));
+  assert.equal(read.tradeable, false);
+  assert.equal(read.action, ACTIONS.STAY_OUT);
+  assert.equal(read.stayOut, true);
+  assert.ok(read.call === 'up' || read.call === 'down', 'analysis remains measurable, but is not a buy');
+});
+
+test('chart confirmation refuses an otherwise valuable buy until technical clues align', () => {
+  const flat = Array.from({ length: 120 }, (_, i) => 65_000 + Math.sin(i) * 2);
+  const read = directionalRead(
+    market({
+      prices: flat,
+      spot: 65_000,
+      strike: 65_000,
+      marketPriceCents: 35,
+      market: { yes_bid_dollars: '0.34', yes_ask_dollars: '0.36', liquidity_dollars: '1000' },
+    }),
+    { requireChartConfirmation: true, maximumTrendFit: 1 },
+  );
+  assert.equal(read.action, ACTIONS.STAY_OUT);
+  assert.equal(read.result.reason, 'no_chart_signal');
+  assert.equal(read.result.chart.lean, null);
 });
 
 test('the model has an opinion on a market it would refuse to trade', () => {

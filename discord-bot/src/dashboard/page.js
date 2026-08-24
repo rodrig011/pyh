@@ -691,9 +691,22 @@ export function dashboardPage(brandName) {
       no_price: 'A reliable live price is temporarily unavailable.',
       no_history: 'More price history is needed before the bot can measure risk.',
       low_liquidity: 'There is not enough money available in this market.',
+      no_chart_signal: 'The chart has not produced at least two aligned technical clues yet.',
+      chart_disagrees: 'The chart points the other way, so the bot is staying out.',
     };
     var key = String(reason).toLowerCase().replace(/\s+/g, '_');
     return exact[key] || String(reason).replace(/_/g, ' ');
+  }
+
+  function waitingText(waiting) {
+    if (!waiting) return '';
+    if (waiting.type === 'price') {
+      var parts = [];
+      if (Number.isFinite(waiting.upAtCents)) parts.push('UP at ' + Math.round(waiting.upAtCents) + '¢ or less');
+      if (Number.isFinite(waiting.downAtCents)) parts.push('DOWN at ' + Math.round(waiting.downAtCents) + '¢ or less');
+      return parts.length ? 'Waiting for a better price: ' + parts.join(' · ') : 'Waiting for a better entry price.';
+    }
+    return waiting.filter ? 'Blocked by filter: ' + plainReason(waiting.filter) : '';
   }
 
   // ---- Charting (TradingView Lightweight Charts) ----
@@ -1318,12 +1331,12 @@ export function dashboardPage(brandName) {
     paintTrackRecord(data.trackRecord);
     document.getElementById('asset').textContent = data.asset + (data.ticker ? ' · ' + data.ticker : '');
     var callEl = document.getElementById('call');
-    if (data.call === 'up') {
+    if (data.action === 'buy_up') {
       callEl.textContent = '▲ UP'; callEl.className = 'call up';
-    } else if (data.call === 'down') {
+    } else if (data.action === 'buy_down') {
       callEl.textContent = '▼ DOWN'; callEl.className = 'call down';
     } else {
-      callEl.textContent = 'WAIT'; callEl.className = 'call none';
+      callEl.textContent = 'STAY OUT'; callEl.className = 'call none';
     }
 
     document.getElementById('sub').textContent = data.tradeable
@@ -1348,7 +1361,7 @@ export function dashboardPage(brandName) {
       whaleEl.className = 'whale';
     }
 
-    document.getElementById('reason').textContent = plainReason(data.reason);
+    document.getElementById('reason').textContent = [plainReason(data.reason), waitingText(data.waitingFor)].filter(Boolean).join(' ');
     document.getElementById('sourceName').textContent = data.priceSource === 'kalshi-brti'
       ? 'Kalshi · CF BRTI'
       : data.priceSource
@@ -1387,7 +1400,7 @@ export function dashboardPage(brandName) {
         lastOkAt = Date.now();
         document.getElementById('stale').style.visibility = 'hidden';
       } else {
-        document.getElementById('call').textContent = 'WAIT';
+        document.getElementById('call').textContent = 'STAY OUT';
         document.getElementById('call').className = 'call none';
         document.getElementById('reason').textContent = plainReason(data.reason);
       }

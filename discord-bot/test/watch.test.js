@@ -397,6 +397,24 @@ test('with no account registered the sweep does nothing at all', async () => {
   assert.equal(result.ran, false);
 });
 
+test('auto-start keeps configured paper profiles active without resetting their history', async () => {
+  const old = { ...newAccount({ profile: 'careful' }), cash: 83, seen: 41, background: false };
+  const store = paperStore(old);
+  const config = {
+    ...paperConfig,
+    paper: { autoStart: true, profiles: ['careful'], bankroll: 100 },
+  };
+
+  await sweepPaper(noClient, store, config, {
+    openBoard: async () => ({ contracts: [] }),
+    fetchSpotPrice: async () => ({ price: 65_000, source: 'kalshi-brti' }),
+  });
+
+  assert.equal(store.current.background, true);
+  assert.equal(store.current.cash, 83, 'existing bankroll is preserved');
+  assert.equal(store.current.seen, 41, 'existing history is preserved');
+});
+
 test('an empty board is not treated as a market worth refusing', async () => {
   // Counting a feed outage as "refused 12 markets" would poison the census
   // that the report now leans on to say whether the engine is working.
