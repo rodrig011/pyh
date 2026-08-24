@@ -82,7 +82,12 @@ test('nothing outside the read-only list is ever signed', async () => {
     assert.match(result.error, /refusing to sign/);
   }
 
-  assert.deepEqual(READABLE_PATHS, ['/portfolio/fills', '/portfolio/positions', '/portfolio/balance']);
+  assert.deepEqual(READABLE_PATHS, [
+    '/portfolio/fills',
+    '/portfolio/positions',
+    '/portfolio/balance',
+    '/cfbenchmarks/values',
+  ]);
 });
 
 test('no credentials means no request, not a broken one', async () => {

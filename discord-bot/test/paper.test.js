@@ -110,6 +110,33 @@ test('a settled loser pays nothing at all', () => {
   assert.ok(account.trades[0].profit < 0);
 });
 
+test('settlement uses one BRTI final-minute window and records its source', () => {
+  const closesAt = 120_000;
+  const held = {
+    ...newAccount(),
+    cash: 60,
+    position: {
+      ticker: 'T1', strike: 65_000, side: 'up', entryCents: 51,
+      contracts: 10, cost: 5.3, entryFee: 0.2, openedAt: 1_000, closesAt,
+    },
+  };
+  const { event } = paperTick(held, market({
+    secondsLeft: 0,
+    spot: 60_000,
+    spotSource: 'kalshi-brti',
+    spotSamples: [
+      { at: 70_000, price: 65_100, source: 'kalshi-brti' },
+      { at: 100_000, price: 99_999, source: 'coinbase' },
+      { at: 110_000, price: 65_300, source: 'kalshi-brti' },
+    ],
+  }), { now: 130_000 });
+  assert.equal(event.trade.settlementPrice, 65_200);
+  assert.equal(event.trade.settlementSource, 'kalshi-brti:final-60s-average');
+  assert.equal(event.trade.exitCents, 100, 'the Coinbase sample and fallback spot were not mixed in');
+  assert.equal(event.trade.fees, 0.2);
+  assert.equal(event.trade.durationMs, 129_000, 'duration is recorded');
+});
+
 test('a contract is counted once, when it expires — not once per sweep', () => {
   // The bug this pins, reported from six hours of live running: "it says 2100
   // markets, that's impossible". It was. The sweep fires every ten seconds, so

@@ -299,8 +299,24 @@ export async function sweepPaper(client, store, config, deps = {}) {
   const settings = config.picks ?? {};
   if (!settings.kalshi?.enabled || !settings.kalshi.seriesTicker) return { ran: false };
 
-  const accounts = store.paperAccounts();
-  const running = Object.entries(accounts).filter(([, account]) => account?.userId);
+  let accounts = store.paperAccounts();
+  const paper = config.paper ?? {};
+  if (paper.autoStart === true) {
+    const allowed = new Set(Object.keys(PROFILES));
+    const profiles = (paper.profiles ?? ['careful', 'scalp', 'always']).filter((p) => allowed.has(p));
+    let changed = false;
+    for (const profile of profiles) {
+      if (accounts[profile]) continue;
+      accounts[profile] = {
+        ...newAccount({ bankroll: paper.bankroll > 0 ? paper.bankroll : 100, profile, at: now }),
+        background: true,
+        userId: paper.reportUserId ?? null,
+      };
+      changed = true;
+    }
+    if (changed) store.putPaperAccounts(accounts);
+  }
+  const running = Object.entries(accounts).filter(([, account]) => account?.userId || account?.background);
   if (running.length === 0) return { ran: false };
 
   // One epoch per account, captured before the network call. A reset landing
@@ -324,12 +340,18 @@ export async function sweepPaper(client, store, config, deps = {}) {
 
     const first = candidates[0].market;
     const closesAt = closeTimeOf(first);
+    // A settlement window is one source or the other, never an average made
+    // from BRTI plus exchange fallbacks. Prefer samples from the source of the
+    // current quote; if there are none, the current quote alone is the honest
+    // fallback and is labelled on the resulting trade.
     const context = {
       prices: store
         .listSamples(asset)
-        .filter((s) => s?.at >= now - 60 * 60 * 1000 && s?.price > 0)
+        .filter((s) => s?.at >= now - 60 * 60 * 1000 && s?.price > 0 && s?.source === quote.source)
         .map((s) => s.price),
       spot: quote.price,
+      spotSource: quote.source,
+      spotSamples: store.listSamples(asset),
       secondsLeft: Number.isFinite(closesAt) ? (closesAt - now) / 1000 : null,
     };
 
@@ -341,11 +363,11 @@ export async function sweepPaper(client, store, config, deps = {}) {
 
     for (const [profile] of running) {
       const current = latest[profile];
-      if (!current?.userId || (current.epoch ?? null) !== epochs[profile]) {
+      if ((!current?.userId && !current?.background) || (current.epoch ?? null) !== epochs[profile]) {
         log.debug(`Paper account ${profile} changed mid-sweep; dropping this tick`);
         continue;
       }
-      userId = userId ?? current.userId;
+      userId = userId ?? current.userId ?? paper.reportUserId ?? null;
       const result = paperTick(current, context, { now, candidates });
       stepped[profile] = result.account;
       if (result.event) events.push(`${profile}:${result.event.kind}`);

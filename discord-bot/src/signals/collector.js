@@ -85,7 +85,7 @@ export async function collectOnce(store, { fetchPrice, asset = 'BTC', now = Date
     if (after === before) return { added: false, reason: 'stale or out-of-order tick' };
 
     store.putSamples(asset, after);
-    return { added: true, price, samples: after.length };
+    return { added: true, price, source: quote.source ?? null, samples: after.length };
   } catch (error) {
     return { added: false, reason: error.message };
   }

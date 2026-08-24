@@ -4,6 +4,7 @@ import { readBoard, boardIsUnreadable, brokenDiagnosis, censusLine } from '../si
 import { recommendSize } from '../signals/sizing.js';
 import { feePerContract } from '../signals/math.js';
 import { leastBadCandidate } from './forceTrade.js';
+import { closeTimeOf } from './kalshi.js';
 
 /**
  * The engine trading the real market with imaginary money.
@@ -235,9 +236,31 @@ function holdTick(account, position, input, { now, candidates }) {
   // settlement costs no fee at all.
   const expired = !(input?.secondsLeft > 0) || (candidates && !mine);
   if (expired) {
-    const won = position.side === 'up' ? input.spot > strike : input.spot <= strike;
+    const settlementWindow = Number.isFinite(position.closesAt)
+      ? (input.spotSamples ?? []).filter(
+          (sample) => sample?.source === input.spotSource && sample.at > position.closesAt - 60_000 && sample.at <= position.closesAt,
+        )
+      : [];
+    const settlementPrice = settlementWindow.length > 0
+      ? settlementWindow.reduce((sum, sample) => sum + sample.price, 0) / settlementWindow.length
+      : input.spot;
+    const settlementSource = settlementWindow.length > 0
+      ? `${input.spotSource}:final-60s-average`
+      : `${input.spotSource ?? 'unknown'}:fallback-current`;
+    const won = position.side === 'up' ? settlementPrice > strike : settlementPrice <= strike;
     const proceeds = won ? position.contracts * 1 : 0;
-    const closed = { ...position, exitCents: won ? 100 : 0, proceeds, reason: 'settled', at: now };
+    const closed = {
+      ...position,
+      exitCents: won ? 100 : 0,
+      proceeds,
+      exitFee: 0,
+      fees: position.entryFee ?? 0,
+      reason: 'settled',
+      at: now,
+      durationMs: now - position.openedAt,
+      settlementPrice,
+      settlementSource,
+    };
     return { account: bookTrade(account, closed), event: { kind: 'settled', trade: closed } };
   }
 
@@ -249,10 +272,15 @@ function holdTick(account, position, input, { now, candidates }) {
   // What the held side could be SOLD for: its own bid. A DOWN position is sold
   // at the NO bid, which is a hundred minus the YES ask.
   const heldBid = position.side === 'up' ? quotes.yesBidCents : quotes.noBidCents;
+  const observed = {
+    ...position,
+    bestCents: Math.max(position.bestCents ?? position.entryCents, heldBid),
+    worstCents: Math.min(position.worstCents ?? position.entryCents, heldBid),
+  };
 
   const call = scalpDecision(
     {
-      position: { entryCents: position.entryCents, side: position.side },
+      position: { entryCents: observed.entryCents, side: observed.side },
       nowCents: heldBid,
       signal: read.result,
       secondsLeft: input.secondsLeft,
@@ -262,19 +290,22 @@ function holdTick(account, position, input, { now, candidates }) {
 
   if (call.action === SCALP_ACTIONS.EXIT && heldBid > 0) {
     // Selling pays a fee on the way out too.
-    const gross = position.contracts * (heldBid / 100);
-    const fee = position.contracts * feePerContract(heldBid / 100);
+    const gross = observed.contracts * (heldBid / 100);
+    const fee = observed.contracts * feePerContract(heldBid / 100);
     const closed = {
-      ...position,
+      ...observed,
       exitCents: heldBid,
       proceeds: gross - fee,
+      exitFee: fee,
+      fees: (observed.entryFee ?? 0) + fee,
       reason: call.reason,
       at: now,
+      durationMs: now - observed.openedAt,
     };
     return { account: bookTrade(account, closed), event: { kind: 'exit', trade: closed } };
   }
 
-  return { account, event: null };
+  return { account: { ...account, position: observed }, event: null };
 }
 
 /**
@@ -400,11 +431,15 @@ function enterTick(account, entry, { now, ticker, sizing, forced = false }) {
     // single market, "whatever the feed lists" is a different strike almost
     // every tick.
     strike: entry.strike,
+    closesAt: closeTimeOf(entry.market),
     side: read.call,
     entryCents: read.entryCents,
     contracts,
     cost: cost + fee,
+    entryFee: fee,
     openedAt: now,
+    bestCents: read.entryCents,
+    worstCents: read.entryCents,
     modelProbability: read.winProbability,
     // Whether the edge gate actually cleared, or this window was taken
     // anyway to measure it. The report reads this so "always" mode's record

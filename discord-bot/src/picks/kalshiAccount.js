@@ -15,7 +15,14 @@ import { DEFAULT_API_BASE, isPriceCents } from './kalshi.js';
  * — whoever holds it can trade the account, which is why it lives in the
  * host's environment and never in this repository.
  */
-export const READABLE_PATHS = ['/portfolio/fills', '/portfolio/positions', '/portfolio/balance'];
+export const READABLE_PATHS = [
+  '/portfolio/fills',
+  '/portfolio/positions',
+  '/portfolio/balance',
+  // Official CF Benchmarks passthrough. GET-only and incapable of placing,
+  // changing or cancelling an order.
+  '/cfbenchmarks/values',
+];
 
 /**
  * Kalshi authenticates each request with an RSA-PSS signature over

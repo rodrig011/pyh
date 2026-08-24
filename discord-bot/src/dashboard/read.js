@@ -23,7 +23,7 @@ import { patternWinRates, settlePatternRecords } from '../signals/patternLog.js'
 import { roundHistorySummary, settleRoundSnapshots } from '../signals/roundSnapshot.js';
 import { measureEdge } from '../signals/measure.js';
 import { settleObservations } from '../signals/recorder.js';
-import { PROFILES } from '../picks/paper.js';
+import { PROFILES, equity } from '../picks/paper.js';
 import { dayKey, riskSummary } from '../picks/riskLimits.js';
 import { buildCandles, buildVolume, rsiSeries } from './candles.js';
 
@@ -112,6 +112,25 @@ export function tradeRecord(orders) {
     total: settled.length,
     winRate: wins + losses > 0 ? wins / (wins + losses) : null,
   };
+}
+
+/** Compact, read-only paper metrics for the three controlled profiles. */
+export function paperSummary(accounts, marks = {}) {
+  return Object.entries(accounts ?? {}).map(([profile, account]) => {
+    const value = equity(account, marks[profile] ?? null);
+    const closed = account.trades ?? [];
+    const wins = closed.filter((trade) => trade.profit > 0).length;
+    const losses = closed.filter((trade) => trade.profit < 0).length;
+    return {
+      profile,
+      bankroll: value,
+      returnPercent: account.start > 0 ? ((value - account.start) / account.start) * 100 : null,
+      wins,
+      losses,
+      trades: closed.length,
+      openPositions: account.position ? 1 : 0,
+    };
+  });
 }
 
 /**
@@ -363,6 +382,15 @@ export async function computeRead(
   const position = positionAction(held, board, { now, spot: quote.price, prices });
 
   const record = tradeRecord(store.listTradeOrders?.() ?? []);
+  const paperAccounts = store.paperAccounts?.() ?? {};
+  const paperMarks = {};
+  for (const [profile, account] of Object.entries(paperAccounts)) {
+    if (!account?.position) continue;
+    paperMarks[profile] = (board?.contracts ?? []).find(
+      (candidate) => candidate?.market?.ticker === account.position.ticker,
+    )?.price ?? null;
+  }
+  const paperTrading = paperSummary(paperAccounts, paperMarks);
 
   // Read-only. Whether real money is armed is decided in Discord — see
   // riskLimits.js's own docstring on why arming is deliberately not
@@ -391,6 +419,7 @@ export async function computeRead(
     ok: true,
     position,
     record,
+    paperTrading,
     indicators,
     asset,
     ticker: market.ticker ?? null,

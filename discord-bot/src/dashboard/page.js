@@ -580,6 +580,10 @@ export function dashboardPage(brandName) {
         <div class="section-head"><span class="section-title">Today's orders</span></div>
         <div class="order-list" id="liveOrders"></div>
       </div>
+      <div class="section">
+        <div class="section-head"><span class="section-title">Paper profiles — no real orders</span></div>
+        <div class="order-list" id="paperProfiles"></div>
+      </div>
       <div class="live-note" id="liveNote">Arming and disarming real money only happens in Discord — /picks live — never from this page, on purpose.</div>
     </div>
 
@@ -1115,6 +1119,24 @@ export function dashboardPage(brandName) {
     }
   }
 
+  function paintPaperTrading(rows) {
+    var list = document.getElementById('paperProfiles');
+    rows = rows || [];
+    if (!rows.length) {
+      list.innerHTML = '<div class="order-empty">Paper trading has not started.</div>';
+      return;
+    }
+    list.innerHTML = rows.map(function (row) {
+      var pct = Number.isFinite(row.returnPercent) ? (row.returnPercent >= 0 ? '+' : '') + row.returnPercent.toFixed(1) + '%' : '—';
+      var cls = row.returnPercent > 0 ? 'up' : row.returnPercent < 0 ? 'down' : '';
+      return '<div class="order-row"><div class="order-left">' +
+        '<span class="order-side">' + String(row.profile).toUpperCase() + '</span>' +
+        '<span>$' + Number(row.bankroll || 0).toFixed(2) + '</span>' +
+        '<span>' + row.wins + 'W ' + row.losses + 'L · ' + row.trades + ' trades · ' + row.openPositions + ' open</span>' +
+        '</div><div class="order-right ' + cls + '">' + pct + '</div></div>';
+    }).join('');
+  }
+
   function paintOrderFlow(flow) {
     var money = function (n) {
       return Number.isFinite(n) ? '$' + Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—';
@@ -1212,6 +1234,7 @@ export function dashboardPage(brandName) {
     paintPatterns(data.patterns, data.patternTrackRecord);
     paintRoundHistory(data.roundHistory);
     paintLiveTrading(data.liveTrading);
+    paintPaperTrading(data.paperTrading);
     paintOrderFlow(data.orderFlow);
     paintTrackRecord(data.trackRecord);
     document.getElementById('asset').textContent = data.asset + (data.ticker ? ' · ' + data.ticker : '');

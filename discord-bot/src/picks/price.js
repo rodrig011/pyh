@@ -1,3 +1,5 @@
+import { readAccount } from './kalshiAccount.js';
+
 /**
  * Live spot prices, used to stamp a call when it is made and to grade it when
  * the window closes.
@@ -65,6 +67,41 @@ export const PRICE_SOURCES = [
   },
 ];
 
+/** Extract the newest BRTI value from Kalshi's CF Benchmarks envelope. */
+export function readBrti(body) {
+  const payload = body?.data?.payload ?? body?.payload ?? body?.data ?? body;
+  const candidates = [
+    payload?.value,
+    payload?.BRTI?.value,
+    payload?.values?.BRTI?.value,
+    payload?.values?.BRTI,
+    ...(Array.isArray(payload?.values) ? payload.values.map((row) => row?.value) : []),
+  ];
+  for (const raw of candidates) {
+    const value = Number.parseFloat(raw);
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  return null;
+}
+
+function environmentKalshiCredentials() {
+  const keyId = process.env.KALSHI_API_KEY_ID?.trim();
+  const privateKeyPem = process.env.KALSHI_PRIVATE_KEY?.replace(/\\n/g, '\n').trim();
+  if (!keyId || !privateKeyPem) return null;
+  return { keyId, privateKeyPem, apiBase: process.env.KALSHI_API_BASE?.trim() || undefined };
+}
+
+/** Official index Kalshi uses for KXBTC15M settlement. Read-only by construction. */
+export async function fetchBrtiPrice(credentials, options = {}) {
+  if (!credentials) return { price: null, source: null, error: 'no Kalshi credentials configured' };
+  const result = await readAccount(credentials, '/cfbenchmarks/values?id=BRTI', options);
+  if (result.error) return { price: null, source: null, error: result.error };
+  const price = readBrti(result.body);
+  return price > 0
+    ? { price, source: 'kalshi-brti', at: options.now ?? Date.now(), problems: [] }
+    : { price: null, source: null, error: 'BRTI response contained no usable value' };
+}
+
 /** A price is only usable if it is a real positive number. */
 export function readPrice(source, body) {
   const value = source.parse(body);
@@ -79,10 +116,24 @@ export function readPrice(source, body) {
  */
 export async function fetchSpotPrice(
   asset = 'BTC',
-  { sources = PRICE_SOURCES, timeoutMs = 5000, fetchImpl = globalThis.fetch } = {},
+  {
+    sources = PRICE_SOURCES,
+    timeoutMs = 5000,
+    fetchImpl = globalThis.fetch,
+    kalshiCredentials = environmentKalshiCredentials(),
+  } = {},
 ) {
   const symbol = asset.toUpperCase();
   const problems = [];
+
+  // Never synthesize the settlement index from constituent venues. Kalshi's
+  // own BRTI feed is authoritative; exchanges below are only a labelled
+  // fallback when the account lacks entitlement or the index is unavailable.
+  if (symbol === 'BTC' && kalshiCredentials) {
+    const brti = await fetchBrtiPrice(kalshiCredentials, { fetchImpl, timeoutMs });
+    if (brti.price > 0) return brti;
+    problems.push(`kalshi-brti: ${brti.error ?? 'unavailable'}`);
+  }
 
   for (const source of sources) {
     try {

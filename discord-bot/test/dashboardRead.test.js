@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { computeRead, enterManualPosition, manualEntry, positionAction, tradeRecord } from '../src/dashboard/read.js';
+import { computeRead, enterManualPosition, manualEntry, paperSummary, positionAction, tradeRecord } from '../src/dashboard/read.js';
 import { PROFILES } from '../src/picks/paper.js';
 
 const config = {
@@ -12,6 +12,21 @@ const config = {
 
 const history = Array.from({ length: 90 }, (_, i) => 65_000 + Math.sin(i / 3) * 40);
 const fakeStore = { listSamples: () => history.map((price, i) => ({ at: Date.now() - i * 1000, price })) };
+
+test('dashboard paper summary exposes bankroll, return, W/L, trades and open positions', () => {
+  const rows = paperSummary({
+    careful: {
+      start: 100,
+      cash: 103,
+      position: null,
+      trades: [{ profit: 5 }, { profit: -2 }],
+    },
+  });
+  assert.deepEqual(rows[0], {
+    profile: 'careful', bankroll: 103, returnPercent: 3,
+    wins: 1, losses: 1, trades: 2, openPositions: 0,
+  });
+});
 
 function board(cents, strike, closesAt) {
   return {

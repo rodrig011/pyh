@@ -374,6 +374,12 @@ export function loadVipConfig() {
       // exact calls people pay for.
       token: str('DASHBOARD_TOKEN'),
     },
+    paper: {
+      autoStart: bool('PAPER_AUTO_START', true),
+      profiles: list('PAPER_PROFILES', ['careful', 'scalp', 'always']),
+      bankroll: Number.parseFloat(str('PAPER_BANKROLL', '100')),
+      reportUserId: str('PAPER_REPORT_USER_ID'),
+    },
     imap: {
       enabled: bool('IMAP_ENABLED', true),
       host: str('IMAP_HOST'),
@@ -433,7 +439,7 @@ export function loadSignalConfig() {
     kellyFraction: Number.parseFloat(str('SIGNAL_KELLY_FRACTION', '0.25')),
     maximumFraction: Number.parseFloat(str('SIGNAL_MAX_FRACTION', '0.1')),
     engine: {
-      minimumEdgeCents: int('SIGNAL_MIN_EDGE_CENTS', 4),
+      minimumEdgeCents: int('SIGNAL_MIN_EDGE_CENTS', 6),
       minimumWorstCaseEdgeCents: int('SIGNAL_MIN_WORST_EDGE_CENTS', 2),
       maximumSpreadCents: int('SIGNAL_MAX_SPREAD_CENTS', 3),
       minimumLiquidityDollars: int('SIGNAL_MIN_LIQUIDITY', 25),

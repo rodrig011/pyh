@@ -54,6 +54,7 @@ export function readBoard(candidates, context, options = {}) {
     reads.push({
       ticker: market?.ticker ?? null,
       strike,
+      market,
       read,
     });
 

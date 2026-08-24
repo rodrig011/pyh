@@ -1,13 +1,41 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { generateKeyPairSync } from 'node:crypto';
 import {
   PRICE_SOURCES,
   fetchSpotPrice,
   formatChange,
   formatPrice,
   gradeByPrice,
+  readBrti,
   readPrice,
 } from '../src/picks/price.js';
+
+test('Kalshi BRTI is used before every exchange fallback', async () => {
+  const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 1024 });
+  const kalshiCredentials = {
+    keyId: 'read-only-test',
+    privateKeyPem: privateKey.export({ type: 'pkcs8', format: 'pem' }),
+    apiBase: 'https://example.test/trade-api/v2',
+  };
+  const calls = [];
+  const result = await fetchSpotPrice('BTC', {
+    kalshiCredentials,
+    fetchImpl: async (url) => {
+      calls.push(url);
+      return { ok: true, json: async () => ({ data: { payload: { value: '68123.45' } } }) };
+    },
+  });
+  assert.equal(result.price, 68123.45);
+  assert.equal(result.source, 'kalshi-brti');
+  assert.equal(calls.length, 1, 'no exchange fallback was mixed into a successful BRTI read');
+});
+
+test('BRTI parser accepts the documented wrapped value shapes', () => {
+  assert.equal(readBrti({ data: { payload: { value: '68000.12' } } }), 68000.12);
+  assert.equal(readBrti({ data: { payload: { values: { BRTI: { value: '68001.25' } } } } }), 68001.25);
+  assert.equal(readBrti({ data: { payload: {} } }), null);
+});
 
 // The exchange response shapes, pinned. These are what the parser is written
 // against, so a change in any of them fails here rather than silently returning
