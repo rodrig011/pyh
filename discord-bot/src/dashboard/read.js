@@ -24,7 +24,7 @@ import { patternWinRates, settlePatternRecords } from '../signals/patternLog.js'
 import { roundHistorySummary, settleRoundSnapshots } from '../signals/roundSnapshot.js';
 import { measureEdge } from '../signals/measure.js';
 import { settleObservations } from '../signals/recorder.js';
-import { PROFILES, equity } from '../picks/paper.js';
+import { PROFILES, equity, lifetimeStats } from '../picks/paper.js';
 import { dayKey, riskSummary } from '../picks/riskLimits.js';
 import { buildCandles, buildVolume, rsiSeries } from './candles.js';
 
@@ -119,17 +119,16 @@ export function tradeRecord(orders) {
 export function paperSummary(accounts, marks = {}) {
   return Object.entries(accounts ?? {}).map(([profile, account]) => {
     const value = equity(account, marks[profile] ?? null);
-    const closed = account.trades ?? [];
-    const wins = closed.filter((trade) => trade.profit > 0).length;
-    const losses = closed.filter((trade) => trade.profit < 0).length;
+    const stats = lifetimeStats(account);
     return {
       profile,
       bankroll: value,
       returnPercent: account.start > 0 ? ((value - account.start) / account.start) * 100 : null,
-      wins,
-      losses,
-      trades: closed.length,
+      wins: stats.wins,
+      losses: stats.losses,
+      trades: stats.total,
       openPositions: account.position ? 1 : 0,
+      ...(profile === 'always' ? { benchmark: true } : {}),
     };
   });
 }

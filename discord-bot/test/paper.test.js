@@ -530,6 +530,24 @@ test("a forced entry sizes off the fixed floor, not Kelly's zero on a no-edge ma
   );
 });
 
+test('always stakes against its starting bankroll instead of compounding a fantasy balance', () => {
+  const board = ladder([50], [65_000]);
+  const richOnPaper = { ...newAccount({ bankroll: 100, profile: 'always' }), cash: 100_000 };
+  const { event } = paperTick(richOnPaper, context(), { candidates: board });
+  assert.ok(event, 'the always benchmark should enter the readable window');
+  assert.ok(event.trade.cost < 6, `a $100 benchmark risked $${event.trade.cost}`);
+});
+
+test('lifetime counters are not truncated with the 500-row audit log', () => {
+  const account = {
+    ...newAccount(),
+    trades: Array.from({ length: 500 }, (_, i) => ({ profit: i % 2 ? 1 : -1 })),
+    tradeStats: { total: 777, wins: 400, losses: 377, breakEven: 0, netProfit: 23 },
+  };
+  assert.match(report(account), /777.*trade/);
+  assert.match(report(account), /400W 377L/);
+});
+
 test('always still tells a genuine edge from a forced one', () => {
   // The default ladder carries real drift from its own seeded history, so
   // several strikes clear even always's loosened bar on their own merits —

@@ -124,6 +124,7 @@ export function newAccount({ bankroll = START_BANKROLL, at = Date.now(), profile
     startedAt: at,
     position: null,
     trades: [],
+    tradeStats: { total: 0, wins: 0, losses: 0, breakEven: 0, netProfit: 0 },
     lastReportAt: at,
     profile: PROFILES[profile] ? profile : 'careful',
     // Distinct CONTRACTS considered, not sweeps performed.
@@ -414,7 +415,10 @@ function enterTick(account, entry, { now, ticker, sizing, forced = false }) {
     ? Math.max(sized?.suggested ?? 0, profile.forcedFraction ?? 0)
     : sized?.suggested ?? 0;
 
-  const stake = account.cash * suggested;
+  // `always` is a forced control, not a compounding strategy. Anchor forced
+  // risk to the initial bankroll so a paper bias cannot grow exponentially.
+  const stakeBase = profile.forceEveryWindow ? account.start : account.cash;
+  const stake = Math.min(account.cash, stakeBase * suggested);
   const contracts = contractsFor(stake, read.entryCents);
   if (contracts < 1) return { account, event: null };
 
@@ -456,11 +460,37 @@ function enterTick(account, entry, { now, ticker, sizing, forced = false }) {
 /** Moves a closed position into the ledger and returns the cash. */
 function bookTrade(account, closed) {
   const profit = closed.proceeds - closed.cost;
+  const previous = lifetimeStats(account);
+  const tradeStats = {
+    total: previous.total + 1,
+    wins: previous.wins + (profit > 0 ? 1 : 0),
+    losses: previous.losses + (profit < 0 ? 1 : 0),
+    breakEven: previous.breakEven + (profit === 0 ? 1 : 0),
+    netProfit: previous.netProfit + profit,
+  };
   return {
     ...account,
     cash: account.cash + closed.proceeds,
     position: null,
+    tradeStats,
     trades: [...account.trades, { ...closed, profit }].slice(-500),
+  };
+}
+
+/** Lifetime counts, with a migration path for accounts created before them. */
+export function lifetimeStats(account) {
+  const trades = account?.trades ?? [];
+  if (
+    account?.tradeStats &&
+    Number.isFinite(account.tradeStats.total) &&
+    account.tradeStats.total >= trades.length
+  ) return account.tradeStats;
+  return {
+    total: trades.length,
+    wins: trades.filter((trade) => trade.profit > 0).length,
+    losses: trades.filter((trade) => trade.profit < 0).length,
+    breakEven: trades.filter((trade) => trade.profit === 0).length,
+    netProfit: trades.reduce((sum, trade) => sum + (trade.profit ?? 0), 0),
   };
 }
 
@@ -486,8 +516,9 @@ export function report(account, { now = Date.now(), markCents = null } = {}) {
   const hours = (now - account.startedAt) / 3_600_000;
 
   const closed = account.trades;
-  const wins = closed.filter((t) => t.profit > 0).length;
-  const losses = closed.filter((t) => t.profit < 0).length;
+  const stats = lifetimeStats(account);
+  const wins = stats.wins;
+  const losses = stats.losses;
   const fees = closed.reduce(
     (total, t) => total + t.contracts * roundTripCostCents(t.entryCents, Math.max(1, t.exitCents)) / 100,
     0,
@@ -523,7 +554,7 @@ export function report(account, { now = Date.now(), markCents = null } = {}) {
   } else {
     lines.push(
       '',
-      `**${closed.length}** trade(s) · **${wins}W ${losses}L** · ` +
+      `**${stats.total}** trade(s) · **${wins}W ${losses}L** · ` +
         `refused **${account.refused}** of **${account.seen}** contract(s)`,
       why ? `Refused because: ${why}.` : null,
       lookLine(account),
@@ -616,9 +647,9 @@ export function compareReport(accounts, { now = Date.now(), marks = {} } = {}) {
         value,
         profit,
         percent: (profit / account.start) * 100,
-        trades: account.trades.length,
-        wins: account.trades.filter((trade) => trade.profit > 0).length,
-        losses: account.trades.filter((trade) => trade.profit < 0).length,
+        trades: lifetimeStats(account).total,
+        wins: lifetimeStats(account).wins,
+        losses: lifetimeStats(account).losses,
         seen: account.seen,
         refused: account.refused,
         account,

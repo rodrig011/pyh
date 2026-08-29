@@ -1237,7 +1237,8 @@ export function dashboardPage(brandName) {
       return '<div class="order-row"><div class="order-left">' +
         '<span class="order-side">' + String(row.profile).toUpperCase() + '</span>' +
         '<span>$' + Number(row.bankroll || 0).toFixed(2) + '</span>' +
-        '<span>' + row.wins + 'W ' + row.losses + 'L · ' + row.trades + ' trades · ' + row.openPositions + ' open</span>' +
+        '<span>' + row.wins + 'W ' + row.losses + 'L · ' + row.trades + ' lifetime trades · ' + row.openPositions + ' open</span>' +
+        (row.benchmark ? '<span>Forced benchmark — not a bot signal or live strategy</span>' : '') +
         '</div><div class="order-right ' + cls + '">' + pct + '</div></div>';
     }).join('');
   }
