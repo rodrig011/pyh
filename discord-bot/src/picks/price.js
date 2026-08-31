@@ -81,7 +81,16 @@ function newestIndexedValue(rows) {
   });
   const pool = matching.length ? matching : rows;
   for (const row of pool) {
-    const value = numericPrice(row?.value ?? row?.price ?? row?.rate ?? row?.level ?? row?.last);
+    const value = numericPrice(
+      row?.value ??
+        row?.price ??
+        row?.rate ??
+        row?.level ??
+        row?.last ??
+        row?.current ??
+        row?.index_value ??
+        row?.indexValue,
+    );
     if (value !== null) return value;
   }
   return null;
@@ -93,14 +102,36 @@ function findBrtiValue(node, seen = new Set()) {
   if (!node || typeof node !== 'object' || seen.has(node)) return null;
   seen.add(node);
 
+  const arrayValue = newestIndexedValue(node);
+  if (arrayValue !== null) return arrayValue;
+
   const keyed = node.BRTI ?? node.brti;
-  const keyedValue = numericPrice(keyed?.value ?? keyed?.price ?? keyed?.rate ?? keyed?.level ?? keyed);
+  const keyedValue = numericPrice(
+    keyed?.value ??
+      keyed?.price ??
+      keyed?.rate ??
+      keyed?.level ??
+      keyed?.last ??
+      keyed?.current ??
+      keyed?.index_value ??
+      keyed?.indexValue ??
+      keyed,
+  );
   if (keyedValue !== null) return keyedValue;
 
   const rowValue = newestIndexedValue(node.values ?? node.data ?? node.payload ?? node.results ?? node.result);
   if (rowValue !== null) return rowValue;
 
-  const directValue = numericPrice(node.value ?? node.price ?? node.rate ?? node.level ?? node.last);
+  const directValue = numericPrice(
+    node.value ??
+      node.price ??
+      node.rate ??
+      node.level ??
+      node.last ??
+      node.current ??
+      node.index_value ??
+      node.indexValue,
+  );
   const id = String(node.id ?? node.index ?? node.symbol ?? node.name ?? node.ticker ?? '').toUpperCase();
   if (directValue !== null && (id === 'BRTI' || id === '')) return directValue;
 

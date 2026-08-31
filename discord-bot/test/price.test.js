@@ -71,6 +71,14 @@ test('BRTI parser accepts the documented wrapped value shapes', () => {
 test('BRTI parser accepts CF Benchmarks row-shaped responses from Kalshi', () => {
   assert.equal(readBrti({
     data: {
+      payload: [
+        { id: 'BRTI', value: '108233.90', timestamp: '2026-08-31T06:56:00.000Z' },
+      ],
+    },
+  }), 108233.90);
+
+  assert.equal(readBrti({
+    data: {
       payload: {
         serverTime: '2026-08-31T06:56:00.000Z',
         values: [
@@ -99,6 +107,16 @@ test('BRTI parser accepts CF Benchmarks row-shaped responses from Kalshi', () =>
       },
     },
   }), 108236.75);
+
+  assert.equal(readBrti({
+    data: {
+      payload: {
+        values: [
+          { index: 'BRTI', index_value: '108237.15' },
+        ],
+      },
+    },
+  }), 108237.15);
 });
 
 test('the legacy Kalshi host is upgraded for the BRTI passthrough', async () => {
