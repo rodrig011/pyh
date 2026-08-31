@@ -68,6 +68,39 @@ test('BRTI parser accepts the documented wrapped value shapes', () => {
   assert.equal(readBrti({ data: { payload: {} } }), null);
 });
 
+test('BRTI parser accepts CF Benchmarks row-shaped responses from Kalshi', () => {
+  assert.equal(readBrti({
+    data: {
+      payload: {
+        serverTime: '2026-08-31T06:56:00.000Z',
+        values: [
+          { id: 'BRTI', value: '108234.56', timestamp: '2026-08-31T06:56:00.000Z' },
+        ],
+      },
+    },
+  }), 108234.56);
+
+  assert.equal(readBrti({
+    data: {
+      payload: {
+        result: [
+          { index: 'ETHUSD_RTI', value: '4490.12' },
+          { index: 'BRTI', price: '108235.25' },
+        ],
+      },
+    },
+  }), 108235.25);
+
+  assert.equal(readBrti({
+    data: {
+      serverTime: '2026-08-31T06:56:00.000Z',
+      payload: {
+        BRTI: { level: '108236.75' },
+      },
+    },
+  }), 108236.75);
+});
+
 test('the legacy Kalshi host is upgraded for the BRTI passthrough', async () => {
   const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 1024 });
   let requested = null;

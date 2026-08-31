@@ -68,21 +68,53 @@ export const PRICE_SOURCES = [
   },
 ];
 
+function numericPrice(raw) {
+  const value = Number.parseFloat(raw);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function newestIndexedValue(rows) {
+  if (!Array.isArray(rows)) return null;
+  const matching = rows.filter((row) => {
+    const id = String(row?.id ?? row?.index ?? row?.symbol ?? row?.name ?? row?.ticker ?? '').toUpperCase();
+    return id === 'BRTI';
+  });
+  const pool = matching.length ? matching : rows;
+  for (const row of pool) {
+    const value = numericPrice(row?.value ?? row?.price ?? row?.rate ?? row?.level ?? row?.last);
+    if (value !== null) return value;
+  }
+  return null;
+}
+
+function findBrtiValue(node, seen = new Set()) {
+  const direct = numericPrice(node);
+  if (direct !== null && typeof node !== 'object') return direct;
+  if (!node || typeof node !== 'object' || seen.has(node)) return null;
+  seen.add(node);
+
+  const keyed = node.BRTI ?? node.brti;
+  const keyedValue = numericPrice(keyed?.value ?? keyed?.price ?? keyed?.rate ?? keyed?.level ?? keyed);
+  if (keyedValue !== null) return keyedValue;
+
+  const rowValue = newestIndexedValue(node.values ?? node.data ?? node.payload ?? node.results ?? node.result);
+  if (rowValue !== null) return rowValue;
+
+  const directValue = numericPrice(node.value ?? node.price ?? node.rate ?? node.level ?? node.last);
+  const id = String(node.id ?? node.index ?? node.symbol ?? node.name ?? node.ticker ?? '').toUpperCase();
+  if (directValue !== null && (id === 'BRTI' || id === '')) return directValue;
+
+  for (const key of ['payload', 'data', 'result', 'results', 'values', 'items']) {
+    const found = findBrtiValue(node[key], seen);
+    if (found !== null) return found;
+  }
+  return null;
+}
+
 /** Extract the newest BRTI value from Kalshi's CF Benchmarks envelope. */
 export function readBrti(body) {
   const payload = body?.data?.payload ?? body?.payload ?? body?.data ?? body;
-  const candidates = [
-    payload?.value,
-    payload?.BRTI?.value,
-    payload?.values?.BRTI?.value,
-    payload?.values?.BRTI,
-    ...(Array.isArray(payload?.values) ? payload.values.map((row) => row?.value) : []),
-  ];
-  for (const raw of candidates) {
-    const value = Number.parseFloat(raw);
-    if (Number.isFinite(value) && value > 0) return value;
-  }
-  return null;
+  return findBrtiValue(payload);
 }
 
 export function environmentKalshiCredentials(env = process.env) {
