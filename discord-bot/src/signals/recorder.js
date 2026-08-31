@@ -19,7 +19,7 @@
  */
 
 import { logReturns } from './math.js';
-import { closeTimeOf } from '../picks/kalshi.js';
+import { closeTimeOf, strikeOf } from '../picks/kalshi.js';
 import {
   bipowerVolatility,
   ewmaVolatility,
@@ -224,7 +224,7 @@ export function observeOnce(
       const read = evaluateModel({
         prices: pricesFrom(store.listSamples(asset), now - historyMs),
         spot,
-        strike: Number(market.floor_strike ?? market.cap_strike),
+        strike: contract.strike ?? strikeOf(market),
         marketPriceCents: contract.price,
         market,
         secondsLeft: Number.isFinite(closesAt) ? (closesAt - now) / 1000 : null,
@@ -273,7 +273,7 @@ export function recordOnce(
       ticker: market.ticker,
       asset,
       spot,
-      strike: Number(market.floor_strike ?? market.cap_strike),
+      strike: contract.strike ?? strikeOf(market),
       yesBidCents: toCents(market.yes_bid_dollars ?? market.yes_bid),
       yesAskCents: toCents(market.yes_ask_dollars ?? market.yes_ask),
       secondsLeft: Number.isFinite(closesAt) ? Math.max(0, (closesAt - now) / 1000) : null,

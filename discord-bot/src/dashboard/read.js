@@ -1,4 +1,4 @@
-import { closeTimeOf, nearestTheMoneyContract } from '../picks/kalshi.js';
+import { closeTimeOf, nearestTheMoneyContract, strikeOf } from '../picks/kalshi.js';
 import { directionalRead } from '../signals/direction.js';
 import { executablePrices } from '../signals/cost.js';
 import { flipProbability } from '../signals/exit.js';
@@ -147,9 +147,7 @@ export async function enterManualPosition(store, config, side, { openBoard, fetc
   if (!contract) return { ok: false, reason: 'No readable market right now' };
 
   const market = contract.market ?? {};
-  const strike = Number.isFinite(Number(market.floor_strike))
-    ? Number(market.floor_strike)
-    : Number(market.cap_strike);
+  const strike = contract.strike ?? strikeOf(market);
 
   // "I'm in" records a position the person already entered. It only needs
   // Kalshi's contract price; making it depend on BTC history or the prediction
@@ -198,7 +196,18 @@ export async function computeRead(
   ]);
 
   const contract = nearestTheMoneyContract(board?.contracts);
-  if (!contract) return { ok: false, reason: 'No readable market on the board right now' };
+  if (!contract) {
+    return {
+      ok: false,
+      reason: board?.error ?? 'No readable market on the board right now',
+      priceSource: quote?.source ?? (asset === 'BTC' ? 'kalshi-brti' : null),
+      priceErrorCode: quote?.price > 0 ? null : (quote?.errorCode ?? null),
+      priceHttpStatus: quote?.httpStatus ?? null,
+      boardListed: board?.listed ?? 0,
+      boardQuoted: board?.quoted ?? 0,
+      boardUrl: board?.url ?? null,
+    };
+  }
   if (!(quote?.price > 0)) {
     return {
       ok: false,
@@ -210,9 +219,7 @@ export async function computeRead(
   }
 
   const market = contract.market ?? {};
-  const strike = Number.isFinite(Number(market.floor_strike))
-    ? Number(market.floor_strike)
-    : Number(market.cap_strike);
+  const strike = contract.strike ?? strikeOf(market);
 
   const closesAt = closeTimeOf(market);
   const secondsLeft = Number.isFinite(closesAt) ? (closesAt - now) / 1000 : null;

@@ -268,7 +268,7 @@ test('the live market is open and matched to its own window', () => {
  * engine on sight. That measures a population the bot does not trade.
  */
 
-import { nearestTheMoneyContract } from '../src/picks/kalshi.js';
+import { nearestTheMoneyContract, strikeOf } from '../src/picks/kalshi.js';
 
 test('the recorded strike is the one nearest a coin flip', () => {
   const contracts = [
@@ -295,6 +295,18 @@ test('an empty board has no nearest strike rather than throwing', () => {
 test('a tie picks one rather than none', () => {
   const contracts = [{ price: 45, market: { ticker: 'a' } }, { price: 55, market: { ticker: 'b' } }];
   assert.ok(['a', 'b'].includes(nearestTheMoneyContract(contracts).market.ticker));
+});
+
+test('the BTC 15-minute target is read from the current Kalshi title shape', () => {
+  assert.equal(strikeOf({
+    ticker: 'KXBTC15M-26AUG061100',
+    title: 'BTC 15 min · $78,002.93 target',
+  }), 78002.93);
+
+  assert.equal(strikeOf({
+    ticker: 'KXBTC15M-26AUG061100',
+    subtitle: '$78,925.84 target',
+  }), 78925.84);
 });
 
 /**

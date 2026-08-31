@@ -1,5 +1,6 @@
 import { VERDICTS } from './engine.js';
 import { directionalRead } from './direction.js';
+import { strikeOf } from '../picks/kalshi.js';
 
 /**
  * Reading a whole board of strikes instead of one contract.
@@ -43,7 +44,7 @@ export function readBoard(candidates, context, options = {}) {
     // exchange's field silently dropped every candidate that did not come
     // straight off the feed — the board came back empty and the account looked
     // like it had stopped looking at markets at all.
-    const strike = Number(candidate?.strike ?? market?.floor_strike ?? market?.cap_strike);
+    const strike = Number(candidate?.strike ?? strikeOf(market));
     if (!(strike > 0) || !Number.isFinite(candidate?.price)) continue;
 
     const read = directionalRead(

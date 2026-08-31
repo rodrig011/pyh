@@ -59,10 +59,12 @@ test('reports Kalshi as off rather than crashing when it is not configured', asy
 test('reports no market rather than crashing when the board is empty', async () => {
   const result = await computeRead(fakeStore, config, {
     openBoard: async () => ({ contracts: [] }),
-    fetchSpotPrice: async () => ({ price: 65_000 }),
+    fetchSpotPrice: async () => ({ price: 65_000, source: 'kalshi-brti' }),
   });
   assert.equal(result.ok, false);
   assert.match(result.reason, /No readable market/);
+  assert.equal(result.priceSource, 'kalshi-brti');
+  assert.equal(result.priceErrorCode, null);
 });
 
 test('reports no price rather than crashing when the feed is down', async () => {
@@ -99,6 +101,32 @@ test('the dashboard exposes the BTC source instead of showing unavailable', asyn
     fetchSpotPrice: async () => ({ price: 65_000, source: 'kalshi-brti' }),
     now,
   });
+  assert.equal(result.priceSource, 'kalshi-brti');
+});
+
+test('dashboard reads a BTC 15-minute market whose target only appears in the title', async () => {
+  const now = Date.now();
+  const result = await computeRead(fakeStore, config, {
+    openBoard: async () => ({
+      contracts: [
+        {
+          price: 50,
+          market: {
+            ticker: 'KXBTC15M-26AUG061100',
+            title: 'BTC 15 min · $65,000.00 target',
+            close_time: new Date(now + 500_000).toISOString(),
+            yes_bid_dollars: '0.49',
+            yes_ask_dollars: '0.51',
+            liquidity_dollars: '4000',
+          },
+        },
+      ],
+    }),
+    fetchSpotPrice: async () => ({ price: 65_000, source: 'kalshi-brti' }),
+    now,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.strike, 65_000);
   assert.equal(result.priceSource, 'kalshi-brti');
 });
 

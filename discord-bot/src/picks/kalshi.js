@@ -175,6 +175,52 @@ export function formatCents(cents) {
   return isPriceCents(cents) ? `${Math.round(cents)}%` : '—';
 }
 
+function numberFromMoneyText(text) {
+  const match = String(text ?? '').match(/\$\s*([0-9][0-9,]*(?:\.[0-9]+)?)/);
+  if (!match) return null;
+  const value = Number.parseFloat(match[1].replace(/,/g, ''));
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+/**
+ * The BTC target/strike a Kalshi crypto market settles around.
+ *
+ * Older range markets expose numeric `floor_strike`/`cap_strike` fields. The
+ * rolling 15-minute "Up or Down" market can instead describe the line as a
+ * target price in the title/subtitle, e.g. "BTC 15 min · $78,002.93 target".
+ * Treat both as the same thing: the level that decides YES vs NO.
+ */
+export function strikeOf(market) {
+  for (const field of [
+    'strike',
+    'target',
+    'target_price',
+    'targetPrice',
+    'floor_strike',
+    'cap_strike',
+    'strike_price',
+    'strikePrice',
+  ]) {
+    const value = Number.parseFloat(String(market?.[field] ?? '').replace(/,/g, ''));
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+
+  for (const field of [
+    'title',
+    'subtitle',
+    'sub_title',
+    'yes_sub_title',
+    'no_sub_title',
+    'rules_primary',
+    'rules_secondary',
+  ]) {
+    const value = numberFromMoneyText(market?.[field]);
+    if (value !== null) return value;
+  }
+
+  return null;
+}
+
 /**
  * Fetches the markets of a series. Read-only market data, which Kalshi serves
  * without a signature; a key is only added when one is configured, so this
@@ -352,7 +398,8 @@ export async function openBoard(settings, options = {}) {
   for (const market of board) {
     const price = readMarketPrice(market, settings.side ?? 'yes');
     if (!price) continue;
-    contracts.push({ price: price.cents, priceSource: price.source, market });
+    const strike = strikeOf(market);
+    contracts.push({ price: price.cents, priceSource: price.source, strike, market });
   }
 
   return {
