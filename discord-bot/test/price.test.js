@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
 import {
   PRICE_SOURCES,
+  environmentKalshiCredentials,
   fetchBrtiPrice,
   fetchSpotPrice,
   formatChange,
@@ -11,6 +12,35 @@ import {
   readBrti,
   readPrice,
 } from '../src/picks/price.js';
+
+test('BRTI uses the complete read credential pair before the trading fallback', () => {
+  const credentials = environmentKalshiCredentials({
+    KALSHI_API_KEY_ID: 'read-key',
+    KALSHI_PRIVATE_KEY: 'read-pem',
+    KALSHI_TRADING_KEY_ID: 'trade-key',
+    KALSHI_TRADING_PRIVATE_KEY: 'trade-pem',
+  });
+  assert.equal(credentials.keyId, 'read-key');
+  assert.equal(credentials.privateKeyPem, 'read-pem');
+  assert.equal(credentials.credentialSource, 'kalshi-api');
+});
+
+test('BRTI can authenticate its read-only GET with the complete trading pair', () => {
+  const credentials = environmentKalshiCredentials({
+    KALSHI_TRADING_KEY_ID: 'trade-key',
+    KALSHI_TRADING_PRIVATE_KEY: 'line-1\\nline-2',
+  });
+  assert.equal(credentials.keyId, 'trade-key');
+  assert.equal(credentials.privateKeyPem, 'line-1\nline-2');
+  assert.equal(credentials.credentialSource, 'kalshi-trading-fallback');
+});
+
+test('BRTI never mixes half of the read pair with half of the trading pair', () => {
+  assert.equal(environmentKalshiCredentials({
+    KALSHI_API_KEY_ID: 'read-key-only',
+    KALSHI_TRADING_PRIVATE_KEY: 'trade-pem-only',
+  }), null);
+});
 
 test('Kalshi BRTI is used before every exchange fallback', async () => {
   const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 1024 });

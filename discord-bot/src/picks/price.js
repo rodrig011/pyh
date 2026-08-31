@@ -85,11 +85,25 @@ export function readBrti(body) {
   return null;
 }
 
-function environmentKalshiCredentials() {
-  const keyId = process.env.KALSHI_API_KEY_ID?.trim();
-  const privateKeyPem = process.env.KALSHI_PRIVATE_KEY?.replace(/\\n/g, '\n').trim();
-  if (!keyId || !privateKeyPem) return null;
-  return { keyId, privateKeyPem, apiBase: process.env.KALSHI_API_BASE?.trim() || undefined };
+export function environmentKalshiCredentials(env = process.env) {
+  const pairs = [
+    {
+      keyId: env.KALSHI_API_KEY_ID?.trim(),
+      privateKeyPem: env.KALSHI_PRIVATE_KEY?.replace(/\\n/g, '\n').trim(),
+      credentialSource: 'kalshi-api',
+    },
+    {
+      // BRTI is a signed GET on the read-only allowlist. If Railway only has
+      // the deliberately separate trading key, it can authenticate this read
+      // without giving the price path any ability to place an order.
+      keyId: env.KALSHI_TRADING_KEY_ID?.trim(),
+      privateKeyPem: env.KALSHI_TRADING_PRIVATE_KEY?.replace(/\\n/g, '\n').trim(),
+      credentialSource: 'kalshi-trading-fallback',
+    },
+  ];
+  const pair = pairs.find((candidate) => candidate.keyId && candidate.privateKeyPem);
+  if (!pair) return null;
+  return { ...pair, apiBase: env.KALSHI_API_BASE?.trim() || undefined };
 }
 
 function officialKalshiCredentials(credentials) {
@@ -105,7 +119,7 @@ export async function fetchBrtiPrice(credentials, options = {}) {
     return {
       price: null,
       source: 'kalshi-brti',
-      error: 'Kalshi BRTI: missing KALSHI_API_KEY_ID or KALSHI_PRIVATE_KEY',
+      error: 'Kalshi BRTI: no complete Kalshi API credential pair is configured',
       errorCode: 'missing_credentials',
     };
   }

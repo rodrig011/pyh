@@ -720,7 +720,7 @@ export function dashboardPage(brandName) {
     var pill = document.getElementById('sourcePill');
     pill.classList.toggle('unavailable', available === false);
     var detail = errorCode === 'missing_credentials'
-      ? 'missing Railway credentials'
+      ? 'missing Kalshi credentials'
       : errorCode === 'not_entitled'
         ? 'access denied' + (httpStatus ? ' (HTTP ' + httpStatus + ')' : '')
         : errorCode === 'rate_limited'
