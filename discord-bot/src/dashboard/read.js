@@ -204,6 +204,8 @@ export async function computeRead(
       ok: false,
       reason: quote?.error ?? `No live ${asset} price right now`,
       priceSource: quote?.source ?? (asset === 'BTC' ? 'kalshi-brti' : null),
+      priceErrorCode: quote?.errorCode ?? 'unavailable',
+      priceHttpStatus: quote?.httpStatus ?? null,
     };
   }
 

@@ -73,6 +73,25 @@ test('BTC stays out instead of silently switching from Kalshi to Coinbase', asyn
   assert.equal(calls, 1, 'Coinbase and other exchanges were never queried');
 });
 
+test('BRTI authorization failures are classified instead of hidden as unavailable', async () => {
+  const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 1024 });
+  const result = await fetchSpotPrice('BTC', {
+    kalshiCredentials: {
+      keyId: 'read-only-test',
+      privateKeyPem: privateKey.export({ type: 'pkcs8', format: 'pem' }),
+    },
+    fetchImpl: async () => ({
+      ok: false,
+      status: 403,
+      text: async () => '{"error":"not entitled"}',
+    }),
+  });
+  assert.equal(result.source, 'kalshi-brti');
+  assert.equal(result.errorCode, 'not_entitled');
+  assert.equal(result.httpStatus, 403);
+  assert.match(result.error, /enable the CF Benchmarks entitlement/i);
+});
+
 // The exchange response shapes, pinned. These are what the parser is written
 // against, so a change in any of them fails here rather than silently returning
 // null and dropping every call back to manual grading.

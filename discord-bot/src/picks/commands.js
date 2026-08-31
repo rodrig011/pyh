@@ -1275,8 +1275,15 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
             'the key that publishes calls can never sign an order.',
         );
       }
-      store.putRiskState({ ...state, armed: true, killed: false, armedAt: Date.now() });
       const activeProfile = PROFILES[trading.profile] ?? PROFILES.careful;
+      if (activeProfile.forceEveryWindow || Number(trading.forceTradesPerWindow) > 0) {
+        return interaction.editReply(
+          '❌ **Live trading refused.** Forced profiles and activity quotas are paper-only. ' +
+            'Set `KALSHI_TRADING_PROFILE=careful` and `KALSHI_FORCE_TRADES_PER_WINDOW=0`; ' +
+            'real money may only follow a signal that clears the model.',
+        );
+      }
+      store.putRiskState({ ...state, armed: true, killed: false, armedAt: Date.now() });
       const dailyLimit = state.dailyLimitDollars ?? 20;
       return interaction.editReply(
         [
@@ -1289,16 +1296,7 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
           '· **three** losses in a row ends the day',
           '· limit orders only, never market',
           '· a market with no readable clock is never traded',
-          activeProfile.forceEveryWindow
-            ? `· **forced trades stop separately** once they alone have lost $${(
-                Number(trading.forceLossLimitDollars) || dailyLimit * 0.25
-              ).toFixed(2)} today — the model-driven side keeps going`
-            : null,
           '',
-          activeProfile.forceEveryWindow
-            ? '⚠️ **This profile trades every window with no edge required, on purpose, to measure it.** ' +
-              'Expect it to lose money to fees on average.'
-            : null,
           'You get a DM on **every** order, filled or not.',
           '**`/picks live kill` stops everything, instantly.**',
         ]

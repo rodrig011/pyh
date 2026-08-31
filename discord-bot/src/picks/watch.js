@@ -18,7 +18,6 @@ import { hasCredentials } from './kalshiAccount.js';
 import { orderRecord } from './kalshiOrders.js';
 import { checkTrade } from './riskLimits.js';
 import { recommendSize } from '../signals/sizing.js';
-import { leastBadCandidate, shouldForceEntry, tradesInWindow } from './forceTrade.js';
 
 /**
  * Watching a position somebody actually holds, and telling them when to leave.
@@ -653,6 +652,11 @@ export async function sweepLiveTrading(client, store, config, deps = {}) {
   // circuit breaker below: those come from state and checkTrade, not from
   // here, and this profile has no way to touch them.
   const profile = PROFILES[trading.profile] ?? PROFILES.careful;
+  // Forced profiles are useful controls in paper and actively misleading with
+  // real money. Live may only execute a signal that cleared the model itself.
+  if (profile.forceEveryWindow || Number(trading.forceTradesPerWindow) > 0) {
+    return { traded: false, blocked: 'forced_live_disabled' };
+  }
 
   try {
     const asset = settings.defaultAsset ?? 'BTC';
@@ -694,43 +698,9 @@ export async function sweepLiveTrading(client, store, config, deps = {}) {
     const ladder = readBoard(candidates, context, profile.engine);
     const orders = store.listTradeOrders();
 
-    let best = ladder.best;
-    let forced = false;
-    let forcedWhy = null;
-
-    if (!best && profile.forceEveryWindow) {
-      // "always" — see PROFILES.always in paper.js. Every window, no
-      // exceptions, taken purely to measure what refusing costs — never a
-      // blind guess, still restricted to a contract the model formed a real
-      // opinion on. checkTrade's forced-loss limit is what actually bounds
-      // the damage this can do with real money; this file just asks.
-      const candidate = leastBadCandidate(ladder.reads);
-      if (candidate) {
-        best = candidate;
-        forced = true;
-        forcedWhy = 'always mode';
-      }
-    } else if (!best && trading.forceTradesPerWindow > 0) {
-      // Nothing cleared the bar. If a minimum activity floor is configured and
-      // the trailing window is short of it, force the least-bad contract onto
-      // the board instead of standing aside — see forceTrade.js for why this is
-      // kept apart from the model-driven path above.
-      const windowMs = (Number(trading.forceWindowHours) || 6) * 60 * 60 * 1000;
-      const inWindow = tradesInWindow(orders, { windowMs, now });
-      if (
-        shouldForceEntry({
-          ordersInWindow: inWindow,
-          targetPerWindow: trading.forceTradesPerWindow,
-        })
-      ) {
-        const candidate = leastBadCandidate(ladder.reads);
-        if (candidate) {
-          best = candidate;
-          forced = true;
-          forcedWhy = 'activity floor';
-        }
-      }
-    }
+    const best = ladder.best;
+    const forced = false;
+    const forcedWhy = null;
 
     if (!best) return { traded: false };
 

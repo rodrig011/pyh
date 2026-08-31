@@ -1271,7 +1271,7 @@ test('arming is refused without trading credentials on the host', async () => {
   assert.notEqual(store.riskState()?.armed, true);
 });
 
-test('arming with always mode warns it trades every window with no edge, on purpose', async () => {
+test('arming with always mode is refused because forced profiles are paper-only', async () => {
   const store = freshStore();
   const config = {
     ...liveConfig,
@@ -1287,16 +1287,15 @@ test('arming with always mode warns it trades every window with no edge, on purp
   const interaction = fakeInteraction('live', { action: 'arm' });
   await handlePicks(interaction, { store, config });
 
-  assert.equal(store.riskState()?.armed, true);
+  assert.notEqual(store.riskState()?.armed, true);
   const reply = interaction.replies.at(-1);
   // discord.js rejects anything that is not a real string with "Cannot send
   // an empty message" — a JS array happens to stringify into something
   // String() and a regex will still match, which is exactly how a broken
   // .filter(...) missing its .join('\n') slipped through here once already.
   assert.equal(typeof reply, 'string');
-  assert.match(reply, /Profile: \*\*always\*\*/);
-  assert.match(reply, /every window with no edge required/);
-  assert.match(reply, /forced trades stop separately/);
+  assert.match(reply, /Live trading refused/);
+  assert.match(reply, /paper-only/);
 });
 
 test('arming with the default profile carries none of the always-mode warning', async () => {

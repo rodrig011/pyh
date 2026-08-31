@@ -371,6 +371,8 @@ export function dashboardPage(brandName) {
   .page-copy { margin:9px 0 0; max-width:680px; color:#93a4b8; font-size:14px; line-height:1.55; }
   .source-pill { display:flex; align-items:center; gap:9px; flex:none; padding:10px 13px; border:1px solid var(--border-soft); border-radius:10px; background:var(--panel); color:var(--dim); font-size:12px; }
   .source-pill b { color:var(--ink); }
+  .source-pill.unavailable .dot { background:var(--down); box-shadow:0 0 8px 1px rgba(255,82,101,.45); animation:none; }
+  .source-pill.unavailable b { color:var(--down); }
   .section-help { margin:-5px 0 13px; color:#8291a6; font-size:12px; line-height:1.5; }
   .stat .help { color:var(--dim2); font-size:10px; line-height:1.35; margin-top:5px; min-height:27px; }
   .decision-card { padding:20px; margin-bottom:14px; border:1px solid var(--border-soft); border-radius:12px; background:linear-gradient(135deg,rgba(34,211,238,.055),rgba(255,255,255,.012)); }
@@ -440,7 +442,7 @@ export function dashboardPage(brandName) {
         <h1 class="page-title">Know when to trade—and when to wait.</h1>
         <p class="page-copy">One live view of Bitcoin, Kalshi pricing and the bot’s risk checks. Every number below is measured; when the evidence is weak, the dashboard says wait.</p>
       </div>
-      <div class="source-pill"><span class="dot"></span><span>BTC price source<br><b id="sourceName">Connecting…</b></span></div>
+      <div class="source-pill" id="sourcePill"><span class="dot"></span><span>BTC price source<br><b id="sourceName">Connecting…</b></span></div>
     </header>
     <div class="view-tabs">
       <button class="view-tab active" data-view="viewSignal">Overview</button>
@@ -714,9 +716,22 @@ export function dashboardPage(brandName) {
     return waiting.filter ? 'Blocked by filter: ' + plainReason(waiting.filter) : '';
   }
 
-  function paintSource(source, available) {
+  function paintSource(source, available, errorCode, httpStatus) {
+    var pill = document.getElementById('sourcePill');
+    pill.classList.toggle('unavailable', available === false);
+    var detail = errorCode === 'missing_credentials'
+      ? 'missing Railway credentials'
+      : errorCode === 'not_entitled'
+        ? 'access denied' + (httpStatus ? ' (HTTP ' + httpStatus + ')' : '')
+        : errorCode === 'rate_limited'
+          ? 'rate limited (HTTP 429)'
+          : errorCode === 'upstream_unavailable'
+            ? 'service unavailable (HTTP 503)'
+            : errorCode === 'invalid_response'
+              ? 'invalid response'
+              : 'unavailable' + (httpStatus ? ' (HTTP ' + httpStatus + ')' : '');
     document.getElementById('sourceName').textContent = source === 'kalshi-brti'
-      ? available === false ? 'Kalshi · CF BRTI unavailable' : 'Kalshi · CF BRTI'
+      ? available === false ? 'Kalshi · CF BRTI ' + detail : 'Kalshi · CF BRTI'
       : source
         ? source.charAt(0).toUpperCase() + source.slice(1) + ' · fallback'
         : 'Unavailable';
@@ -1410,7 +1425,7 @@ export function dashboardPage(brandName) {
         lastOkAt = Date.now();
         document.getElementById('stale').style.visibility = 'hidden';
       } else {
-        paintSource(data.priceSource, false);
+        paintSource(data.priceSource, false, data.priceErrorCode, data.priceHttpStatus);
         document.getElementById('call').textContent = 'STAY OUT';
         document.getElementById('call').className = 'call none';
         document.getElementById('reason').textContent = plainReason(data.reason);

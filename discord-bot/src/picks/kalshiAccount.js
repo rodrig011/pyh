@@ -88,7 +88,12 @@ export async function readAccount(settings, path, { fetchImpl = globalThis.fetch
     });
     if (!response.ok) {
       const text = await response.text().catch(() => '');
-      return { body: null, error: `HTTP ${response.status}${text ? ` — ${text.slice(0, 300)}` : ''}`, url };
+      return {
+        body: null,
+        error: `HTTP ${response.status}${text ? ` — ${text.slice(0, 300)}` : ''}`,
+        status: response.status,
+        url,
+      };
     }
     return { body: await response.json(), error: null, url };
   } catch (error) {

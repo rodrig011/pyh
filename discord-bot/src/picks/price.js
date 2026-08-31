@@ -101,13 +101,42 @@ function officialKalshiCredentials(credentials) {
 
 /** Official index Kalshi uses for KXBTC15M settlement. Read-only by construction. */
 export async function fetchBrtiPrice(credentials, options = {}) {
-  if (!credentials) return { price: null, source: null, error: 'no Kalshi credentials configured' };
+  if (!credentials) {
+    return {
+      price: null,
+      source: 'kalshi-brti',
+      error: 'Kalshi BRTI: missing KALSHI_API_KEY_ID or KALSHI_PRIVATE_KEY',
+      errorCode: 'missing_credentials',
+    };
+  }
   const result = await readAccount(officialKalshiCredentials(credentials), '/cfbenchmarks/values?id=BRTI', options);
-  if (result.error) return { price: null, source: null, error: result.error };
+  if (result.error) {
+    const status = Number(result.status);
+    const errorCode = status === 401 || status === 403
+      ? 'not_entitled'
+      : status === 429
+        ? 'rate_limited'
+        : status === 503
+          ? 'upstream_unavailable'
+          : 'request_failed';
+    const guidance = errorCode === 'not_entitled'
+      ? 'Kalshi rejected BRTI access; verify the API key and ask Kalshi to enable the CF Benchmarks entitlement'
+      : errorCode === 'rate_limited'
+        ? 'Kalshi BRTI rate limit reached; wait before retrying'
+        : errorCode === 'upstream_unavailable'
+          ? 'Kalshi/CF Benchmarks BRTI is temporarily unavailable'
+          : `Kalshi BRTI request failed: ${result.error}`;
+    return { price: null, source: 'kalshi-brti', error: guidance, errorCode, httpStatus: status || null };
+  }
   const price = readBrti(result.body);
   return price > 0
     ? { price, source: 'kalshi-brti', at: options.now ?? Date.now(), problems: [] }
-    : { price: null, source: null, error: 'BRTI response contained no usable value' };
+    : {
+        price: null,
+        source: 'kalshi-brti',
+        error: 'Kalshi BRTI returned HTTP 200 but no usable value',
+        errorCode: 'invalid_response',
+      };
 }
 
 /** A price is only usable if it is a real positive number. */
@@ -138,8 +167,9 @@ export async function fetchSpotPrice(
   // Never synthesize the settlement index from constituent venues. Kalshi's
   // own BRTI feed is authoritative; exchanges below are only a labelled
   // fallback when the account lacks entitlement or the index is unavailable.
-  if (symbol === 'BTC' && kalshiCredentials) {
-    const brti = await fetchBrtiPrice(kalshiCredentials, { fetchImpl, timeoutMs });
+  let brti = null;
+  if (symbol === 'BTC' && (kalshiCredentials || !allowExchangeFallback)) {
+    brti = await fetchBrtiPrice(kalshiCredentials, { fetchImpl, timeoutMs });
     if (brti.price > 0) return brti;
     problems.push(`kalshi-brti: ${brti.error ?? 'unavailable'}`);
   }
@@ -148,10 +178,16 @@ export async function fetchSpotPrice(
   // while disagreeing by enough dollars to flip a close market, so the safe
   // default is no BTC prediction rather than silently changing the ruler.
   if (symbol === 'BTC' && !allowExchangeFallback) {
-    const error = kalshiCredentials
-      ? problems[0]
-      : 'kalshi-brti: no Kalshi credentials configured';
-    return { price: null, source: 'kalshi-brti', error, at: Date.now(), problems: [error] };
+    const error = brti.error ?? problems[0] ?? 'Kalshi BRTI unavailable';
+    return {
+      price: null,
+      source: 'kalshi-brti',
+      error,
+      errorCode: brti.errorCode ?? 'unavailable',
+      httpStatus: brti.httpStatus ?? null,
+      at: Date.now(),
+      problems: [error],
+    };
   }
 
   for (const source of sources) {
