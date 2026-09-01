@@ -349,15 +349,29 @@ test('the leaning is quoted with its OWN odds, not the other side\'s', () => {
   assert.ok(read.leaningWinProbability >= 0.5, `leaning quoted at ${read.leaningWinProbability}`);
 });
 
-test('no price target is offered when price is not the problem', () => {
-  // "Buy DOWN if it drops to 63%" — while DOWN traded at 40 and the actual
-  // refusal was an empty book. The edge was already there; a price target for
-  // a market blocked on liquidity is a contradiction in print.
+test('a strong edge can trade a thin book, but only with a warning', () => {
+  // Straight from the dashboard: model thinks the side is worth far more than
+  // Kalshi charges, but the book is thin. That should not print STAY OUT; it
+  // should print the call and warn that size has to be small.
   const read = directionalRead(
     market({
       marketPriceCents: 40,
       market: { yes_bid_dollars: '0.39', yes_ask_dollars: '0.41', liquidity_dollars: '2' },
     }),
+  );
+
+  assert.equal(read.tradeable, true);
+  assert.equal(read.result.liquidityWarning?.reason, 'thin_book');
+  assert.match(read.result.notes.join(' '), /Thin book/);
+});
+
+test('no price target is offered when thin liquidity is still the problem', () => {
+  const read = directionalRead(
+    market({
+      marketPriceCents: 40,
+      market: { yes_bid_dollars: '0.39', yes_ask_dollars: '0.41', liquidity_dollars: '2' },
+    }),
+    { thinBookMinimumNetEdgeCents: 100 },
   );
 
   assert.equal(read.tradeable, false);

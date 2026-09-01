@@ -174,6 +174,8 @@ export function dashboardPage(brandName) {
   .order-forced { font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--amber); border: 1px solid rgba(255,176,32,0.4); border-radius: 4px; padding: 1px 4px; }
   .order-right { font-weight: 600; white-space: nowrap; }
   .order-empty { color: var(--dim2); font-family: var(--mono); font-size: 11px; text-align: center; padding: 10px 0; }
+  .ledger-detail { color: var(--dim2); font-size: 10px; }
+  .ledger-note { color: var(--amber); font-family: var(--mono); font-size: 10px; padding: 6px 0 0; }
 
   .enter-row { display: flex; gap: 10px; margin-bottom: 12px; }
   .enterBtn {
@@ -654,6 +656,10 @@ export function dashboardPage(brandName) {
         <div class="section-head"><span class="section-title">Paper profiles — no real orders</span></div>
         <div class="order-list" id="paperProfiles"></div>
       </div>
+      <div class="section">
+        <div class="section-head"><span class="section-title">Paper trade ledger — latest audited closes</span></div>
+        <div class="order-list" id="paperLedger"></div>
+      </div>
       <div class="live-note" id="liveNote">Arming and disarming real money only happens in Discord — /picks live — never from this page, on purpose.</div>
     </div>
 
@@ -681,6 +687,11 @@ export function dashboardPage(brandName) {
   var lastRsiPoints = [];
 
   function fmtPct(p) { return Number.isFinite(p) ? Math.round(p * 100) + '%' : '—'; }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  }
   function fmtClock(s) {
     if (!Number.isFinite(s) || s < 0) return '—';
     var m = Math.floor(s / 60), sec = Math.floor(s % 60);
@@ -1241,21 +1252,57 @@ export function dashboardPage(brandName) {
 
   function paintPaperTrading(rows) {
     var list = document.getElementById('paperProfiles');
+    var ledger = document.getElementById('paperLedger');
     rows = rows || [];
     if (!rows.length) {
       list.innerHTML = '<div class="order-empty">Paper trading has not started.</div>';
+      ledger.innerHTML = '<div class="order-empty">No paper ledger yet.</div>';
       return;
     }
     list.innerHTML = rows.map(function (row) {
       var pct = Number.isFinite(row.returnPercent) ? (row.returnPercent >= 0 ? '+' : '') + row.returnPercent.toFixed(1) + '%' : '—';
       var cls = row.returnPercent > 0 ? 'up' : row.returnPercent < 0 ? 'down' : '';
+      var auditNote = row.trades > row.tradesAudited
+        ? '<span class="ledger-note">showing latest ' + row.tradesAudited + ' audited of ' + row.trades + ' lifetime</span>'
+        : '';
       return '<div class="order-row"><div class="order-left">' +
         '<span class="order-side">' + String(row.profile).toUpperCase() + '</span>' +
         '<span>$' + Number(row.bankroll || 0).toFixed(2) + '</span>' +
         '<span>' + row.wins + 'W ' + row.losses + 'L · ' + row.trades + ' lifetime trades · ' + row.openPositions + ' open</span>' +
         (row.benchmark ? '<span>Forced benchmark — not a bot signal or live strategy</span>' : '') +
+        auditNote +
         '</div><div class="order-right ' + cls + '">' + pct + '</div></div>';
     }).join('');
+
+    var lines = [];
+    rows.forEach(function (row) {
+      (row.recentTrades || []).forEach(function (t) {
+        var time = t.at ? new Date(t.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
+        var side = String(t.side || '—').toUpperCase();
+        var sideClass = t.side === 'up' ? 'up' : t.side === 'down' ? 'down' : '';
+        var profit = Number.isFinite(t.profit) ? (t.profit >= 0 ? '+' : '') + '$' + t.profit.toFixed(2) : '—';
+        var profitClass = t.profit > 0 ? 'up' : t.profit < 0 ? 'down' : '';
+        var price = (Number.isFinite(t.entryCents) ? Math.round(t.entryCents) + '¢' : '—') +
+          ' → ' + (Number.isFinite(t.exitCents) ? Math.round(t.exitCents) + '¢' : '—');
+        var strike = Number.isFinite(t.strike) ? '$' + Math.round(t.strike).toLocaleString('en-US') : '—';
+        var fees = Number.isFinite(t.fees) ? '$' + t.fees.toFixed(2) + ' fees' : 'fees —';
+        var reason = t.reason ? esc(t.reason).replace(/_/g, ' ') : 'closed';
+        lines.push('<div class="order-row">' +
+          '<div class="order-left">' +
+            '<span class="order-side">' + esc(row.profile).toUpperCase() + '</span>' +
+            '<span>' + time + '</span>' +
+            '<span class="order-side ' + sideClass + '">' + side + '</span>' +
+            '<span>' + price + '</span>' +
+            '<span class="ledger-detail">' + esc(t.ticker || '') + ' · ' + strike + ' · ' + (Number.isFinite(t.contracts) ? t.contracts + 'x' : '—') + ' · ' + fees + ' · ' + reason + '</span>' +
+            (t.forced ? '<span class="order-forced">forced</span>' : '') +
+          '</div>' +
+          '<div class="order-right ' + profitClass + '">' + profit + '</div>' +
+        '</div>');
+      });
+    });
+    ledger.innerHTML = lines.length
+      ? lines.slice(0, 30).join('')
+      : '<div class="order-empty">No closed paper trades audited yet.</div>';
   }
 
   function paintOrderFlow(flow) {
@@ -1390,7 +1437,16 @@ export function dashboardPage(brandName) {
       whaleEl.className = 'whale';
     }
 
-    document.getElementById('reason').textContent = [plainReason(data.reason), waitingText(data.waitingFor)].filter(Boolean).join(' ');
+    var warnings = [];
+    if (data.liquidityWarning && data.liquidityWarning.message) warnings.push(data.liquidityWarning.message);
+    (data.notes || []).forEach(function (note) {
+      if (note && warnings.indexOf(note) === -1) warnings.push(note);
+    });
+    document.getElementById('reason').textContent = [
+      plainReason(data.reason),
+      waitingText(data.waitingFor),
+      data.tradeable ? warnings.join(' ') : '',
+    ].filter(Boolean).join(' ');
     paintSource(data.priceSource, true);
     rawCandles = data.candles || [];
     rawVolume = data.volume || [];

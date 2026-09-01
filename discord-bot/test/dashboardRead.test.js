@@ -22,10 +22,57 @@ test('dashboard paper summary exposes bankroll, return, W/L, trades and open pos
       trades: [{ profit: 5 }, { profit: -2 }],
     },
   });
-  assert.deepEqual(rows[0], {
+  assert.deepEqual(
+    {
+      profile: rows[0].profile,
+      bankroll: rows[0].bankroll,
+      returnPercent: rows[0].returnPercent,
+      wins: rows[0].wins,
+      losses: rows[0].losses,
+      trades: rows[0].trades,
+      openPositions: rows[0].openPositions,
+    },
+    {
     profile: 'careful', bankroll: 103, returnPercent: 3,
     wins: 1, losses: 1, trades: 2, openPositions: 0,
+    },
+  );
+  assert.equal(rows[0].tradesAudited, 2);
+  assert.equal(rows[0].netProfit, 3);
+  assert.equal(rows[0].recentTrades.length, 2);
+});
+
+test('dashboard paper summary carries the full audited paper ledger newest first', () => {
+  const trades = Array.from({ length: 25 }, (_, i) => ({
+    ticker: `K-${i}`,
+    side: i % 2 ? 'down' : 'up',
+    strike: 65_000 + i,
+    entryCents: 40,
+    exitCents: i % 2 ? 0 : 100,
+    contracts: 1,
+    cost: 0.42,
+    proceeds: i % 2 ? 0 : 1,
+    fees: 0.02,
+    profit: i % 2 ? -0.42 : 0.58,
+    reason: 'settled',
+    at: i,
+  }));
+  const rows = paperSummary({
+    always: {
+      start: 100,
+      cash: 100,
+      position: null,
+      trades,
+      tradeStats: { total: 25, wins: 13, losses: 12, breakEven: 0, netProfit: 2.3 },
+      profile: 'always',
+    },
   });
+
+  assert.equal(rows[0].benchmark, true);
+  assert.equal(rows[0].tradesAudited, 25);
+  assert.equal(rows[0].recentTrades.length, 25);
+  assert.equal(rows[0].recentTrades[0].ticker, 'K-24');
+  assert.equal(rows[0].recentTrades.at(-1).ticker, 'K-0');
 });
 
 function board(cents, strike, closesAt) {

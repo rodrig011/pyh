@@ -57,6 +57,11 @@ export const DEFAULTS = {
   minimumWorstCaseEdgeCents: 2,
   maximumSpreadCents: 3,
   minimumLiquidityDollars: 25,
+  // Thin books are dangerous, but they are not the same thing as "no trade" in
+  // a binary market when the quoted side is wildly mispriced. Below this net
+  // edge the book stays a hard block; above it the call can print with a small-
+  // size warning so a genuine 80-cent gap does not get hidden behind liquidity.
+  thinBookMinimumNetEdgeCents: 12,
   minimumSecondsLeft: 45,
   // Above this price, a win pays too little to be worth the risk of a loss.
   maximumEntryCents: 92,
@@ -295,7 +300,13 @@ export function evaluate(input, options = {}) {
     book.liquidityDollars !== null &&
     book.liquidityDollars < config.minimumLiquidityDollars
   ) {
-    return skip('thin_book', read);
+    const hasSomeDepth = book.liquidityDollars > 0;
+    const spreadOk = book.spreadCents === null || book.spreadCents <= config.maximumSpreadCents;
+    const edgeOverridesThinBook = spreadOk && best.cost.netCents >= config.thinBookMinimumNetEdgeCents;
+    if (!hasSomeDepth || !edgeOverridesThinBook) return skip('thin_book', read);
+    notes.push(
+      `Thin book (${book.liquidityDollars.toFixed(0)} dollars resting) — edge is strong, but size small`,
+    );
   }
 
   const flow = largePrints(trades);
@@ -337,6 +348,15 @@ export function evaluate(input, options = {}) {
     distanceSigma: distanceInSigma(price, strike, sigma),
     secondsLeft,
     book,
+    liquidityWarning:
+      book.liquidityDollars !== null && book.liquidityDollars < config.minimumLiquidityDollars
+        ? {
+            reason: 'thin_book',
+            liquidityDollars: book.liquidityDollars,
+            minimumLiquidityDollars: config.minimumLiquidityDollars,
+            message: 'Thin book: use small size; the price can move against you.',
+          }
+        : null,
     flow,
     chart,
     chartAgreement: read.chartAgreement,

@@ -194,6 +194,40 @@ test('an empty book kills a real edge', () => {
   assert.equal(result.reason, 'thin_book');
 });
 
+test('a very strong edge can clear a thin but non-empty book with a warning', () => {
+  const prices = walk(65000, 40, 0.0004);
+  const result = evaluate({
+    prices,
+    spot: 65120,
+    strike: 65000,
+    marketPriceCents: 40,
+    secondsLeft: 300,
+    market: { yes_bid_dollars: '0.39', yes_ask_dollars: '0.40', liquidity_dollars: '2' },
+  });
+
+  assert.equal(result.verdict, VERDICTS.UP);
+  assert.equal(result.liquidityWarning.reason, 'thin_book');
+  assert.match(result.notes.join(' '), /Thin book/);
+});
+
+test('a weak edge is still blocked on a thin book', () => {
+  const prices = walk(65000, 40, 0.0004);
+  const result = evaluate(
+    {
+      prices,
+      spot: 65120,
+      strike: 65000,
+      marketPriceCents: 40,
+      secondsLeft: 300,
+      market: { yes_bid_dollars: '0.39', yes_ask_dollars: '0.40', liquidity_dollars: '2' },
+    },
+    { thinBookMinimumNetEdgeCents: 100 },
+  );
+
+  assert.equal(result.verdict, VERDICTS.SKIP);
+  assert.equal(result.reason, 'thin_book');
+});
+
 test('a market that pays almost nothing is refused however right it is', () => {
   const result = evaluate({
     prices: walk(65000, 40, 0.0004),

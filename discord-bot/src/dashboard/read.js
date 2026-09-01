@@ -120,6 +120,7 @@ export function paperSummary(accounts, marks = {}) {
   return Object.entries(accounts ?? {}).map(([profile, account]) => {
     const value = equity(account, marks[profile] ?? null);
     const stats = lifetimeStats(account);
+    const audited = account.trades ?? [];
     return {
       profile,
       bankroll: value,
@@ -127,7 +128,28 @@ export function paperSummary(accounts, marks = {}) {
       wins: stats.wins,
       losses: stats.losses,
       trades: stats.total,
+      tradesAudited: audited.length,
+      netProfit: stats.netProfit,
       openPositions: account.position ? 1 : 0,
+      recentTrades: audited.slice().reverse().map((trade) => ({
+        ticker: trade.ticker ?? null,
+        side: trade.side ?? null,
+        strike: trade.strike ?? null,
+        entryCents: trade.entryCents ?? null,
+        exitCents: trade.exitCents ?? null,
+        contracts: trade.contracts ?? null,
+        cost: trade.cost ?? null,
+        proceeds: trade.proceeds ?? null,
+        fees: trade.fees ?? null,
+        profit: trade.profit ?? null,
+        reason: trade.reason ?? null,
+        forced: Boolean(trade.forced),
+        openedAt: trade.openedAt ?? null,
+        at: trade.at ?? null,
+        durationMs: trade.durationMs ?? null,
+        settlementPrice: trade.settlementPrice ?? null,
+        settlementSource: trade.settlementSource ?? null,
+      })),
       ...(profile === 'always' ? { benchmark: true } : {}),
     };
   });
@@ -458,6 +480,8 @@ export async function computeRead(
     marketWinProbability: read.marketWinProbability,
     valueCents: read.valueCents,
     entryCents: read.entryCents ?? null,
+    liquidityWarning: read.result?.liquidityWarning ?? null,
+    notes: read.result?.notes ?? [],
     reason: read.tradeable ? null : (read.result?.explain ?? read.reason),
     flipProbability: flip,
     whales: whales && whales.count > 0 ? { ...whales, line: whaleLine(whales) } : null,
