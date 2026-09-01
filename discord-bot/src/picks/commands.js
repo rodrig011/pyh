@@ -13,7 +13,7 @@ import { measureEdge } from '../signals/measure.js';
 import { readBoard, nearestTheMoney, censusLine } from '../signals/board.js';
 import { scalpPlan } from '../signals/scalpTarget.js';
 import { historyQuality } from '../signals/collector.js';
-import { newRiskState, riskSummary } from './riskLimits.js';
+import { checkTrade, newRiskState, riskSummary } from './riskLimits.js';
 import { addWatch, makeWatch, removeWatches } from './watch.js';
 import {
   PROFILES,
@@ -94,6 +94,7 @@ import {
   planPublication,
   sizePercentOf,
 } from './kalshiAccount.js';
+import { orderRecord, placeOrder } from './kalshiOrders.js';
 import { createLogger } from '../lib/logger.js';
 import { sendLog } from '../vip/notify.js';
 import {
@@ -356,6 +357,8 @@ export function buildPickCommands(config) {
               { name: 'disarm — stop taking new trades', value: 'disarm' },
               { name: 'kill — stop everything now', value: 'kill' },
               { name: 'resume — clear a kill', value: 'resume' },
+              { name: 'approve — send the pending ALWAYS proposal', value: 'approve' },
+              { name: 'reject — discard the pending ALWAYS proposal', value: 'reject' },
             ),
         )
         .addNumberOption((option) =>
@@ -1271,8 +1274,104 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
     const profileName = state.profile ?? trading.profile ?? 'careful';
     const activeProfile = liveProfileOf(profileName);
 
+    if (action === 'reject') {
+      if (!state.pendingApproval) return interaction.editReply('There is no pending live proposal.');
+      store.putRiskState({ ...state, pendingApproval: null });
+      return interaction.editReply('Pending live proposal rejected. No order was sent.');
+    }
+
+    if (action === 'approve') {
+      const pending = state.pendingApproval;
+      const now = Date.now();
+      if (!pending) return interaction.editReply('There is no pending live proposal.');
+      if (!(pending.expiresAt > now)) {
+        store.putRiskState({ ...state, pendingApproval: null });
+        return interaction.editReply('That proposal expired. No order was sent; wait for a fresh quote.');
+      }
+      if (!hasCredentials(trading)) {
+        return interaction.editReply('No trading credentials are configured. No order was sent.');
+      }
+
+      const orders = store.listTradeOrders();
+      const check = checkTrade({
+        state,
+        orders,
+        wantDollars: pending.wantDollars,
+        hasCredentials: true,
+        openPosition: state.position ?? null,
+        secondsLeft: (pending.closesAt - now) / 1000,
+        now,
+        forced: true,
+        forceLossLimitDollars: Number.isFinite(Number(trading.forceLossLimitDollars))
+          ? Number(trading.forceLossLimitDollars)
+          : null,
+      });
+      if (!check.allowed) {
+        return interaction.editReply(`Order blocked by the live rails: ${check.why}`);
+      }
+
+      const contracts = Math.min(
+        pending.contracts,
+        Math.floor(check.dollars / (pending.limitCents / 100)),
+      );
+      if (contracts < 1) return interaction.editReply('The approved budget no longer buys one contract.');
+
+      const sendOrder = deps.placeOrder ?? placeOrder;
+      const result = await sendOrder(
+        trading,
+        {
+          ticker: pending.ticker,
+          side: pending.side === 'up' ? 'yes' : 'no',
+          contracts,
+          limitCents: pending.limitCents,
+          action: 'buy',
+        },
+        { now },
+      );
+      const record = orderRecord({
+        ticker: pending.ticker,
+        side: pending.side === 'up' ? 'yes' : 'no',
+        contracts,
+        limitCents: pending.limitCents,
+        result,
+        at: now,
+        forced: true,
+        reason: `manually approved ALWAYS proposal — model ${Math.round(
+          pending.modelProbability * 100,
+        )}% vs market ${Math.round(pending.marketProbability * 100)}%`,
+      });
+      store.appendTradeOrder(record);
+
+      const nextState = { ...state, pendingApproval: null };
+      if (result.status === 'placed') {
+        nextState.position = {
+          ticker: pending.ticker,
+          side: pending.side,
+          entryCents: pending.limitCents,
+          contracts,
+          strike: pending.strike,
+          costDollars: record.costDollars,
+          clientOrderId: record.clientOrderId,
+          at: now,
+        };
+      }
+      store.putRiskState(nextState);
+      return interaction.editReply(
+        result.status === 'placed'
+          ? `REAL ORDER SENT: ${contracts} ${pending.side.toUpperCase()} at ${pending.limitCents}¢. ` +
+            `Maximum entry cost $${record.costDollars.toFixed(2)}.`
+          : `Order ${result.status}. ${result.error ?? 'No fill was confirmed.'}`,
+      );
+    }
+
     if (action === 'kill') {
-      store.putRiskState({ ...state, armed: false, killed: true, killedReason: `by ${interaction.user.tag}` });
+      store.putRiskState({
+        ...state,
+        armed: false,
+        killed: true,
+        killedReason: `by ${interaction.user.tag}`,
+        pendingApproval: null,
+      });
       return interaction.editReply(
         '🛑 **KILLED.** No new orders, and nothing will re-arm by itself. `resume` clears it.',
       );
@@ -1284,7 +1383,7 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
     }
 
     if (action === 'disarm') {
-      store.putRiskState({ ...state, armed: false });
+      store.putRiskState({ ...state, armed: false, pendingApproval: null });
       return interaction.editReply('🔕 **Disarmed.** No new trades. Anything already open is left alone.');
     }
 
@@ -1347,9 +1446,13 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
         state.position
           ? `\nHolding **${state.position.contracts} ${state.position.side.toUpperCase()}** at **${state.position.entryCents}%**.`
           : '\n_Flat._',
+        state.pendingApproval
+          ? `Pending approval: **${state.pendingApproval.side.toUpperCase()} ${state.pendingApproval.limitCents}¢** ` +
+            `(${state.pendingApproval.contracts} contracts). Use \`/picks live action:approve\` or \`reject\`.`
+          : null,
         '',
         hasCredentials(trading) ? '_Credentials configured._' : '⚠️ _No trading credentials on the host._',
-      ].join('\n'),
+      ].filter((line) => line !== null).join('\n'),
     );
   }
 

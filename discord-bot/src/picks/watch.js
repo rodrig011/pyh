@@ -27,6 +27,7 @@ import { hasCredentials } from './kalshiAccount.js';
 import { orderRecord } from './kalshiOrders.js';
 import { checkTrade } from './riskLimits.js';
 import { recommendSize } from '../signals/sizing.js';
+import { leastBadCandidate } from './forceTrade.js';
 
 /**
  * Watching a position somebody actually holds, and telling them when to leave.
@@ -711,6 +712,58 @@ export async function sweepLiveTrading(client, store, config, deps = {}) {
     const forced = false;
     const forcedWhy = null;
 
+    if (!best && (state.profile ?? trading.profile) === 'always') {
+      const candidate = leastBadCandidate(ladder.reads);
+      if (!candidate) return { traded: false };
+
+      const existing = state.pendingApproval;
+      if (existing?.expiresAt > now && existing.ticker === candidate.ticker) {
+        return { traded: false, pending: true };
+      }
+
+      const wantDollars = Number(trading.forceTradeDollars) || 2;
+      const check = checkTrade({
+        state,
+        orders,
+        wantDollars,
+        hasCredentials: true,
+        openPosition: null,
+        secondsLeft: context.secondsLeft,
+        now,
+        forced: true,
+        forceLossLimitDollars: Number.isFinite(Number(trading.forceLossLimitDollars))
+          ? Number(trading.forceLossLimitDollars)
+          : null,
+      });
+      if (!check.allowed) return { traded: false, blocked: check.blocked };
+
+      const limitCents = Math.round(candidate.read.entryCents);
+      const contracts = Math.floor(check.dollars / (limitCents / 100));
+      if (contracts < 1) return { traded: false, reason: 'stake buys no contracts' };
+
+      const closesAt = closeTimeOf(candidate.market);
+      const expiresAt = Math.min(now + 60_000, closesAt - 5_000);
+      if (!(expiresAt > now)) return { traded: false, reason: 'approval window too short' };
+
+      const pendingApproval = {
+        ticker: candidate.ticker,
+        side: candidate.read.call,
+        strike: candidate.strike,
+        limitCents,
+        contracts,
+        wantDollars: check.dollars,
+        modelProbability: candidate.read.winProbability,
+        marketProbability: candidate.read.marketWinProbability,
+        netEdgeCents: candidate.read.netEdgeCents,
+        closesAt,
+        createdAt: now,
+        expiresAt,
+      };
+      store.putRiskState({ ...state, pendingApproval });
+      await tellOwner(client, trading, pendingApprovalMessage(pendingApproval), log);
+      return { traded: false, pending: true };
+    }
+
     if (!best) return { traded: false };
 
     const sized = forced
@@ -937,6 +990,20 @@ function liveTradeMessage({ record, check, read, asset, forced = false, forcedWh
     '',
     '_A limit order at that price — it cannot have filled worse._',
     '_`/picks live kill` stops everything, now._',
+  ].join('\n');
+}
+
+function pendingApprovalMessage(pending) {
+  const feeEstimate = pending.contracts * 0.07 * pending.limitCents / 100 * (1 - pending.limitCents / 100);
+  const maximumCost = pending.contracts * pending.limitCents / 100 + feeEstimate;
+  return [
+    `PENDING ALWAYS PROPOSAL — ${pending.side.toUpperCase()} at ${pending.limitCents}¢`,
+    `${pending.contracts} contracts · estimated entry $${maximumCost.toFixed(2)} including fees`,
+    `Model ${Math.round(pending.modelProbability * 100)}% vs market ${Math.round(
+      pending.marketProbability * 100,
+    )}% · net edge ${Number(pending.netEdgeCents).toFixed(1)}¢`,
+    `Maximum loss: $${maximumCost.toFixed(2)}. This did not clear the live signal profile.`,
+    'Approve before it expires with `/picks live action:approve`, or discard it with `action:reject`.',
   ].join('\n');
 }
 

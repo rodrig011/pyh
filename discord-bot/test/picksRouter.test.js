@@ -1304,6 +1304,80 @@ test('live profile can be selected in Discord and persists for the trading loop'
   assert.match(interaction.replies.at(-1), /Profile: \*\*scalp\*\*/);
 });
 
+test('only an explicit owner approval sends a pending ALWAYS proposal', async () => {
+  const store = freshStore();
+  const now = Date.now();
+  store.putRiskState({
+    ...newRiskState({ profile: 'always' }),
+    armed: true,
+    pendingApproval: {
+      ticker: 'KXBTC15M-PENDING',
+      side: 'down',
+      strike: 77_000,
+      limitCents: 40,
+      contracts: 5,
+      wantDollars: 2,
+      modelProbability: 0.48,
+      marketProbability: 0.6,
+      netEdgeCents: -12,
+      closesAt: now + 5 * 60_000,
+      createdAt: now,
+      expiresAt: now + 60_000,
+    },
+  });
+  const config = {
+    ...liveConfig,
+    picks: {
+      ...liveConfig.picks,
+      kalshi: {
+        ...liveConfig.picks.kalshi,
+        trading: {
+          ...liveConfig.picks.kalshi.trading,
+          ownerId: 'mod',
+          keyId: 'k',
+          privateKeyPem: 'p',
+        },
+      },
+    },
+  };
+  let sends = 0;
+  const interaction = fakeInteraction('live', { action: 'approve' });
+
+  await handlePicks(interaction, {
+    store,
+    config,
+    deps: {
+      placeOrder: async () => {
+        sends += 1;
+        return { status: 'placed', order: { order_id: 'approved-1', client_order_id: 'client-1' } };
+      },
+    },
+  });
+
+  assert.equal(sends, 1);
+  assert.equal(store.listTradeOrders().length, 1);
+  assert.equal(store.listTradeOrders()[0].forced, true);
+  assert.equal(store.riskState().pendingApproval, null);
+  assert.equal(store.riskState().position.ticker, 'KXBTC15M-PENDING');
+  assert.match(interaction.replies.at(-1), /REAL ORDER SENT/);
+});
+
+test('rejecting a pending ALWAYS proposal sends no order', async () => {
+  const store = freshStore();
+  store.putRiskState({
+    ...newRiskState({ profile: 'always' }),
+    armed: true,
+    pendingApproval: { ticker: 'KXBTC15M-PENDING', expiresAt: Date.now() + 60_000 },
+  });
+  const interaction = fakeInteraction('live', { action: 'reject' });
+
+  await handlePicks(interaction, { store, config: liveConfig });
+
+  assert.equal(store.riskState().pendingApproval, null);
+  assert.equal(store.listTradeOrders().length, 0);
+  assert.match(interaction.replies.at(-1), /No order was sent/);
+});
+
 test('arming with the default profile carries none of the always-mode warning', async () => {
   const store = freshStore();
   const config = {
