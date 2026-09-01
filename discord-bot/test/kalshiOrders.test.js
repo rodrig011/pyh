@@ -105,6 +105,7 @@ test('nonsense never becomes an order', () => {
   assert.ok(buildOrder({ ticker: 'T', side: 'sideways', contracts: 1, limitCents: 40 }).error);
   assert.ok(buildOrder({ ticker: 'T', side: 'yes', contracts: 0, limitCents: 40 }).error);
   assert.ok(buildOrder({ ticker: 'T', side: 'yes', contracts: 1, limitCents: NaN }).error);
+  assert.ok(buildOrder({ ticker: 'T', side: 'yes', contracts: 1, limitCents: 40, exchangeIndex: -1 }).error);
 });
 
 test('there is a hard cap on contracts no caller can talk it out of', () => {
@@ -145,7 +146,7 @@ test('a placed order is signed and sent to the current V2 path, and reads back t
   let sentBody = null;
   const result = await placeOrder(
     creds2,
-    { ticker: 'KXBTC-1', side: 'no', contracts: 3, limitCents: 33, action: 'buy' },
+    { ticker: 'KXBTC-1', side: 'no', contracts: 3, limitCents: 33, exchangeIndex: 7, action: 'buy' },
     {
       fetchImpl: async (url, init) => {
         requestedUrl = url;
@@ -167,7 +168,7 @@ test('a placed order is signed and sent to the current V2 path, and reads back t
   // 400 with no explanation the first time this endpoint was hit live.
   assert.equal(sentBody.count, '3.00');
   assert.equal(typeof sentBody.count, 'string');
-  assert.equal(sentBody.exchange_index, 0);
+  assert.equal(sentBody.exchange_index, 7);
   // REQUIRED by the exchange — a reference client's own source comment
   // names this exact field as the cause of "400 missing_parameters" when
   // it is left out, which is precisely the second real rejection this bot

@@ -67,6 +67,7 @@ test('always turns a model-refused market into an expiring approval, not an orde
   const store = fakeStore({ profile: 'always', samples });
   const market = {
     ticker: 'KXBTC15M-TEST',
+    exchange_index: 6,
     floor_strike: 65_000,
     status: 'active',
     close_time: '2026-09-01T20:07:00Z',
@@ -84,5 +85,6 @@ test('always turns a model-refused market into an expiring approval, not an orde
 
   assert.deepEqual(result, { traded: false, pending: true });
   assert.equal(store.riskState().pendingApproval.ticker, market.ticker);
+  assert.equal(store.riskState().pendingApproval.exchangeIndex, 6);
   assert.equal(store.listTradeOrders().length, 0);
 });

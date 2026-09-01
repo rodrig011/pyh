@@ -37,6 +37,7 @@ function candidate(yesBidDollars, yesAskDollars) {
     price: Math.round(yesBidDollars * 100),
     market: {
       ticker: TICKER,
+      exchange_index: 9,
       floor_strike: STRIKE,
       status: 'active',
       close_time: new Date(Date.now() + SECONDS_LEFT * 1000).toISOString(),
@@ -50,6 +51,7 @@ function candidate(yesBidDollars, yesAskDollars) {
 function held(overrides = {}) {
   return {
     ticker: TICKER,
+    exchangeIndex: 9,
     side: 'up',
     entryCents: 50,
     contracts: 10,
@@ -125,6 +127,7 @@ test('a position up 20% sells on the take-profit override, not the model', async
   assert.equal(result.traded, true);
   assert.equal(result.exit, true);
   assert.equal(placed[0].limitCents, 60);
+  assert.equal(placed[0].exchangeIndex, 9);
   const [order] = store.listTradeOrders();
   assert.equal(order.profitDollars, 1);
   assert.equal(store.riskState().position, null);

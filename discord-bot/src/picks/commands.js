@@ -1321,6 +1321,7 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
         trading,
         {
           ticker: pending.ticker,
+          exchangeIndex: pending.exchangeIndex ?? 0,
           side: pending.side === 'up' ? 'yes' : 'no',
           contracts,
           limitCents: pending.limitCents,
@@ -1346,6 +1347,7 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
       if (result.status === 'placed') {
         nextState.position = {
           ticker: pending.ticker,
+          exchangeIndex: pending.exchangeIndex ?? 0,
           side: pending.side,
           entryCents: pending.limitCents,
           contracts,

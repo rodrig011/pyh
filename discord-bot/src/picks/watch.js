@@ -747,6 +747,7 @@ export async function sweepLiveTrading(client, store, config, deps = {}) {
 
       const pendingApproval = {
         ticker: candidate.ticker,
+        exchangeIndex: candidate.market?.exchange_index ?? 0,
         side: candidate.read.call,
         strike: candidate.strike,
         limitCents,
@@ -804,6 +805,7 @@ export async function sweepLiveTrading(client, store, config, deps = {}) {
       trading,
       {
         ticker: best.ticker,
+        exchangeIndex: best.market?.exchange_index ?? 0,
         side: best.read.call === 'up' ? 'yes' : 'no',
         contracts,
         limitCents,
@@ -837,6 +839,7 @@ export async function sweepLiveTrading(client, store, config, deps = {}) {
         ...state,
         position: {
           ticker: best.ticker,
+          exchangeIndex: best.market?.exchange_index ?? 0,
           side: best.read.call,
           entryCents: limitCents,
           contracts,
@@ -931,6 +934,7 @@ async function liveExit(client, store, config, { held, candidates, context, plac
     trading,
     {
       ticker: held.ticker,
+      exchangeIndex: mine.market?.exchange_index ?? held.exchangeIndex ?? 0,
       side: held.side === 'up' ? 'yes' : 'no',
       contracts: held.contracts,
       limitCents: Math.round(heldBid),

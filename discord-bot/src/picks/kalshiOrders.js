@@ -72,6 +72,7 @@ export function buildOrder({
   side,
   contracts,
   limitCents,
+  exchangeIndex = 0,
   clientOrderId = null,
   action = 'buy',
 }) {
@@ -82,6 +83,11 @@ export function buildOrder({
   const count = Math.floor(Number(contracts));
   if (!(count >= 1)) return { order: null, error: 'no contracts' };
   if (count > MAXIMUM_CONTRACTS) return { order: null, error: `${count} contracts is over the cap` };
+
+  const marketExchangeIndex = Number(exchangeIndex);
+  if (!Number.isInteger(marketExchangeIndex) || marketExchangeIndex < 0) {
+    return { order: null, error: `bad exchange index: ${exchangeIndex}` };
+  }
 
   const priceCents = Math.round(Number(limitCents));
   // A price of 0 or 100 is not a limit, it is a market order in disguise.
@@ -119,10 +125,10 @@ export function buildOrder({
       // self-cross should never actually happen, but the field still has to
       // be present.
       self_trade_prevention_type: 'maker',
-      // Present in every example request found, always 0 for a standard
-      // account — omitting a field the schema may require silently is how
-      // the last 400 happened with no error text explaining why.
-      exchange_index: 0,
+      // Markets are sharded by exchange_index. This must be copied from the
+      // selected market; forcing every ticker onto shard 0 makes a perfectly
+      // valid ticker look nonexistent and Kalshi answers 404.
+      exchange_index: marketExchangeIndex,
       // The same logical order retried is the same order, not a second one.
       client_order_id: clientOrderId ?? randomUUID(),
     },
@@ -164,14 +170,22 @@ export function errorDetail(body) {
  */
 export async function placeOrder(
   settings,
-  { ticker, side, contracts, limitCents, clientOrderId = null, action = 'buy' },
+  { ticker, side, contracts, limitCents, exchangeIndex = 0, clientOrderId = null, action = 'buy' },
   { fetchImpl = globalThis.fetch, timeoutMs = 8000, now = Date.now() } = {},
 ) {
   if (!hasCredentials(settings)) {
     return { status: 'rejected', error: 'no trading credentials configured', order: null };
   }
 
-  const { order, error } = buildOrder({ ticker, side, contracts, limitCents, clientOrderId, action });
+  const { order, error } = buildOrder({
+    ticker,
+    side,
+    contracts,
+    limitCents,
+    exchangeIndex,
+    clientOrderId,
+    action,
+  });
   if (error) return { status: 'rejected', error, order: null };
 
   const path = '/portfolio/events/orders';

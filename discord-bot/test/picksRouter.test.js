@@ -1312,6 +1312,7 @@ test('only an explicit owner approval sends a pending ALWAYS proposal', async ()
     armed: true,
     pendingApproval: {
       ticker: 'KXBTC15M-PENDING',
+      exchangeIndex: 4,
       side: 'down',
       strike: 77_000,
       limitCents: 40,
@@ -1341,24 +1342,28 @@ test('only an explicit owner approval sends a pending ALWAYS proposal', async ()
     },
   };
   let sends = 0;
+  let sentOrder = null;
   const interaction = fakeInteraction('live', { action: 'approve' });
 
   await handlePicks(interaction, {
     store,
     config,
     deps: {
-      placeOrder: async () => {
+      placeOrder: async (_settings, order) => {
         sends += 1;
+        sentOrder = order;
         return { status: 'placed', order: { order_id: 'approved-1', client_order_id: 'client-1' } };
       },
     },
   });
 
   assert.equal(sends, 1);
+  assert.equal(sentOrder.exchangeIndex, 4);
   assert.equal(store.listTradeOrders().length, 1);
   assert.equal(store.listTradeOrders()[0].forced, true);
   assert.equal(store.riskState().pendingApproval, null);
   assert.equal(store.riskState().position.ticker, 'KXBTC15M-PENDING');
+  assert.equal(store.riskState().position.exchangeIndex, 4);
   assert.match(interaction.replies.at(-1), /REAL ORDER SENT/);
 });
 
