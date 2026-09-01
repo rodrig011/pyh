@@ -657,7 +657,7 @@ export function dashboardPage(brandName) {
         <div class="order-list" id="paperProfiles"></div>
       </div>
       <div class="section">
-        <div class="section-head"><span class="section-title">Paper trade ledger — latest audited closes</span></div>
+        <div class="section-head"><span class="section-title">Paper trade ledger — audited closes</span></div>
         <div class="order-list" id="paperLedger"></div>
       </div>
       <div class="live-note" id="liveNote">Arming and disarming real money only happens in Discord — /picks live — never from this page, on purpose.</div>
@@ -1301,7 +1301,7 @@ export function dashboardPage(brandName) {
       });
     });
     ledger.innerHTML = lines.length
-      ? lines.slice(0, 30).join('')
+      ? lines.join('')
       : '<div class="order-empty">No closed paper trades audited yet.</div>';
   }
 
