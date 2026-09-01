@@ -304,14 +304,9 @@ export function loadVipConfig() {
           ownerId: str('KALSHI_TRADING_OWNER_ID'),
           // The whole day's budget, in dollars. A ceiling, not a target.
           dailyLimitDollars: Number.parseFloat(str('KALSHI_DAILY_LIMIT', '20')),
-          // Which of paper.js's PROFILES the live engine trades with —
-          // 'careful' (default), 'scalp', or 'always'. This changes how OFTEN
-          // it trades and how BIG, never the daily dollar ceiling above or
-          // the circuit breaker: those are the limit this profile is not
-          // allowed to touch. 'always' is the one that trades every window
-          // with no edge required at all — real money, on purpose, to
-          // measure it — and it is the only profile the forced-loss limit
-          // below exists for.
+          // Default live signal profile. Discord can persist an override in
+          // the risk state. Live `always` considers every model-approved
+          // opportunity; only the paper benchmark can force an entry.
           profile: str('KALSHI_TRADING_PROFILE', 'careful'),
           // A minimum ACTIVITY floor, off by default. When set, if fewer than
           // this many orders were placed in the trailing window, the next flat

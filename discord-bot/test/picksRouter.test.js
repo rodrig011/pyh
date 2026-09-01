@@ -1271,7 +1271,7 @@ test('arming is refused without trading credentials on the host', async () => {
   assert.notEqual(store.riskState()?.armed, true);
 });
 
-test('arming with always mode is refused because forced profiles are paper-only', async () => {
+test('arming with always uses the live signal-only variant', async () => {
   const store = freshStore();
   const config = {
     ...liveConfig,
@@ -1287,15 +1287,21 @@ test('arming with always mode is refused because forced profiles are paper-only'
   const interaction = fakeInteraction('live', { action: 'arm' });
   await handlePicks(interaction, { store, config });
 
-  assert.notEqual(store.riskState()?.armed, true);
+  assert.equal(store.riskState()?.armed, true);
   const reply = interaction.replies.at(-1);
-  // discord.js rejects anything that is not a real string with "Cannot send
-  // an empty message" — a JS array happens to stringify into something
-  // String() and a regex will still match, which is exactly how a broken
-  // .filter(...) missing its .join('\n') slipped through here once already.
   assert.equal(typeof reply, 'string');
-  assert.match(reply, /Live trading refused/);
-  assert.match(reply, /paper-only/);
+  assert.match(reply, /always \(approved signals\)/);
+  assert.match(reply, /no forced entries/);
+});
+
+test('live profile can be selected in Discord and persists for the trading loop', async () => {
+  const store = freshStore();
+  const interaction = fakeInteraction('live', { profile: 'scalp' });
+
+  await handlePicks(interaction, { store, config: liveConfig });
+
+  assert.equal(store.riskState()?.profile, 'scalp');
+  assert.match(interaction.replies.at(-1), /Profile: \*\*scalp\*\*/);
 });
 
 test('arming with the default profile carries none of the always-mode warning', async () => {
@@ -1409,8 +1415,8 @@ test('status names the active trading profile — "armed but nothing traded" is 
 
   const reply = interaction.replies.at(-1);
   assert.equal(typeof reply, 'string');
-  assert.match(reply, /Profile: \*\*always\*\*/);
-  assert.match(reply, /forces every window/);
+  assert.match(reply, /Profile: \*\*always \(approved signals\)\*\*/);
+  assert.match(reply, /no forced entries/);
 });
 
 test('status defaults to careful and says so, when no profile is configured at all', async () => {

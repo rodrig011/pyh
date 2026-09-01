@@ -12,7 +12,16 @@ import {
   shouldAlertWhale,
   whaleAlertMessage,
 } from './signalPanel.js';
-import { PROFILES, compareReport, newAccount, paperTick, report, reportDue, equity } from './paper.js';
+import {
+  PROFILES,
+  compareReport,
+  newAccount,
+  paperTick,
+  report,
+  reportDue,
+  equity,
+  liveProfileOf,
+} from './paper.js';
 import { closeTimeOf } from './kalshi.js';
 import { hasCredentials } from './kalshiAccount.js';
 import { orderRecord } from './kalshiOrders.js';
@@ -651,10 +660,10 @@ export async function sweepLiveTrading(client, store, config, deps = {}) {
   // same as the paper account of that name. Never the dollar ceiling or the
   // circuit breaker below: those come from state and checkTrade, not from
   // here, and this profile has no way to touch them.
-  const profile = PROFILES[trading.profile] ?? PROFILES.careful;
-  // Forced profiles are useful controls in paper and actively misleading with
-  // real money. Live may only execute a signal that cleared the model itself.
-  if (profile.forceEveryWindow || Number(trading.forceTradesPerWindow) > 0) {
+  const profile = liveProfileOf(state.profile ?? trading.profile);
+  // Activity quotas remain paper-only. Every live profile, including always,
+  // only reaches an order after readBoard returns a model-approved candidate.
+  if (Number(trading.forceTradesPerWindow) > 0) {
     return { traded: false, blocked: 'forced_live_disabled' };
   }
 

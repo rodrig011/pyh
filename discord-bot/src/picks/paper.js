@@ -113,6 +113,31 @@ export const PROFILES = {
   },
 };
 
+/**
+ * Profiles available to the real-time signal loop. `always` keeps its useful
+ * meaning there — consider every model-approved opportunity — without
+ * inheriting the paper benchmark's forced-entry bypass.
+ */
+export const LIVE_PROFILES = {
+  careful: PROFILES.careful,
+  scalp: PROFILES.scalp,
+  always: {
+    label: 'always (approved signals)',
+    engine: {
+      minimumEdgeCents: 0.01,
+      minimumWorstCaseEdgeCents: 0,
+      minimumSecondsLeft: 10,
+    },
+    sizing: { kellyFraction: 0.25, maximumFraction: 0.05 },
+    scalp: { marginCents: 0.25, noEntryWithinSeconds: 30 },
+    liveSignalsOnly: true,
+  },
+};
+
+export function liveProfileOf(name) {
+  return LIVE_PROFILES[name] ?? LIVE_PROFILES.careful;
+}
+
 export function profileOf(account) {
   return PROFILES[account?.profile] ?? PROFILES.careful;
 }

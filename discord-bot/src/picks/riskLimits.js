@@ -47,10 +47,15 @@ export const BLOCKED = {
   FORCE_LOSS_LIMIT: 'force_loss_limit',
 };
 
-export function newRiskState({ dailyLimitDollars = DEFAULT_DAILY_LIMIT_DOLLARS, at = Date.now() } = {}) {
+export function newRiskState({
+  dailyLimitDollars = DEFAULT_DAILY_LIMIT_DOLLARS,
+  profile = null,
+  at = Date.now(),
+} = {}) {
   return {
     armed: false,
     dailyLimitDollars,
+    profile,
     // Set by a person, cleared by a person. A kill switch that expires by
     // itself is not a kill switch.
     killed: false,
