@@ -70,6 +70,9 @@ test('the page loads and mentions the brand name', async (t) => {
   const response = await get(port, '/');
   assert.equal(response.status, 200);
   assert.match(response.body, /Test Room/);
+  assert.match(response.body, /Quantitative settlement model/);
+  assert.match(response.body, /Fair P\(YES\)/);
+  assert.match(response.body, /NO FILL/);
 });
 
 test('the page is never cached — a phone holding yesterday\'s HTML looks exactly like a live bug', async (t) => {

@@ -139,6 +139,12 @@ test('a real read carries a call, a confidence and the clock', async () => {
   assert.ok(Number.isFinite(result.winProbability));
   assert.ok(Number.isFinite(result.secondsLeft));
   assert.equal(result.asset, 'BTC');
+  assert.equal(result.quantStatus, 'ok');
+  assert.ok(Number.isFinite(result.fairPYes));
+  assert.ok(Number.isFinite(result.fairPNo));
+  assert.ok(Array.isArray(result.quantMissing));
+  assert.ok(Array.isArray(result.quantCaps));
+  assert.ok(Array.isArray(result.quantPenalties));
 });
 
 test('the dashboard exposes the BTC source instead of showing unavailable', async () => {
@@ -289,10 +295,11 @@ test("live trading carries today's own orders, newest first, for a person asking
   });
 
   const orders = result.liveTrading.recentOrders;
-  assert.equal(orders.length, 2, 'the rejected order and yesterday\'s order are both excluded');
+  assert.equal(orders.length, 3, 'today\'s rejected order remains visible for audit; yesterday is excluded');
   assert.equal(orders[0].at, now - 1000, 'newest first');
   assert.equal(orders[0].profitDollars, null, 'still open, not guessed at');
   assert.equal(orders[1].profitDollars, -0.6);
+  assert.equal(orders[2].status, 'rejected');
 });
 
 test('the track record says so before anything has settled, rather than showing zeros as if measured', async () => {

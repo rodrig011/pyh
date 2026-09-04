@@ -91,7 +91,7 @@ export function spentToday(orders, { now = Date.now() } = {}) {
 
   for (const order of orders ?? []) {
     if (dayKey(order?.at ?? 0) !== today) continue;
-    if (order.status === 'rejected') continue;
+    if (order.status === 'rejected' || order.status === 'unfilled') continue;
 
     spent += Number(order.costDollars) || 0;
     trades += 1;

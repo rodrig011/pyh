@@ -1352,7 +1352,13 @@ test('only an explicit owner approval sends a pending ALWAYS proposal', async ()
       placeOrder: async (_settings, order) => {
         sends += 1;
         sentOrder = order;
-        return { status: 'placed', order: { order_id: 'approved-1', client_order_id: 'client-1' } };
+        return {
+          status: 'filled',
+          filledCount: order.contracts,
+          orderId: 'approved-1',
+          order: { client_order_id: 'client-1' },
+          body: { fill_count: order.contracts, average_fill_price: String(1 - order.limitCents / 100) },
+        };
       },
     },
   });
@@ -1364,7 +1370,49 @@ test('only an explicit owner approval sends a pending ALWAYS proposal', async ()
   assert.equal(store.riskState().pendingApproval, null);
   assert.equal(store.riskState().position.ticker, 'KXBTC15M-PENDING');
   assert.equal(store.riskState().position.exchangeIndex, 4);
-  assert.match(interaction.replies.at(-1), /REAL ORDER SENT/);
+  assert.match(interaction.replies.at(-1), /REAL FILL/);
+});
+
+test('an approved order with zero Kalshi fills opens no position and spends nothing', async () => {
+  const store = freshStore();
+  const now = Date.now();
+  store.putRiskState({
+    ...newRiskState({ profile: 'always' }),
+    armed: true,
+    pendingApproval: {
+      ticker: 'KXBTC15M-NOFILL', exchangeIndex: 4, side: 'up', strike: 77_000,
+      limitCents: 40, contracts: 5, wantDollars: 2,
+      modelProbability: 0.6, marketProbability: 0.4, netEdgeCents: 10,
+      closesAt: now + 5 * 60_000, createdAt: now, expiresAt: now + 60_000,
+    },
+  });
+  const config = {
+    ...liveConfig,
+    picks: {
+      ...liveConfig.picks,
+      kalshi: {
+        ...liveConfig.picks.kalshi,
+        trading: { ...liveConfig.picks.kalshi.trading, ownerId: 'mod', keyId: 'k', privateKeyPem: 'p' },
+      },
+    },
+  };
+  const interaction = fakeInteraction('live', { action: 'approve' });
+  await handlePicks(interaction, {
+    store,
+    config,
+    deps: {
+      placeOrder: async (_settings, order) => ({
+        status: 'unfilled', filledCount: 0, order: { client_order_id: 'client-no-fill' },
+        body: { fill_count: 0, remaining_count: order.contracts },
+      }),
+    },
+  });
+
+  assert.equal(store.riskState().position, undefined);
+  assert.equal(store.riskState().pendingApproval, null);
+  assert.equal(store.listTradeOrders()[0].costDollars, 0);
+  assert.equal(store.listTradeOrders()[0].filledContracts, 0);
+  assert.match(interaction.replies.at(-1), /NO FILL/);
 });
 
 test('rejecting a pending ALWAYS proposal sends no order', async () => {

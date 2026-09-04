@@ -1344,13 +1344,13 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
       store.appendTradeOrder(record);
 
       const nextState = { ...state, pendingApproval: null };
-      if (result.status === 'placed') {
+      if ((record.filledContracts ?? 0) > 0) {
         nextState.position = {
           ticker: pending.ticker,
           exchangeIndex: pending.exchangeIndex ?? 0,
           side: pending.side,
-          entryCents: pending.limitCents,
-          contracts,
+          entryCents: record.fillCents ?? pending.limitCents,
+          contracts: record.filledContracts,
           strike: pending.strike,
           costDollars: record.costDollars,
           clientOrderId: record.clientOrderId,
@@ -1359,10 +1359,13 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
       }
       store.putRiskState(nextState);
       return interaction.editReply(
-        result.status === 'placed'
-          ? `REAL ORDER SENT: ${contracts} ${pending.side.toUpperCase()} at ${pending.limitCents}¢. ` +
-            `Maximum entry cost $${record.costDollars.toFixed(2)}.`
-          : `Order ${result.status}. ${result.error ?? 'No fill was confirmed.'}`,
+        (record.filledContracts ?? 0) > 0
+          ? `REAL ${result.status === 'partial' ? 'PARTIAL FILL' : 'FILL'}: ${record.filledContracts} of ${record.requestedContracts} ` +
+            `${pending.side.toUpperCase()} at ${(record.fillCents ?? pending.limitCents).toFixed(1)}¢. ` +
+            `Actual entry cost $${record.costDollars.toFixed(2)}.`
+          : result.status === 'unfilled'
+            ? `NO FILL: Kalshi bought 0 of ${record.requestedContracts} contracts. Nothing was spent and no position was recorded.`
+            : `Order ${result.status}. ${result.error ?? 'No fill was confirmed.'}`,
       );
     }
 

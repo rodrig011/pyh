@@ -112,11 +112,10 @@ export function buildOrder({
       // gets a 400 with no explanation.
       count: count.toFixed(2),
       price: yesPriceDollars.toFixed(4),
-      // GTC — Kalshi's own default — stated explicitly rather than relying
-      // on a server default that could change. Never anything time-boxed:
-      // this is still a limit order meant to sit at the price the decision
-      // was made on, not a market order in a GTC costume.
-      time_in_force: 'good_till_canceled',
+      // An approval is for the quote visible NOW, not permission for a stale
+      // order to sit on Kalshi and fill minutes later. IOC fills immediately
+      // at this limit or better and cancels whatever remains.
+      time_in_force: 'immediate_or_cancel',
       // REQUIRED by CreateOrderV2Request, confirmed from a reference
       // client's own source comment: omitting this is literally what a
       // "400 missing_parameters" means. "maker" is the exchange's own
@@ -163,9 +162,10 @@ export function errorDetail(body) {
 /**
  * Sends one order. Never throws.
  *
- * The return distinguishes three fates, and the third is the important one:
- * placed, rejected, or UNKNOWN. A timeout is not a rejection — the order may be
- * live — so it is reported as unknown and the risk ledger counts it as spent.
+ * The return distinguishes five definite fates plus an unknown one:
+ * filled, partial, unfilled, rejected, or UNKNOWN. A successful HTTP response
+ * only says Kalshi accepted the order request; `fill_count` says whether a
+ * trade actually happened.
  * Treating an unknown as a rejection is how a daily limit gets quietly doubled.
  */
 export async function placeOrder(
@@ -229,7 +229,31 @@ export async function placeOrder(
     // V2's create-order ack is a thin, TOP-LEVEL object — {order_id,
     // fill_count, remaining_count, ...} — not the full order nested under an
     // "order" key the way v1 returned it.
-    return { status: 'placed', error: null, order, body, orderId: body?.order_id ?? null };
+    const filledCount = body?.fill_count === null || body?.fill_count === undefined || body?.fill_count === ''
+      ? NaN
+      : Number(body.fill_count);
+    const remainingCount = body?.remaining_count === null || body?.remaining_count === undefined || body?.remaining_count === ''
+      ? NaN
+      : Number(body.remaining_count);
+    const requestedCount = Number(order.count);
+    const hasFillCount = Number.isFinite(filledCount) && filledCount >= 0;
+    let status = 'unknown';
+    if (hasFillCount) {
+      status = filledCount === 0
+        ? 'unfilled'
+        : filledCount + 1e-9 >= requestedCount
+          ? 'filled'
+          : 'partial';
+    }
+    return {
+      status,
+      error: hasFillCount ? null : 'Kalshi accepted the order but did not return fill_count',
+      order,
+      body,
+      orderId: body?.order_id ?? null,
+      filledCount: hasFillCount ? filledCount : null,
+      remainingCount: Number.isFinite(remainingCount) ? remainingCount : null,
+    };
   } catch (error_) {
     // Timed out or the socket died. The order's fate is genuinely unknown.
     return {
@@ -250,13 +274,49 @@ export async function placeOrder(
  * day's spending — which errs safe — while the reverse understates it, which
  * does not.
  */
-export function orderCostDollars(result, { contracts, limitCents }) {
-  // V2's ack reports fill_count at the top level, not nested under "order".
-  const filled = Number(result?.body?.fill_count);
-  const count = Number.isFinite(filled) && filled > 0 ? filled : Math.floor(Number(contracts) || 0);
-  const price = Number(limitCents);
+export function confirmedFillCount(result) {
+  const direct = result?.filledCount === null || result?.filledCount === undefined || result?.filledCount === ''
+    ? NaN
+    : Number(result.filledCount);
+  if (Number.isFinite(direct) && direct >= 0) return direct;
+  const rawBody = result?.body?.fill_count;
+  const body = rawBody === null || rawBody === undefined || rawBody === '' ? NaN : Number(rawBody);
+  return Number.isFinite(body) && body >= 0 ? body : null;
+}
+
+export function fillPriceCents(result, { side, limitCents }) {
+  // V2 reports the average YES price in dollars even when the order traded NO.
+  const rawPrice = result?.body?.average_fill_price;
+  const yesDollars = rawPrice === null || rawPrice === undefined || rawPrice === '' ? NaN : Number(rawPrice);
+  if (Number.isFinite(yesDollars) && yesDollars >= 0 && yesDollars <= 1) {
+    return Math.round((side === 'no' ? 1 - yesDollars : yesDollars) * 10_000) / 100;
+  }
+  const fallback = Number(limitCents);
+  return isPriceCents(fallback) ? fallback : null;
+}
+
+export function orderFeeDollars(result, count = confirmedFillCount(result)) {
+  const averageFee = Number(result?.body?.average_fee_paid);
+  return Number.isFinite(averageFee) && averageFee >= 0 && Number.isFinite(count)
+    ? averageFee * count
+    : 0;
+}
+
+export function orderCostDollars(result, { contracts, limitCents, side = 'yes' }) {
+  if (result?.status === 'rejected' || result?.status === 'unfilled') return 0;
+  const confirmed = confirmedFillCount(result);
+  // Unknown fate is deliberately reserved at the full requested limit.
+  const count = confirmed === null ? Math.floor(Number(contracts) || 0) : confirmed;
+  const price = confirmed === null ? Number(limitCents) : fillPriceCents(result, { side, limitCents });
   if (!(count > 0) || !isPriceCents(price)) return 0;
-  return (count * price) / 100;
+  return (count * price) / 100 + orderFeeDollars(result, confirmed);
+}
+
+export function orderProceedsDollars(result, { contracts, limitCents, side = 'yes' }) {
+  const count = confirmedFillCount(result);
+  const price = fillPriceCents(result, { side, limitCents });
+  if (!(count > 0) || !isPriceCents(price)) return 0;
+  return Math.max(0, (count * price) / 100 - orderFeeDollars(result, count));
 }
 
 /**
@@ -280,13 +340,16 @@ export function orderRecord({
     at,
     ticker,
     side,
-    contracts: Math.floor(Number(contracts) || 0),
+    requestedContracts: Math.floor(Number(contracts) || 0),
+    filledContracts: confirmedFillCount(result),
+    contracts: confirmedFillCount(result) ?? Math.floor(Number(contracts) || 0),
     limitCents: Math.round(Number(limitCents) || 0),
+    fillCents: fillPriceCents(result, { side, limitCents }),
     status: result?.status ?? 'unknown',
     orderId: result?.orderId ?? null,
     clientOrderId: result?.order?.client_order_id ?? null,
     error: result?.error ?? null,
-    costDollars: orderCostDollars(result, { contracts, limitCents }),
+    costDollars: orderCostDollars(result, { contracts, limitCents, side }),
     // Filled in when the position closes, so the streak rule and the day's
     // realised total have something to read.
     profitDollars: null,

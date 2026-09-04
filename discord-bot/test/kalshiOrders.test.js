@@ -8,7 +8,10 @@ import {
   bookSide,
   buildOrder,
   errorDetail,
+  confirmedFillCount,
+  fillPriceCents,
   orderCostDollars,
+  orderProceedsDollars,
   orderRecord,
   placeOrder,
 } from '../src/picks/kalshiOrders.js';
@@ -49,7 +52,7 @@ test('a limit order is always a limit order — there is no field for anything e
   const { order } = buildOrder({ ticker: 'T', side: 'yes', contracts: 10, limitCents: 44 });
   assert.equal(order.type, undefined);
   assert.ok(Number.isFinite(Number(order.price)));
-  assert.equal(order.time_in_force, 'good_till_canceled');
+  assert.equal(order.time_in_force, 'immediate_or_cancel');
 });
 
 test('a price of 0 or 100 is a market order in disguise and is refused', () => {
@@ -138,7 +141,7 @@ test('a 4xx is a real rejection — the exchange saw it and said no', async () =
   assert.notEqual(result.status, 'placed');
 });
 
-test('a placed order is signed and sent to the current V2 path, and reads back the top-level order_id', async () => {
+test('an accepted order with zero fills is unfilled, not a purchase', async () => {
   const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
   const creds2 = { keyId: 'k', privateKeyPem: privateKey.export({ type: 'pkcs8', format: 'pem' }) };
 
@@ -157,12 +160,13 @@ test('a placed order is signed and sent to the current V2 path, and reads back t
     },
   );
 
-  assert.equal(result.status, 'placed');
+  assert.equal(result.status, 'unfilled');
+  assert.equal(result.filledCount, 0);
   assert.equal(result.orderId, 'ord-123');
   assert.ok(requestedUrl.endsWith(ORDER_PATHS[0]), `sent to ${requestedUrl}, not the current order path`);
   assert.equal(sentBody.side, 'ask'); // BUY NO -> ask
   assert.equal(sentBody.price, '0.6700'); // 1 - 0.33
-  assert.equal(sentBody.time_in_force, 'good_till_canceled');
+  assert.equal(sentBody.time_in_force, 'immediate_or_cancel');
   // A quoted decimal, matching Kalshi's own published example request
   // ("10.00") — sending a bare JSON number here is exactly what produced a
   // 400 with no explanation the first time this endpoint was hit live.
@@ -233,10 +237,33 @@ test('a partial fill is costed on what filled, not on what was asked for', () =>
   assert.equal(orderCostDollars(result, { contracts: 10, limitCents: 50 }), 2);
 });
 
+test('a confirmed partial fill uses actual fill price and fees', () => {
+  const result = {
+    status: 'partial',
+    filledCount: 2,
+    body: { fill_count: 2, average_fill_price: '0.4200', average_fee_paid: '0.01' },
+  };
+  assert.equal(confirmedFillCount(result), 2);
+  assert.equal(fillPriceCents(result, { side: 'yes', limitCents: 45 }), 42);
+  assert.equal(fillPriceCents(result, { side: 'no', limitCents: 60 }), 58);
+  assert.equal(orderCostDollars(result, { contracts: 5, limitCents: 45, side: 'yes' }), 0.86);
+  assert.equal(orderProceedsDollars(result, { contracts: 5, limitCents: 45, side: 'yes' }), 0.82);
+});
+
+test('zero fills cost zero and create a truthful ledger record', () => {
+  const result = { status: 'unfilled', filledCount: 0, body: { fill_count: 0, remaining_count: 3 } };
+  const record = orderRecord({ ticker: 'T', side: 'yes', contracts: 3, limitCents: 50, result });
+  assert.equal(record.costDollars, 0);
+  assert.equal(record.filledContracts, 0);
+  assert.equal(record.requestedContracts, 3);
+  assert.equal(record.contracts, 0);
+});
+
 test('with no fill reported, the whole order is assumed spent', () => {
   // Erring the other way understates the day's spending, which is the error
   // that costs money rather than opportunities.
   assert.equal(orderCostDollars({}, { contracts: 10, limitCents: 50 }), 5);
+  assert.equal(confirmedFillCount({ filledCount: null, body: { fill_count: null } }), null);
 });
 
 test('the record carries what the risk ledger needs to read later', () => {
@@ -246,11 +273,11 @@ test('the record carries what the risk ledger needs to read later', () => {
     contracts: 8,
     limitCents: 55,
     at: 1_000_000,
-    result: { status: 'placed', orderId: 'o1', order: { client_order_id: 'c1' } },
+    result: { status: 'filled', filledCount: 8, orderId: 'o1', order: { client_order_id: 'c1' } },
     reason: 'model edge 7c',
   });
 
-  assert.equal(record.status, 'placed');
+  assert.equal(record.status, 'filled');
   assert.equal(record.costDollars, 4.4);
   assert.equal(record.clientOrderId, 'c1');
   // Filled in when the position closes; null until then rather than zero, so a
@@ -278,10 +305,10 @@ test('forced is a real field, not something read back out of the reason text', (
   // somebody edits the wording.
   const forced = orderRecord({
     ticker: 'T', side: 'yes', contracts: 1, limitCents: 50,
-    result: { status: 'placed' }, forced: true,
+    result: { status: 'filled', filledCount: 1 }, forced: true,
   });
   assert.equal(forced.forced, true);
 
-  const notForced = orderRecord({ ticker: 'T', side: 'yes', contracts: 1, limitCents: 50, result: { status: 'placed' } });
+  const notForced = orderRecord({ ticker: 'T', side: 'yes', contracts: 1, limitCents: 50, result: { status: 'filled', filledCount: 1 } });
   assert.equal(notForced.forced, false, 'defaults to false when not specified');
 });

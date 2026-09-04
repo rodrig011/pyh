@@ -99,7 +99,7 @@ function config(overrides = {}) {
   };
 }
 
-async function run(held_, board, cfg = config()) {
+async function run(held_, board, cfg = config(), fillCount = null) {
   const store = fakeStore({
     risk: { ...newRiskState({ dailyLimitDollars: 20 }), armed: true, position: held_ },
     orders: [{ clientOrderId: held_.clientOrderId, costDollars: held_.costDollars, profitDollars: null }],
@@ -111,7 +111,14 @@ async function run(held_, board, cfg = config()) {
     fetchSpotPrice: async () => ({ price: SPOT }),
     placeOrder: async (settings, order) => {
       placed.push(order);
-      return { status: 'placed', orderId: 'o1', order: { client_order_id: 'x' } };
+      const filled = fillCount === null ? order.contracts : fillCount;
+      return {
+        status: filled === 0 ? 'unfilled' : filled < order.contracts ? 'partial' : 'filled',
+        filledCount: filled,
+        orderId: 'o1',
+        order: { client_order_id: 'x' },
+        body: { fill_count: filled, average_fill_price: String(order.side === 'yes' ? order.limitCents / 100 : 1 - order.limitCents / 100) },
+      };
     },
     now: Date.now(),
     log: { debug() {}, info() {}, error() {} },
@@ -131,6 +138,28 @@ test('a position up 20% sells on the take-profit override, not the model', async
   const [order] = store.listTradeOrders();
   assert.equal(order.profitDollars, 1);
   assert.equal(store.riskState().position, null);
+});
+
+test('a partial exit leaves the unfilled contracts open and books only the filled slice', async () => {
+  const board = [candidate(0.6, 0.61)];
+  const { result, store } = await run(held(), board, config(), 4);
+
+  assert.equal(result.traded, true);
+  assert.equal(result.status, 'partial');
+  assert.equal(store.riskState().position.contracts, 6);
+  assert.equal(store.riskState().position.costDollars, 3);
+  assert.ok(Math.abs(store.riskState().position.realizedProfitDollars - 0.4) < 1e-9);
+  assert.equal(store.listTradeOrders()[0].profitDollars, null);
+});
+
+test('an unfilled exit leaves the entire position open', async () => {
+  const board = [candidate(0.6, 0.61)];
+  const { result, store } = await run(held(), board, config(), 0);
+
+  assert.equal(result.traded, false);
+  assert.equal(result.status, 'unfilled');
+  assert.equal(store.riskState().position.contracts, 10);
+  assert.equal(store.listTradeOrders()[0].profitDollars, null);
 });
 
 test('a position under the 15% bar is NOT sold by the take-profit override', async () => {

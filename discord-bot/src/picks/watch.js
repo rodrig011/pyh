@@ -25,7 +25,7 @@ import {
 } from './paper.js';
 import { closeTimeOf, officialSettlementOf } from './kalshi.js';
 import { hasCredentials } from './kalshiAccount.js';
-import { orderRecord } from './kalshiOrders.js';
+import { confirmedFillCount, fillPriceCents, orderProceedsDollars, orderRecord } from './kalshiOrders.js';
 import { checkTrade } from './riskLimits.js';
 import { recommendSize } from '../signals/sizing.js';
 import { leastBadCandidate } from './forceTrade.js';
@@ -878,15 +878,15 @@ export async function sweepLiveTrading(client, store, config, deps = {}) {
     });
     store.appendTradeOrder(record);
 
-    if (result.status === 'placed') {
+    if ((record.filledContracts ?? 0) > 0) {
       store.putRiskState({
         ...state,
         position: {
           ticker: best.ticker,
           exchangeIndex: best.market?.exchange_index ?? 0,
           side: best.read.call,
-          entryCents: limitCents,
-          contracts,
+          entryCents: record.fillCents ?? limitCents,
+          contracts: record.filledContracts,
           strike: best.strike,
           costDollars: record.costDollars,
           clientOrderId: record.clientOrderId,
@@ -901,8 +901,8 @@ export async function sweepLiveTrading(client, store, config, deps = {}) {
       liveTradeMessage({ record, check, read: best.read, asset, forced, forcedWhy }),
       log,
     );
-    log.info(`LIVE ${result.status}: ${contracts} ${record.side} on ${best.ticker} at ${limitCents}`);
-    return { traded: result.status === 'placed', status: result.status };
+    log.info(`LIVE ${result.status}: ${record.filledContracts ?? 0}/${contracts} ${record.side} on ${best.ticker} at ${limitCents}`);
+    return { traded: (record.filledContracts ?? 0) > 0, status: result.status };
   } catch (error) {
     log.error(`Live trading sweep failed: ${error.message}`);
     return { traded: false };
@@ -987,19 +987,46 @@ async function liveExit(client, store, config, { held, candidates, context, plac
     { now },
   );
 
-  if (result.status === 'placed') {
-    const proceeds = (held.contracts * Math.round(heldBid)) / 100;
-    store.updateTradeOrder(held.clientOrderId, { profitDollars: proceeds - held.costDollars });
-    store.putRiskState({ ...state, position: null });
+  const sold = confirmedFillCount(result) ?? 0;
+  if (sold > 0) {
+    const soldContracts = Math.min(sold, held.contracts);
+    const allocatedCost = held.costDollars * (soldContracts / held.contracts);
+    const proceeds = orderProceedsDollars(result, {
+      contracts: held.contracts,
+      limitCents: Math.round(heldBid),
+      side: held.side === 'up' ? 'yes' : 'no',
+    });
+    const realised = (Number(held.realizedProfitDollars) || 0) + proceeds - allocatedCost;
+    const remainingContracts = held.contracts - soldContracts;
+    if (remainingContracts > 0) {
+      store.putRiskState({
+        ...state,
+        position: {
+          ...held,
+          contracts: remainingContracts,
+          costDollars: held.costDollars - allocatedCost,
+          realizedProfitDollars: realised,
+        },
+      });
+    } else {
+      store.updateTradeOrder(held.clientOrderId, { profitDollars: realised });
+      store.putRiskState({ ...state, position: null });
+    }
   }
 
   await tellOwner(
     client,
     trading,
-    exitMessage({ held, exitCents: Math.round(heldBid), reason: call.reason, status: result.status }),
+    exitMessage({
+      held,
+      exitCents: fillPriceCents(result, { side: held.side === 'up' ? 'yes' : 'no', limitCents: Math.round(heldBid) }),
+      reason: call.reason,
+      status: result.status,
+      filledContracts: sold,
+    }),
     log,
   );
-  return { traded: result.status === 'placed', status: result.status, exit: true };
+  return { traded: sold > 0, status: result.status, exit: sold > 0 };
 }
 
 /** Everything real-money goes to one person, and only that person. */
@@ -1012,13 +1039,13 @@ async function tellOwner(client, trading, body, log) {
 
 function liveTradeMessage({ record, check, read, asset, forced = false, forcedWhy = null }) {
   const up = record.side === 'yes';
-  if (record.status !== 'placed') {
+  if ((record.filledContracts ?? 0) === 0) {
     return [
       `⚠️ **REAL ORDER ${record.status.toUpperCase()}** — ${asset} ${up ? 'UP' : 'DOWN'}`,
-      `${record.contracts} contracts at ${record.limitCents}%. ${record.error ?? ''}`,
+      `${record.requestedContracts} requested at ${record.limitCents}¢. ${record.error ?? ''}`,
       record.status === 'unknown'
         ? '_Its fate is unknown, so it is counted as spent. Check Kalshi before assuming it did not fill._'
-        : '_Nothing was spent._',
+        : '_Kalshi confirmed zero fills. Nothing was spent and no position was opened._',
     ].join('\n');
   }
 
@@ -1029,7 +1056,7 @@ function liveTradeMessage({ record, check, read, asset, forced = false, forcedWh
       ? `🎲 **FORCED TRADE (${forcedLabel}) — BUY ${up ? 'UP' : 'DOWN'} @ ${record.limitCents}%** · ${asset}`
       : `💵 **REAL TRADE — BUY ${up ? 'UP' : 'DOWN'} @ ${record.limitCents}%** · ${asset}`,
     '',
-    `**${record.contracts} contracts · $${record.costDollars.toFixed(2)}** of your own money.`,
+    `**${record.filledContracts} of ${record.requestedContracts} contracts filled · $${record.costDollars.toFixed(2)}** actual cost.`,
     forced
       ? `Model ${Math.round(read.winProbability * 100)}% vs market ${Math.round(read.marketWinProbability * 100)}% — this did **not** clear the edge bar, it was forced (${forcedLabel}).`
       : `Model ${Math.round(read.winProbability * 100)}% vs market ${Math.round(read.marketWinProbability * 100)}%.`,
@@ -1055,10 +1082,13 @@ function pendingApprovalMessage(pending) {
   ].join('\n');
 }
 
-function exitMessage({ held, exitCents, reason, status }) {
+function exitMessage({ held, exitCents, reason, status, filledContracts = 0 }) {
+  if (!(filledContracts > 0)) {
+    return `⚠️ **REAL EXIT — NO FILL**\nKalshi sold 0 of ${held.contracts} contracts. The position remains open.`;
+  }
   const percent = ((exitCents - held.entryCents) / held.entryCents) * 100;
   return [
-    `💵 **REAL EXIT — SOLD ${held.side.toUpperCase()} @ ${exitCents}%** _(${status})_`,
+    `💵 **REAL EXIT — SOLD ${filledContracts} of ${held.contracts} ${held.side.toUpperCase()} @ ${exitCents.toFixed(1)}¢** _(${status})_`,
     `In at ${held.entryCents}%, out at ${exitCents}% — ${reason}.`,
     `${percent >= 0 ? '💸' : '❌'} **${percent >= 0 ? '+' : ''}${percent.toFixed(1)}%** before fees.`,
   ].join('\n');

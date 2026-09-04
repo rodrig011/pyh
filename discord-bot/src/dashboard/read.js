@@ -435,14 +435,17 @@ export async function computeRead(
   // is the day going", not "which trade was that $2 loss". Without this the
   // only way to answer that question was asking a person to dig through logs.
   liveTrading.recentOrders = (store.listTradeOrders?.() ?? [])
-    .filter((order) => order?.status !== 'rejected' && dayKey(order?.at ?? 0) === dayKey(now))
+    .filter((order) => dayKey(order?.at ?? 0) === dayKey(now))
     .sort((a, b) => (b.at ?? 0) - (a.at ?? 0))
     .slice(0, 12)
     .map((order) => ({
       at: order.at,
       side: order.side,
       contracts: order.contracts,
+      requestedContracts: order.requestedContracts ?? order.contracts,
+      filledContracts: order.filledContracts ?? (order.status === 'placed' ? order.contracts : null),
       limitCents: order.limitCents,
+      fillCents: order.fillCents ?? null,
       costDollars: order.costDollars,
       profitDollars: Number.isFinite(order.profitDollars) ? order.profitDollars : null,
       forced: Boolean(order.forced),
@@ -482,6 +485,11 @@ export async function computeRead(
     fairPYes: read.fairPYes,
     fairPNo: read.fairPNo,
     quantMissing: read.quantMissing,
+    quantStatus: read.result?.quant?.status ?? null,
+    quantYesEdgeCents: read.result?.quant?.edge?.yes?.netCents ?? null,
+    quantNoEdgeCents: read.result?.quant?.edge?.no?.netCents ?? null,
+    quantPenalties: read.result?.quant?.confidence?.penalties ?? [],
+    quantCaps: read.result?.quant?.confidence?.caps ?? [],
     quantFeatures: read.result?.quant?.features ?? null,
     likelihood: read.likelihood,
     winProbability: read.winProbability,
