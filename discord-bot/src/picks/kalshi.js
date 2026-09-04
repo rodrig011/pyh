@@ -330,6 +330,30 @@ export async function fetchMarket(settings, ticker, { fetchImpl = globalThis.fet
 }
 
 /**
+ * The only settlement fact paper trading may trust. `result` belongs to the
+ * exact market ticker and is Kalshi's determination; a nearby spot sample is
+ * deliberately not accepted as a substitute.
+ */
+export function officialSettlementOf(market) {
+  const result = typeof market?.result === 'string' ? market.result.toLowerCase() : null;
+  if (result !== 'yes' && result !== 'no') return null;
+
+  const dollars = Number(market?.settlement_value_dollars);
+  const settlementValueCents = Number.isFinite(dollars)
+    ? dollars * 100
+    : result === 'yes'
+      ? 100
+      : 0;
+  return {
+    ticker: market?.ticker ?? null,
+    result,
+    settlementValueCents,
+    settlementTs: Date.parse(market?.settlement_ts ?? '') || null,
+    status: market?.status ?? null,
+  };
+}
+
+/**
  * Every contract open in the same window, with the price of each.
  *
  * This exists because of the most expensive mistake in the whole signal path,

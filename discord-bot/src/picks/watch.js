@@ -14,6 +14,7 @@ import {
 } from './signalPanel.js';
 import {
   PROFILES,
+  auditSettledTrades,
   compareReport,
   newAccount,
   paperTick,
@@ -22,7 +23,7 @@ import {
   equity,
   liveProfileOf,
 } from './paper.js';
-import { closeTimeOf } from './kalshi.js';
+import { closeTimeOf, officialSettlementOf } from './kalshi.js';
 import { hasCredentials } from './kalshiAccount.js';
 import { orderRecord } from './kalshiOrders.js';
 import { checkTrade } from './riskLimits.js';
@@ -301,6 +302,7 @@ export async function sweepPaper(client, store, config, deps = {}) {
   const {
     openBoard,
     fetchSpotPrice,
+    fetchMarket,
     now = Date.now(),
     log = { debug() {}, info() {} },
   } = deps;
@@ -352,9 +354,37 @@ export async function sweepPaper(client, store, config, deps = {}) {
     ]);
 
     const candidates = board?.contracts ?? [];
-    if (candidates.length === 0 || !(quote?.price > 0)) return { ran: false };
 
-    const first = candidates[0].market;
+    // Resolve every held ticker independently of the new open board. The old
+    // contract disappearing is not proof of its result; query that exact
+    // ticker and wait if Kalshi has not determined it yet.
+    const heldTickers = [...new Set(running.map(([, account]) => account?.position?.ticker).filter(Boolean))];
+    // Repair inferred settlements gradually, newest first. Bounded reads keep
+    // the sweep light while correcting the visible ledger immediately.
+    const auditTickers = running.flatMap(([, account]) =>
+      (account?.trades ?? [])
+        .filter((trade) =>
+          trade?.ticker &&
+          trade.reason === 'settled' &&
+          trade.settlementSource !== 'kalshi-market:official-result')
+        .slice(-3)
+        .map((trade) => trade.ticker),
+    );
+    const settlementTickers = [...new Set([...heldTickers, ...auditTickers])];
+    const officialSettlements = {};
+    if (fetchMarket) {
+      await Promise.all(settlementTickers.map(async (ticker) => {
+        const response = await fetchMarket(settings.kalshi, ticker).catch(() => null);
+        const settlement = officialSettlementOf(response?.market);
+        if (settlement) officialSettlements[ticker] = settlement;
+      }));
+    }
+
+    if ((candidates.length === 0 || !(quote?.price > 0)) && settlementTickers.length === 0) {
+      return { ran: false };
+    }
+
+    const first = candidates[0]?.market ?? null;
     const closesAt = closeTimeOf(first);
     // A settlement window is one source or the other, never an average made
     // from BRTI plus exchange fallbacks. Prefer samples from the source of the
@@ -363,10 +393,10 @@ export async function sweepPaper(client, store, config, deps = {}) {
     const context = {
       prices: store
         .listSamples(asset)
-        .filter((s) => s?.at >= now - 60 * 60 * 1000 && s?.price > 0 && s?.source === quote.source)
+        .filter((s) => s?.at >= now - 60 * 60 * 1000 && s?.price > 0 && s?.source === quote?.source)
         .map((s) => s.price),
-      spot: quote.price,
-      spotSource: quote.source,
+      spot: quote?.price ?? null,
+      spotSource: quote?.source ?? null,
       spotSamples: store.listSamples(asset),
       secondsLeft: Number.isFinite(closesAt) ? (closesAt - now) / 1000 : null,
     };
@@ -384,8 +414,10 @@ export async function sweepPaper(client, store, config, deps = {}) {
         continue;
       }
       userId = userId ?? current.userId ?? paper.reportUserId ?? null;
-      const result = paperTick(current, context, { now, candidates });
+      const audited = auditSettledTrades(current, officialSettlements, { now });
+      const result = paperTick(audited.account, context, { now, candidates, officialSettlements });
       stepped[profile] = result.account;
+      if (audited.corrections > 0) events.push(`${profile}:audited:${audited.corrections}`);
       if (result.event) events.push(`${profile}:${result.event.kind}`);
     }
 
@@ -643,6 +675,7 @@ export async function sweepLiveTrading(client, store, config, deps = {}) {
   const {
     openBoard,
     fetchSpotPrice,
+    fetchTrades,
     placeOrder,
     now = Date.now(),
     log = { debug() {}, info() {}, error() {} },
@@ -708,7 +741,18 @@ export async function sweepLiveTrading(client, store, config, deps = {}) {
     const ladder = readBoard(candidates, context, profile.engine);
     const orders = store.listTradeOrders();
 
-    const best = ladder.best;
+    let best = ladder.best;
+    // The structural pass ranks the whole ladder without making one network
+    // request per strike. Before real money can use the winner, re-read that
+    // exact contract with its own trade tape so CVD enters the quant engine.
+    if (best && fetchTrades) {
+      const tape = await fetchTrades(settings.kalshi, best.ticker, { limit: 100 }).catch(() => null);
+      if (tape?.trades) {
+        const candidate = candidates.find((entry) => entry?.market?.ticker === best.ticker);
+        const checked = readBoard([candidate], { ...context, trades: tape.trades }, profile.engine).reads[0];
+        best = checked?.read?.tradeable ? checked : null;
+      }
+    }
     const forced = false;
     const forcedWhy = null;
 

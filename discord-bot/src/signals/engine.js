@@ -1,10 +1,9 @@
-import { expectedValue, logReturns, probabilityAbove, scaleVolatility } from './math.js';
+import { expectedValue } from './math.js';
 import { executablePrices, netEdgeCents } from './cost.js';
-import { effectiveSecondsLeft } from './settlement.js';
-import { volatilityEstimate } from './volatility.js';
 import { flipProbability } from './exit.js';
 import { bookQuality, distanceInSigma, largePrints, momentum, rsi, trendFit } from './indicators.js';
 import { confluenceRead } from './confluence.js';
+import { estimateSettlementProbability, QUANT_STATUS } from './quantEngine.js';
 
 export const VERDICTS = { UP: 'up', DOWN: 'down', SKIP: 'skip' };
 
@@ -32,6 +31,7 @@ export const SKIP_REASONS = {
     'The chart does not have enough aligned evidence yet. The bot is waiting for at least two technical clues.',
   chart_disagrees:
     'Three or more technical clues point the other way. The bot will not fight strong chart evidence.',
+  insufficient_data: 'Critical quantitative inputs are missing. No probability was manufactured.',
 };
 
 export const DEFAULTS = {
@@ -168,40 +168,30 @@ export function evaluate(input, options = {}) {
     return skip('priced_out', prices_);
   }
 
-  // How fast it is moving, and therefore how far it can plausibly travel in the
-  // time that is left. Everything downstream rests on this number, so it comes
-  // with the error bar it actually has rather than as a single confident value.
-  const returns = logReturns(prices);
-  const vol = volatilityEstimate(returns);
-  if (!vol || !(vol.sigma > 0)) return skip('no_vol');
+  // All probabilities now come from one pure quantitative boundary. Nothing
+  // downstream — dashboard, Discord, paper or live — may substitute an LLM or
+  // a hand-authored percentage for this result.
+  const quant = estimateSettlementProbability(
+    {
+      prices,
+      spot: price,
+      strike,
+      secondsLeft,
+      marketPriceCents,
+      market,
+      trades,
+    },
+    config,
+  );
+  if (quant.status === QUANT_STATUS.INSUFFICIENT) {
+    const missingVol = quant.missing.includes('realized_volatility');
+    return skip(missingVol ? 'no_vol' : 'insufficient_data', { quant });
+  }
 
-  // Kalshi settles crypto on the AVERAGE of the final sixty seconds, not on the
-  // price at the bell. An average-settled contract has the same variance as a
-  // point-settled one with forty seconds less on the clock, so scaling the
-  // volatility by the raw clock overstates how far the price can still travel —
-  // by 2% at the open and 18% with two minutes left, which is around five cents
-  // of probability exactly where this engine trades.
-  const horizonSeconds = config.settlementAveraging
-    ? effectiveSecondsLeft(secondsLeft, config.settlementWindowSeconds)
-    : secondsLeft;
-
-  const sigma = scaleVolatility(vol.sigma, config.sampleSeconds, horizonSeconds);
-  const sigmaLow = scaleVolatility(vol.low, config.sampleSeconds, horizonSeconds);
-  const sigmaHigh = scaleVolatility(vol.high, config.sampleSeconds, horizonSeconds);
-  if (!(sigma > 0)) return skip('no_vol');
-
-  const probability = probabilityAbove(price, strike, sigma);
-  if (!Number.isFinite(probability)) return skip('no_vol');
-
-  // The same call under both ends of the volatility estimate. A market that is
-  // only worth taking when the vol guess lands exactly right is not worth
-  // taking — this is where a model that backtests well starts failing live.
-  const probabilityRange = [
-    probabilityAbove(price, strike, sigmaHigh),
-    probabilityAbove(price, strike, sigmaLow),
-  ]
-    .filter(Number.isFinite)
-    .sort((a, b) => a - b);
+  const probability = quant.fairPYes;
+  const probabilityRange = quant.probabilityRange;
+  const sigma = quant.sigma;
+  const vol = quant.volatility;
 
   if (vol.jumpShare > 0.6) {
     notes.push(`${Math.round(vol.jumpShare * 100)}% of the move was jumps — the estimate is stretched`);
@@ -209,7 +199,7 @@ export function evaluate(input, options = {}) {
 
   // The market's own probability is its price. The whole question is whether
   // ours is far enough from it to be worth acting on.
-  const marketProbability = marketPriceCents / 100;
+  const marketProbability = quant.marketProbability;
 
   // What every refusal from here on still knows. A position already open is
   // judged on this, not on the verdict — and so is a directional read on a
@@ -217,7 +207,7 @@ export function evaluate(input, options = {}) {
   // travel with it. Handing a refusal the mid instead sends the same
   // half-spread error down a second path.
   const chart = confluenceRead({ prices });
-  const read = { probability, marketProbability, sigma, volatility: vol, quotes, chart };
+  const read = { probability, marketProbability, sigma, volatility: vol, quotes, chart, quant };
 
   const trend = trendFit(prices.slice(-20));
   if (trend && trend.r2 > config.maximumTrendFit) {
@@ -232,8 +222,8 @@ export function evaluate(input, options = {}) {
   // Each side judged on its own executable price. With a spread these are no
   // longer mirror images: a market can be genuinely untradeable from both
   // sides at once, which is what a wide spread means and what the mid hides.
-  const upNet = netEdgeCents(probability, VERDICTS.UP, quotes, { feeRate: config.feeRate });
-  const downNet = netEdgeCents(1 - probability, VERDICTS.DOWN, quotes, { feeRate: config.feeRate });
+  const upNet = quant.edge.yes ?? netEdgeCents(probability, VERDICTS.UP, quotes, { feeRate: config.feeRate });
+  const downNet = quant.edge.no ?? netEdgeCents(1 - probability, VERDICTS.DOWN, quotes, { feeRate: config.feeRate });
 
   const best =
     (upNet?.netCents ?? -Infinity) >= (downNet?.netCents ?? -Infinity)
@@ -358,6 +348,9 @@ export function evaluate(input, options = {}) {
           }
         : null,
     flow,
+    quant,
+    confidenceGrade: quant.confidence.grade,
+    confidenceScore: quant.confidence.score,
     chart,
     chartAgreement: read.chartAgreement,
     requiredEdgeCents,

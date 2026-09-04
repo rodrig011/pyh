@@ -8,6 +8,7 @@ import {
   gradeByContract,
   isPriceCents,
   openMarkets,
+  officialSettlementOf,
   readMarketPrice,
 } from '../src/picks/kalshi.js';
 
@@ -92,6 +93,27 @@ test('a scalp is graded on what the contract did', () => {
 test('a one-cent drift is flat, not a win sold to the room', () => {
   assert.equal(gradeByContract(50, 50).outcome, 'break_even');
   assert.equal(gradeByContract(100, 100).outcome, 'break_even');
+});
+
+test('official settlement reads only the exact Kalshi market result', () => {
+  assert.deepEqual(
+    officialSettlementOf({
+      ticker: 'KXBTC15M-X',
+      status: 'settled',
+      result: 'no',
+      settlement_value_dollars: '0.0000',
+      settlement_ts: '2026-09-04T11:15:00Z',
+    }),
+    {
+      ticker: 'KXBTC15M-X',
+      result: 'no',
+      settlementValueCents: 0,
+      settlementTs: Date.parse('2026-09-04T11:15:00Z'),
+      status: 'settled',
+    },
+  );
+  assert.equal(officialSettlementOf({ status: 'closed', result: '' }), null);
+  assert.equal(officialSettlementOf({ result: 'unknown' }), null);
 });
 
 test('a call right at the close can still be a loss on the contract', () => {

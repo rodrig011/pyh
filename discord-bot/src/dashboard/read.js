@@ -251,29 +251,15 @@ export async function computeRead(
     .filter((sample) => sample?.at >= now - 60 * 60 * 1000 && sample?.price > 0)
     .map((sample) => sample.price);
 
-  const read = directionalRead({
-    prices,
-    spot: quote.price,
-    priceSource: quote.source ?? null,
-    strike,
-    marketPriceCents: contract.price,
-    market,
-    secondsLeft,
-  });
-
-  // The chance it touches the strike again before the bell — pure arithmetic
-  // on the same volatility the call itself used, not a separate model.
-  const sigma = read.result?.sigma ?? null;
-  const flip = Number.isFinite(sigma) ? flipProbability(quote.price, strike, sigma) : null;
-
   // The trade tape, if this caller can fetch it. Optional: a dashboard reading
   // an account with no `fetchTrades` wired in just shows no whale reading
   // rather than failing the whole response over it.
   let whales = null;
   let volume = [];
   let orderFlow = null;
+  let trades = [];
   if (fetchTrades && market.ticker) {
-    const { trades } = await fetchTrades(kalshi, market.ticker).catch(() => ({ trades: [] }));
+    ({ trades } = await fetchTrades(kalshi, market.ticker).catch(() => ({ trades: [] })));
     whales = whaleActivity(trades);
     orderFlow = orderFlowSummary(trades, { now });
     // Logged so the chart has real volume to show, on this and every future
@@ -282,6 +268,22 @@ export async function computeRead(
     store.recordContractTrades?.(market.ticker, normalizeTrades(trades));
     volume = buildVolume(store.listContractTrades?.(market.ticker) ?? []);
   }
+
+  const read = directionalRead({
+    prices,
+    spot: quote.price,
+    priceSource: quote.source ?? null,
+    strike,
+    marketPriceCents: contract.price,
+    market,
+    secondsLeft,
+    trades,
+  });
+
+  // The chance it touches the strike again before the bell — pure arithmetic
+  // on the same volatility the call itself used, not a separate model.
+  const sigma = read.result?.sigma ?? null;
+  const flip = Number.isFinite(sigma) ? flipProbability(quote.price, strike, sigma) : null;
 
   // A separate, longer window than the model reads — this is for the chart,
   // which benefits from more history than a 15-minute contract's own
@@ -475,6 +477,12 @@ export async function computeRead(
         : { type: 'filter', filter: read.blockedBy ?? read.result?.reason ?? null },
     tradeable: read.tradeable,
     confidence: read.confidence,
+    confidenceGrade: read.confidenceGrade,
+    confidenceScore: read.confidenceScore,
+    fairPYes: read.fairPYes,
+    fairPNo: read.fairPNo,
+    quantMissing: read.quantMissing,
+    quantFeatures: read.result?.quant?.features ?? null,
     likelihood: read.likelihood,
     winProbability: read.winProbability,
     marketWinProbability: read.marketWinProbability,

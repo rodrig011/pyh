@@ -48,7 +48,13 @@ export function readBoard(candidates, context, options = {}) {
     if (!(strike > 0) || !Number.isFinite(candidate?.price)) continue;
 
     const read = directionalRead(
-      { ...context, strike, marketPriceCents: candidate.price, market },
+      {
+        ...context,
+        strike,
+        marketPriceCents: candidate.price,
+        market,
+        trades: context?.tradesByTicker?.[market?.ticker] ?? context?.trades ?? [],
+      },
       options,
     );
 

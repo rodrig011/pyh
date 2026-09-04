@@ -282,6 +282,11 @@ export function directionalRead(input, options = {}) {
     // When something other than price is in the way, say that instead.
     blockedBy: tradeable || PRICE_BLOCKED.has(result.reason) ? null : result.reason,
     marketWinProbability,
+    fairPYes: result.quant?.fairPYes ?? probability,
+    fairPNo: result.quant?.fairPNo ?? (Number.isFinite(probability) ? 1 - probability : null),
+    confidenceGrade: result.quant?.confidence?.grade ?? null,
+    confidenceScore: result.quant?.confidence?.score ?? null,
+    quantMissing: result.quant?.missing ?? [],
     // How far the model is from the market on this side, in cents. Positive
     // means the model likes it more than the price does. This is an opinion
     // about value, NOT a claim that it clears costs.

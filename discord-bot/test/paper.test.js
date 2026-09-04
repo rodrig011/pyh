@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   PROFILES,
   START_BANKROLL,
+  auditSettledTrades,
   compareReport,
   contractsFor,
   equity,
@@ -36,6 +37,14 @@ const market = (over = {}) => ({
   market: { yes_bid_dollars: '0.49', yes_ask_dollars: '0.51', liquidity_dollars: '900' },
   secondsLeft: 500,
   ...over,
+});
+
+const official = (ticker, result) => ({
+  [ticker]: {
+    ticker,
+    result,
+    settlementValueCents: result === 'yes' ? 100 : 0,
+  },
 });
 
 test('it starts with what it was given', () => {
@@ -86,8 +95,9 @@ test('a settled winner pays a dollar a contract and no exit fee', () => {
     },
   };
 
-  // Down wins: the index finished at or below the strike.
-  const { account, event } = paperTick(held, market({ secondsLeft: 0, spot: 64_000 }));
+  const { account, event } = paperTick(held, market({ secondsLeft: 0, spot: 66_000 }), {
+    officialSettlements: official('T1', 'no'),
+  });
 
   assert.equal(event.kind, 'settled');
   assert.equal(event.trade.proceeds, 10, 'ten contracts at a dollar, no fee taken');
@@ -103,14 +113,16 @@ test('a settled loser pays nothing at all', () => {
     position: { ticker: 'T1', side: 'down', entryCents: 51, contracts: 10, cost: 5.3, openedAt: 0 },
   };
 
-  const { account, event } = paperTick(held, market({ secondsLeft: 0, spot: 66_000 }));
+  const { account, event } = paperTick(held, market({ secondsLeft: 0, spot: 64_000 }), {
+    officialSettlements: official('T1', 'yes'),
+  });
 
   assert.equal(event.trade.proceeds, 0);
   assert.equal(account.cash, 60);
   assert.ok(account.trades[0].profit < 0);
 });
 
-test('settlement uses one BRTI final-minute window and records its source', () => {
+test('official Kalshi result wins over a contradictory local BRTI window', () => {
   const closesAt = 120_000;
   const held = {
     ...newAccount(),
@@ -129,12 +141,55 @@ test('settlement uses one BRTI final-minute window and records its source', () =
       { at: 100_000, price: 99_999, source: 'coinbase' },
       { at: 110_000, price: 65_300, source: 'kalshi-brti' },
     ],
-  }), { now: 130_000 });
-  assert.equal(event.trade.settlementPrice, 65_200);
-  assert.equal(event.trade.settlementSource, 'kalshi-brti:final-60s-average');
-  assert.equal(event.trade.exitCents, 100, 'the Coinbase sample and fallback spot were not mixed in');
+  }), {
+    now: 130_000,
+    officialSettlements: official('T1', 'no'),
+  });
+  assert.equal(event.trade.settlementPrice, null);
+  assert.equal(event.trade.settlementSource, 'kalshi-market:official-result');
+  assert.equal(event.trade.settlementResult, 'no');
+  assert.equal(event.trade.exitCents, 0, 'local prices cannot overrule the exact ticker result');
   assert.equal(event.trade.fees, 0.2);
   assert.equal(event.trade.durationMs, 129_000, 'duration is recorded');
+});
+
+test('an expired position waits rather than inventing a settlement result', () => {
+  const held = {
+    ...newAccount(),
+    cash: 60,
+    position: { ticker: 'T1', strike: 65_000, side: 'up', entryCents: 51, contracts: 10, cost: 5.3, openedAt: 0 },
+  };
+  const { account, event } = paperTick(held, market({ secondsLeft: 0, spot: 70_000 }));
+  assert.equal(event.kind, 'awaiting_settlement');
+  assert.equal(account.position.ticker, 'T1');
+  assert.equal(account.cash, 60);
+  assert.equal(account.trades.length, 0);
+});
+
+test('legacy false wins are re-audited and removed from bankroll and W/L', () => {
+  const legacy = {
+    ...newAccount({ bankroll: 100 }),
+    cash: 107,
+    trades: [{
+      ticker: 'T1', side: 'up', reason: 'settled', contracts: 10,
+      cost: 7, proceeds: 10, profit: 3, exitCents: 100,
+      settlementSource: 'kalshi-brti:final-60s-average',
+    }],
+    tradeStats: { total: 1, wins: 1, losses: 0, breakEven: 0, netProfit: 3 },
+  };
+  const { account, corrections, cashAdjustment } = auditSettledTrades(
+    legacy,
+    official('T1', 'no'),
+    { now: 1234 },
+  );
+  assert.equal(corrections, 1);
+  assert.equal(cashAdjustment, -10);
+  assert.equal(account.cash, 97);
+  assert.equal(account.trades[0].profit, -7);
+  assert.equal(account.trades[0].exitCents, 0);
+  assert.equal(account.tradeStats.wins, 0);
+  assert.equal(account.tradeStats.losses, 1);
+  assert.equal(account.tradeStats.netProfit, -7);
 });
 
 test('a contract is counted once, when it expires — not once per sweep', () => {
@@ -311,7 +366,7 @@ test('a contract that truly is only ever seen too late is still recorded as too_
   assert.deepEqual(account.census, { too_late: 1 });
 });
 
-test('a position remembers its OWN strike and settles against that one', () => {
+test('a position settles from its OWN exact ticker result', () => {
   // The ladder makes this fatal rather than merely wrong: "whatever strike the
   // feed lists now" is a different contract on almost every tick, so settling
   // against it grades the trade on a bet that was never placed.
@@ -333,6 +388,7 @@ test('a position remembers its OWN strike and settles against that one', () => {
   // 64,600, and below the 65,000 strike the feed happens to lead with.
   const { account, event } = paperTick(held, context({ secondsLeft: 0, spot: 64_800 }), {
     candidates: ladder(),
+    officialSettlements: official('KXBTC-64600', 'yes'),
   });
 
   assert.equal(event.kind, 'settled');
@@ -360,6 +416,7 @@ test('a position whose contract has left the board settles rather than hanging',
 
   const { event } = paperTick(held, context({ spot: 64_800, secondsLeft: 400 }), {
     candidates: ladder(),
+    officialSettlements: official('KXBTC-GONE', 'yes'),
   });
 
   assert.equal(event.kind, 'settled');

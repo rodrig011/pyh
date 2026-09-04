@@ -415,6 +415,41 @@ test('auto-start keeps configured paper profiles active without resetting their 
   assert.equal(store.current.seen, 41, 'existing history is preserved');
 });
 
+test('the paper sweep repairs a legacy false win from the exact Kalshi result', async () => {
+  const legacy = {
+    ...newAccount({ bankroll: 100, profile: 'always' }),
+    profile: 'always',
+    userId: 'u1',
+    cash: 103,
+    trades: [{
+      ticker: 'KXBTC-FALSE-WIN', side: 'up', reason: 'settled', contracts: 10,
+      cost: 7, proceeds: 10, profit: 3, exitCents: 100,
+      settlementSource: 'kalshi-brti:final-60s-average',
+    }],
+    tradeStats: { total: 1, wins: 1, losses: 0, breakEven: 0, netProfit: 3 },
+  };
+  const store = paperStore(legacy);
+  const fetched = [];
+
+  const result = await sweepPaper(noClient, store, paperConfig, {
+    openBoard: async () => ({ contracts: [] }),
+    fetchSpotPrice: async () => ({ price: null, source: null }),
+    fetchMarket: async (_settings, ticker) => {
+      fetched.push(ticker);
+      return { market: { ticker, status: 'settled', result: 'no', settlement_value_dollars: '0.0000' } };
+    },
+    now: 10_000,
+  });
+
+  assert.equal(result.ran, true);
+  assert.deepEqual(fetched, ['KXBTC-FALSE-WIN']);
+  assert.equal(store.current.cash, 93);
+  assert.equal(store.current.trades[0].profit, -7);
+  assert.equal(store.current.tradeStats.wins, 0);
+  assert.equal(store.current.tradeStats.losses, 1);
+  assert.equal(store.current.trades[0].settlementSource, 'kalshi-market:official-result');
+});
+
 test('an empty board is not treated as a market worth refusing', async () => {
   // Counting a feed outage as "refused 12 markets" would poison the census
   // that the report now leans on to say whether the engine is working.

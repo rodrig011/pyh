@@ -41,7 +41,7 @@ import { scanPatterns } from '../signals/patterns.js';
 import { findFairValueGaps, findSupportResistance } from '../signals/levels.js';
 import { buildCandles } from '../dashboard/candles.js';
 import { emaStack, macd, momentum, rsi, trendFit } from '../signals/indicators.js';
-import { currentContract, closeTimeOf, nearestTheMoneyContract, openBoard } from '../picks/kalshi.js';
+import { currentContract, closeTimeOf, fetchMarket, nearestTheMoneyContract, openBoard } from '../picks/kalshi.js';
 import { fetchTrades } from '../picks/whales.js';
 import { sweepLiveTrading, sweepPaper, sweepSignalAlerts, sweepWatches } from '../picks/watch.js';
 import { placeOrder } from '../picks/kalshiOrders.js';
@@ -469,7 +469,7 @@ export function createVipBot(config = loadVipConfig()) {
 
         // Paper trading rides the same sweep, so it sees the market exactly as
         // often as somebody watching it would.
-        sweepPaper(client, store, config, { openBoard, fetchSpotPrice, log })
+        sweepPaper(client, store, config, { openBoard, fetchSpotPrice, fetchMarket, log })
           .then((result) => {
             if (result.event) log.info(`Paper: ${result.event}`);
           })
@@ -487,7 +487,7 @@ export function createVipBot(config = loadVipConfig()) {
         // never place a single order regardless of profile. Same cadence as
         // the sweep above: exposure to a market is worth less every second
         // this is late, same as an exit or an alert.
-        sweepLiveTrading(client, store, config, { openBoard, fetchSpotPrice, placeOrder, log })
+        sweepLiveTrading(client, store, config, { openBoard, fetchSpotPrice, fetchTrades, placeOrder, log })
           .then((result) => {
             if (result.traded) log.info(`LIVE trade placed (${result.status ?? 'placed'})`);
           })

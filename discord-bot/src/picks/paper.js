@@ -198,7 +198,7 @@ export function contractsFor(stakeDollars, priceCents) {
 export function paperTick(
   account,
   input,
-  { now = Date.now(), ticker = null, sizing = {}, candidates = null } = {},
+  { now = Date.now(), ticker = null, sizing = {}, candidates = null, officialSettlements = {} } = {},
 ) {
   const position = account.position;
   const profile = profileOf(account);
@@ -224,7 +224,13 @@ export function paperTick(
   // contract it is not in — and settle it against a strike it was never
   // written on, which is the same class of mistake as grading a Kalshi call on
   // the spot price.
-  if (position) return holdTick(seen, position, input, { now, candidates });
+  if (position) {
+    return holdTick(seen, position, input, {
+      now,
+      candidates,
+      officialSettlement: officialSettlements?.[position.ticker] ?? null,
+    });
+  }
 
   // "always" does not stand aside for anything, including an unreadable
   // board — it exists to measure what refusing would have cost, and a board
@@ -247,7 +253,7 @@ export function paperTick(
 }
 
 /** One tick while a position is open: hold, sell, or let it settle. */
-function holdTick(account, position, input, { now, candidates }) {
+function holdTick(account, position, input, { now, candidates, officialSettlement = null }) {
   // The market this position actually lives on, found by ticker. When the
   // window has rolled it is gone from the board, and the position settles
   // against ITS OWN strike rather than whatever strike is listed now.
@@ -258,22 +264,22 @@ function holdTick(account, position, input, { now, candidates }) {
   const marketPriceCents = mine ? mine.price : input?.marketPriceCents;
   const market = mine ? mine.market : input?.market;
 
-  // Out of time, or the contract is no longer listed: it settled, and
-  // settlement costs no fee at all.
+  // Out of time, or the contract is no longer listed: it MAY have settled.
+  // A local BRTI sample is not the exchange's legal determination. Kalshi can
+  // use a different final value, delay determination, amend it, or resolve a
+  // boundary differently. Until the exact ticker returns result=yes|no the
+  // paper position stays open and the ledger makes no claim.
   const expired = !(input?.secondsLeft > 0) || (candidates && !mine);
   if (expired) {
-    const settlementWindow = Number.isFinite(position.closesAt)
-      ? (input.spotSamples ?? []).filter(
-          (sample) => sample?.source === input.spotSource && sample.at > position.closesAt - 60_000 && sample.at <= position.closesAt,
-        )
-      : [];
-    const settlementPrice = settlementWindow.length > 0
-      ? settlementWindow.reduce((sum, sample) => sum + sample.price, 0) / settlementWindow.length
-      : input.spot;
-    const settlementSource = settlementWindow.length > 0
-      ? `${input.spotSource}:final-60s-average`
-      : `${input.spotSource ?? 'unknown'}:fallback-current`;
-    const won = position.side === 'up' ? settlementPrice > strike : settlementPrice <= strike;
+    const result = officialSettlement?.result;
+    if (result !== 'yes' && result !== 'no') {
+      return {
+        account,
+        event: { kind: 'awaiting_settlement', ticker: position.ticker },
+      };
+    }
+
+    const won = position.side === 'up' ? result === 'yes' : result === 'no';
     const proceeds = won ? position.contracts * 1 : 0;
     const closed = {
       ...position,
@@ -284,8 +290,10 @@ function holdTick(account, position, input, { now, candidates }) {
       reason: 'settled',
       at: now,
       durationMs: now - position.openedAt,
-      settlementPrice,
-      settlementSource,
+      settlementResult: result,
+      settlementValueCents: officialSettlement.settlementValueCents ?? (result === 'yes' ? 100 : 0),
+      settlementPrice: null,
+      settlementSource: 'kalshi-market:official-result',
     };
     return { account: bookTrade(account, closed), event: { kind: 'settled', trade: closed } };
   }
@@ -499,6 +507,73 @@ function bookTrade(account, closed) {
     position: null,
     tradeStats,
     trades: [...account.trades, { ...closed, profit }].slice(-500),
+  };
+}
+
+function outcomeOf(profit) {
+  if (profit > 0) return 'wins';
+  if (profit < 0) return 'losses';
+  return 'breakEven';
+}
+
+/**
+ * Reconcile legacy paper settlements against Kalshi's result for the exact
+ * ticker. Older versions inferred YES/NO from a local BRTI sample and could
+ * therefore award a $1 payout to the side Kalshi actually settled at $0.
+ *
+ * Pure and idempotent: once a row carries the official source it is never
+ * adjusted again. Cash, W/L and net profit are corrected together.
+ */
+export function auditSettledTrades(account, officialSettlements = {}, { now = Date.now() } = {}) {
+  let cashAdjustment = 0;
+  let corrections = 0;
+  const stats = { ...lifetimeStats(account) };
+
+  const trades = (account?.trades ?? []).map((trade) => {
+    if (trade?.reason !== 'settled' || trade.settlementSource === 'kalshi-market:official-result') {
+      return trade;
+    }
+
+    const settlement = officialSettlements?.[trade.ticker];
+    if (settlement?.result !== 'yes' && settlement?.result !== 'no') return trade;
+
+    const won = trade.side === 'up'
+      ? settlement.result === 'yes'
+      : settlement.result === 'no';
+    const oldProceeds = Number.isFinite(trade.proceeds) ? trade.proceeds : 0;
+    const proceeds = won ? trade.contracts : 0;
+    const oldProfit = Number.isFinite(trade.profit) ? trade.profit : oldProceeds - trade.cost;
+    const profit = proceeds - trade.cost;
+
+    cashAdjustment += proceeds - oldProceeds;
+    stats[outcomeOf(oldProfit)] -= 1;
+    stats[outcomeOf(profit)] += 1;
+    stats.netProfit += profit - oldProfit;
+    corrections += 1;
+
+    return {
+      ...trade,
+      exitCents: won ? 100 : 0,
+      proceeds,
+      profit,
+      settlementResult: settlement.result,
+      settlementValueCents: settlement.settlementValueCents ?? (settlement.result === 'yes' ? 100 : 0),
+      settlementPrice: null,
+      settlementSource: 'kalshi-market:official-result',
+      auditedAt: now,
+    };
+  });
+
+  if (corrections === 0) return { account, corrections: 0, cashAdjustment: 0 };
+  return {
+    account: {
+      ...account,
+      cash: account.cash + cashAdjustment,
+      trades,
+      tradeStats: stats,
+    },
+    corrections,
+    cashAdjustment,
   };
 }
 
