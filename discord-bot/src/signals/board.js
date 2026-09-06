@@ -1,6 +1,6 @@
 import { VERDICTS } from './engine.js';
 import { directionalRead } from './direction.js';
-import { strikeOf } from '../picks/kalshi.js';
+import { closeTimeOf, strikeOf } from '../picks/kalshi.js';
 
 /**
  * Reading a whole board of strikes instead of one contract.
@@ -50,6 +50,8 @@ export function readBoard(candidates, context, options = {}) {
     const read = directionalRead(
       {
         ...context,
+        ...(Number.isFinite(context?.now) && Number.isFinite(closeTimeOf(market))
+          ? { secondsLeft: (closeTimeOf(market) - context.now) / 1000 } : {}),
         strike,
         marketPriceCents: candidate.price,
         market,

@@ -104,6 +104,7 @@ export function evaluate(input, options = {}) {
     market = null,
     secondsLeft = null,
     trades = [],
+    microstructure = market?.microstructure ?? {},
   } = input ?? {};
 
   const notes = [];
@@ -145,35 +146,15 @@ export function evaluate(input, options = {}) {
     return skip('no_clock', prices_);
   }
   if (!(secondsLeft > 0)) return skip('too_late', { ...prices_, secondsLeft });
-  if (secondsLeft < config.minimumSecondsLeft) return skip('too_late', { ...prices_, secondsLeft });
-
-  // Judged on the YES price, before a side has been chosen — which is not
-  // strictly coherent, since on a market quoted 93 the trade on the table is
-  // the NO side at seven cents and seven cents is not expensive.
-  //
-  // Moving this check after the side selection, so it tests the price actually
-  // being paid, was tried and MEASURED: against a market with a standing six
-  // cent mispricing it took the return from +140% to +103% on the up bias and
-  // from +89% to +41% on the down one, across seven seeds, while barely moving
-  // the refusal count. Sweeping both the floor and the cap afterwards changed
-  // nothing, so the loss is not the entry band — it is that this early refusal
-  // deliberately returns WITHOUT a probability, and the exit logic reads a
-  // probability-free skip as "no opinion, keep holding". Supplying one here
-  // makes the scalp rules bank winners early at exactly the prices where a
-  // winning position sits.
-  //
-  // So it stays where it is. The tidier version is the more expensive one, and
-  // the coupling it exposes belongs to scalp.js, not to this gate.
-  if (marketPriceCents > config.maximumEntryCents || marketPriceCents < config.minimumEntryCents) {
-    return skip('priced_out', prices_);
-  }
 
   // All probabilities now come from one pure quantitative boundary. Nothing
   // downstream — dashboard, Discord, paper or live — may substitute an LLM or
   // a hand-authored percentage for this result.
   const quant = estimateSettlementProbability(
     {
+      ...input,
       prices,
+      microstructure,
       spot: price,
       strike,
       secondsLeft,
@@ -184,8 +165,9 @@ export function evaluate(input, options = {}) {
     config,
   );
   if (quant.status === QUANT_STATUS.INSUFFICIENT) {
+    if (secondsLeft < config.minimumSecondsLeft) return skip('too_late', { ...prices_, secondsLeft, quant });
     const missingVol = quant.missing.includes('realized_volatility');
-    return skip(missingVol ? 'no_vol' : 'insufficient_data', { quant });
+    return skip(missingVol ? 'no_vol' : 'insufficient_data', { ...prices_, quant });
   }
 
   const probability = quant.fairPYes;
@@ -208,6 +190,8 @@ export function evaluate(input, options = {}) {
   // half-spread error down a second path.
   const chart = confluenceRead({ prices });
   const read = { probability, marketProbability, sigma, volatility: vol, quotes, chart, quant };
+
+  if (secondsLeft < config.minimumSecondsLeft) return skip('too_late', { ...read, secondsLeft });
 
   const trend = trendFit(prices.slice(-20));
   if (trend && trend.r2 > config.maximumTrendFit) {
@@ -232,6 +216,11 @@ export function evaluate(input, options = {}) {
 
   if (!best.cost) return skip('no_price', read);
   best.entryCents = best.cost.entryCents;
+  // Entry eligibility belongs to the side we would BUY. It must not erase
+  // fair value needed by exit management on the side already held.
+  if (best.entryCents > config.maximumEntryCents || best.entryCents < config.minimumEntryCents) {
+    return skip('priced_out', read);
+  }
 
   // The gross edge of the side being taken, against the price it is taken at.
   const bestEdgeCents = best.cost.grossCents;

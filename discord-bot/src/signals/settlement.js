@@ -40,6 +40,25 @@
 /** The averaging window Kalshi settles crypto contracts on. */
 export const SETTLEMENT_WINDOW_SECONDS = 60;
 
+/** Observed one-second BRTI prints already inside this contract's window.
+ * A sparse collector sample or an earlier contract cannot supply this mean. */
+export function observedSettlementWindow(samples, now, secondsLeft, windowSeconds = 60) {
+  if (!Number.isFinite(now) || !(secondsLeft > 0) || secondsLeft >= windowSeconds) return null;
+  const closesAt = now + secondsLeft * 1000;
+  const start = Math.round((closesAt - windowSeconds * 1000) / 1000);
+  const end = Math.floor(now / 1000);
+  const bySecond = new Map();
+  for (const sample of samples ?? []) {
+    if (sample?.source !== 'kalshi-brti' || !Number.isFinite(sample.sourceAt) || !(sample.price > 0)) continue;
+    const second = Math.floor(sample.sourceAt / 1000);
+    if (second >= start && second < end) bySecond.set(second, sample.price);
+  }
+  const required = end - start;
+  if (required < 1 || required >= windowSeconds || bySecond.size !== required) return null;
+  return { average: [...bySecond.values()].reduce((a, b) => a + b, 0) / required,
+    observedSeconds: required, remainingSeconds: windowSeconds - required };
+}
+
 /**
  * The point-settled horizon that has the same variance as this average-settled
  * contract. Feed this to the volatility scaling instead of the raw clock.

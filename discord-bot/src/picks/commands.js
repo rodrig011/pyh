@@ -13,7 +13,7 @@ import { measureEdge } from '../signals/measure.js';
 import { walkForwardValidation } from '../signals/validation.js';
 import { readBoard, nearestTheMoney, censusLine } from '../signals/board.js';
 import { scalpPlan } from '../signals/scalpTarget.js';
-import { historyQuality } from '../signals/collector.js';
+import { historyQuality, priceContext } from '../signals/collector.js';
 import { checkTrade, newRiskState, riskSummary } from './riskLimits.js';
 import { addWatch, makeWatch, removeWatches } from './watch.js';
 import {
@@ -1728,21 +1728,12 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
       return interaction.editReply('❌ **No spot price right now**, so there is nothing to read.');
     }
 
-    const samples = store.listSamples(asset);
-    const prices = samples
-      .filter((sample) => sample?.at >= Date.now() - 60 * 60 * 1000 && sample?.price > 0)
-      .map((sample) => sample.price);
-
-    // How good the history actually is, not merely how much of it there is.
-    const quality = historyQuality(
-      samples.filter((sample) => sample?.at >= Date.now() - 60 * 60 * 1000),
-      { sampleSeconds: 30 },
-    );
-
+    const context = priceContext(store.listSamples(asset), quote, { now: Date.now() });
+    const prices = context.prices;
+    const quality = historyQuality(context.priceSamples, { sampleSeconds: 30 });
     const closesAt = closeTimeOf(board.contracts[0].market);
     const ladder = readBoard(board.contracts, {
-      prices,
-      spot: quote.price,
+      ...context,
       secondsLeft: Number.isFinite(closesAt) ? (closesAt - Date.now()) / 1000 : null,
     });
 
@@ -1965,7 +1956,7 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
     if (settled > 0) store.putQuotes(asset, log, { flush: true });
 
     const measured = measureEdge(log);
-    const validation = walkForwardValidation(log);
+    const validation = walkForwardValidation(log, { requireVerifiedFeed: true });
     const recorded = log.length;
 
     if (!measured.ready) {

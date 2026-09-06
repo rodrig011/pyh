@@ -1,3 +1,4 @@
+import { priceContext } from '../signals/collector.js';
 import { closeTimeOf, nearestTheMoneyContract, strikeOf } from '../picks/kalshi.js';
 import { directionalRead } from '../signals/direction.js';
 import { executablePrices } from '../signals/cost.js';
@@ -34,7 +35,7 @@ let validationCache = { key: null, value: null };
 function cachedWalkForwardValidation(log) {
   const key = JSON.stringify(marketSnapshots(log));
   if (validationCache.key !== key) {
-    validationCache = { key, value: walkForwardValidation(log) };
+    validationCache = { key, value: walkForwardValidation(log, { requireVerifiedFeed: true }) };
   }
   return validationCache.value;
 }
@@ -52,7 +53,8 @@ const CHART_HISTORY_MS = 4 * 60 * 60 * 1000;
  * engine's own exit path already reasons this way rather than reusing the
  * entry profile.
  */
-export function positionAction(position, board, { now, spot = null, prices = [] }) {
+export function positionAction(position, board, context) {
+  const { now } = context;
   if (!position) return null;
   const profile = PROFILES.scalp;
   const manual = Boolean(position.manual);
@@ -65,7 +67,7 @@ export function positionAction(position, board, { now, spot = null, prices = [] 
   if (!(secondsLeft > 0)) return { action: 'settling', ticker: position.ticker, side: position.side, manual };
 
   const read = directionalRead(
-    { prices, spot, strike: position.strike, marketPriceCents: mine.price, market: mine.market, secondsLeft },
+    { ...context, strike: position.strike, marketPriceCents: mine.price, market: mine.market, secondsLeft },
     profile.engine,
   );
   const quotes = read.result?.quotes;
@@ -260,10 +262,8 @@ export async function computeRead(
   const closesAt = closeTimeOf(market);
   const secondsLeft = Number.isFinite(closesAt) ? (closesAt - now) / 1000 : null;
 
-  const prices = store
-    .listSamples(asset)
-    .filter((sample) => sample?.at >= now - 60 * 60 * 1000 && sample?.price > 0)
-    .map((sample) => sample.price);
+  const context = priceContext(store.listSamples(asset), quote, { now, sampleSeconds: config.signals?.sampleSeconds ?? 30 });
+  const prices = context.prices;
 
   // The trade tape, if this caller can fetch it. Optional: a dashboard reading
   // an account with no `fetchTrades` wired in just shows no whale reading
@@ -284,8 +284,7 @@ export async function computeRead(
   }
 
   const read = directionalRead({
-    prices,
-    spot: quote.price,
+    ...context,
     priceSource: quote.source ?? null,
     strike,
     marketPriceCents: contract.price,
@@ -305,7 +304,7 @@ export async function computeRead(
   // which needs real highs and lows rather than the tick history, has candles
   // to read.
   const candles = buildCandles(
-    store.listSamples(asset).filter((sample) => sample?.at >= now - CHART_HISTORY_MS),
+    context.priceSamples,
     { bucketMs: 60_000, limit: 240 },
   );
   // RSI on the 1-minute candle closes — a coarser, chart-friendly cousin of
@@ -428,7 +427,7 @@ export async function computeRead(
   // authoritative source. Otherwise fall back to whatever was entered by
   // hand on the dashboard itself.
   const held = store.riskState?.()?.position ?? store.dashboardPosition?.() ?? null;
-  const position = positionAction(held, board, { now, spot: quote.price, prices });
+  const position = positionAction(held, board, context);
 
   const record = tradeRecord(store.listTradeOrders?.() ?? []);
   const paperAccounts = store.paperAccounts?.() ?? {};
@@ -478,6 +477,9 @@ export async function computeRead(
     strike,
     spot: quote.price,
     priceSource: quote.source ?? contract.priceSource ?? null,
+    sourceAt: quote.sourceAt ?? null,
+    sourceAgeMs: Number.isFinite(quote.sourceAt) ? now - quote.sourceAt : null,
+    feedVersion: quote.feedVersion ?? null,
     secondsLeft,
     action: read.action,
     call: read.call,
@@ -506,7 +508,8 @@ export async function computeRead(
     quantPenalties: read.result?.quant?.confidence?.penalties ?? [],
     quantCaps: read.result?.quant?.confidence?.caps ?? [],
     quantFeatures: read.result?.quant?.features ?? null,
-    likelihood: read.likelihood,
+    likelihood: 'uncalibrated model',
+    entryRationale: read.entryRationale ?? null,
     winProbability: read.winProbability,
     marketWinProbability: read.marketWinProbability,
     valueCents: read.valueCents,

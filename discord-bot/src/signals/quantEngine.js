@@ -1,7 +1,8 @@
 import { executablePrices, netEdgeCents } from './cost.js';
 import { trendFit } from './indicators.js';
 import { logReturns, probabilityAbove, scaleVolatility } from './math.js';
-import { effectiveSecondsLeft } from './settlement.js';
+import { effectiveSecondsLeft, observedSettlementWindow, settlementReference } from './settlement.js';
+import { historyQuality } from './collector.js';
 import { volatilityEstimate } from './volatility.js';
 
 export const QUANT_STATUS = {
@@ -45,7 +46,7 @@ export function cumulativeVolumeDelta(trades) {
   let yes = 0;
   let no = 0;
   for (const trade of trades ?? []) {
-    const size = finite(trade?.count ?? trade?.size ?? trade?.amount);
+    const size = finite(trade?.count_fp ?? trade?.count ?? trade?.size ?? trade?.amount);
     if (!(size > 0)) continue;
     const side = trade?.taker_side ?? trade?.side;
     if (side === 'yes' || side === 'buy') yes += size;
@@ -68,7 +69,7 @@ export function bookImbalance(market) {
 }
 
 export function liquidityScore(market, { fullScoreDollars = 1000 } = {}) {
-  const dollars = finite(market?.liquidity_dollars ?? market?.liquidity);
+  const dollars = finite(market?.book_liquidity_dollars ?? market?.liquidity_dollars ?? market?.liquidity);
   if (!(dollars >= 0)) return null;
   return clamp(Math.log1p(dollars) / Math.log1p(fullScoreDollars), 0, 1);
 }
@@ -137,6 +138,15 @@ export function estimateSettlementProbability(input = {}, options = {}) {
 
   const quotes = executablePrices(market, marketPriceCents);
   if (!quotes) missing.push('executable_quotes');
+  if (Array.isArray(input.priceSamples) && !historyQuality(input.priceSamples, config).ok) {
+    missing.push('continuous_price_history');
+  }
+  const banked = config.settlementAveraging && clock > 0 && clock < config.settlementWindowSeconds
+    ? observedSettlementWindow(input.settlementSamples, input.now, clock, config.settlementWindowSeconds)
+    : null;
+  if (config.settlementAveraging && clock > 0 && clock < config.settlementWindowSeconds && !banked) {
+    missing.push('settlement_window_history');
+  }
 
   const returns = logReturns(prices);
   const volatility = volatilityEstimate(returns);
@@ -153,8 +163,12 @@ export function estimateSettlementProbability(input = {}, options = {}) {
     };
   }
 
+  const remaining = banked?.remainingSeconds ?? clock;
+  const reference = banked ? settlementReference(current, remaining, {
+    windowAverageSoFar: banked.average, windowSeconds: config.settlementWindowSeconds,
+  }).price : current;
   const horizonSeconds = config.settlementAveraging
-    ? effectiveSecondsLeft(clock, config.settlementWindowSeconds)
+    ? effectiveSecondsLeft(remaining, config.settlementWindowSeconds)
     : clock;
   const sigma = scaleVolatility(volatility.sigma, config.sampleSeconds, horizonSeconds);
   const sigmaLow = scaleVolatility(volatility.low, config.sampleSeconds, horizonSeconds);
@@ -170,10 +184,10 @@ export function estimateSettlementProbability(input = {}, options = {}) {
     };
   }
 
-  const structuralPYes = probabilityAbove(current, line, sigma);
+  const structuralPYes = probabilityAbove(reference, line, sigma);
   const structuralRange = [
-    probabilityAbove(current, line, sigmaHigh),
-    probabilityAbove(current, line, sigmaLow),
+    probabilityAbove(reference, line, sigmaHigh),
+    probabilityAbove(reference, line, sigmaLow),
   ].filter(Number.isFinite).sort((a, b) => a - b);
 
   const trend = trendFit(prices.slice(-20));
@@ -203,8 +217,8 @@ export function estimateSettlementProbability(input = {}, options = {}) {
   const probabilityRange = structuralRange.map((value) => adjustedProbability(value, adjustment));
 
   const liquidity = liquidityScore(market);
-  const liquidityDollars = finite(market?.liquidity_dollars ?? market?.liquidity);
-  const thinBook = liquidityDollars !== null && liquidityDollars < config.minimumLiquidityDollars;
+  const liquidityDollars = finite(market?.book_liquidity_dollars ?? market?.liquidity_dollars ?? market?.liquidity);
+  const thinBook = liquidityDollars !== null && liquidityDollars < 25;
   const volExpanding = expandingVolatility(returns);
 
   // Evidence coverage follows the requested weights. Liquidity affects
@@ -220,7 +234,7 @@ export function estimateSettlementProbability(input = {}, options = {}) {
     confidenceScore = Math.min(confidenceScore, 70);
     caps.push('trend strength below 0.20 caps confidence at 70%');
   }
-  if (ofi === null || depthImbalance === null) {
+  if (ofi === null || depthImbalance === null || microstructure.bookComplete !== true) {
     confidenceScore = Math.min(confidenceScore, 80);
     caps.push('no real OFI or complete book caps confidence at 80%');
   }
@@ -271,6 +285,10 @@ export function estimateSettlementProbability(input = {}, options = {}) {
       caps,
     },
     features: {
+      sourceAt: input.sourceAt ?? null,
+      feedVersion: input.feedVersion ?? null,
+      settlementReference: reference,
+      observedSettlementSeconds: banked?.observedSeconds ?? 0,
       distanceDollars: current - line,
       distancePercent: ((current - line) / line) * 100,
       distanceSigma: Math.log(current / line) / sigma,
@@ -284,6 +302,7 @@ export function estimateSettlementProbability(input = {}, options = {}) {
       liquidityScore: liquidity,
       liquidityDollars,
       thinBook,
+      bookComplete: microstructure.bookComplete === true,
       volatilityExpanding: volExpanding,
     },
   };

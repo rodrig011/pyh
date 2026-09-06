@@ -758,6 +758,9 @@ export function dashboardPage(brandName) {
           ? 'rate limited (HTTP 429)'
           : errorCode === 'upstream_unavailable'
             ? 'service unavailable (HTTP 503)'
+            : errorCode === 'stale_price' ? 'stale calculation timestamp'
+            : errorCode === 'missing_timestamp' ? 'missing calculation timestamp'
+            : errorCode === 'repeated_value' ? 'repeated index value'
             : errorCode === 'invalid_response'
               ? 'invalid response'
               : 'unavailable' + (httpStatus ? ' (HTTP ' + httpStatus + ')' : '');
@@ -1433,7 +1436,7 @@ export function dashboardPage(brandName) {
     profitEl.textContent = Number.isFinite(profit) ? (profit >= 0 ? '+' : '') + '$' + profit.toFixed(2) : '—';
     profitEl.className = 'value ' + (profit > 0 ? 'up' : profit < 0 ? 'down' : '');
     if (v && v.promotion && !v.promotion.eligible) {
-      document.getElementById('trackNote').textContent = 'REPLAY NOT VALIDATED: ' + v.promotion.reasons.join(' · ') + '. Forecast accuracy does not establish profitable fills.';
+      document.getElementById('trackNote').textContent = 'REPLAY NOT VALIDATED: ' + (v.excludedUnverifiedObservations ? v.excludedUnverifiedObservations + ' older quotes excluded for unverified price timestamps. ' : '') + v.promotion.reasons.join(' · ') + '. Forecast accuracy does not establish profitable fills.';
     } else if (v && v.promotion && v.promotion.eligible) {
       document.getElementById('trackNote').textContent = 'REPLAY PASSED after fees and 1¢ slippage; fills and book depth still need verification.';
     }
@@ -1489,7 +1492,9 @@ export function dashboardPage(brandName) {
       quantBadge.textContent = 'INSUFFICIENT DATA';
       quantBadge.className = 'badge down';
     }
-    var quantDetails = [];
+    var quantDetails = ['Model estimate; historical calibration is not yet established.'];
+    if (Number.isFinite(data.sourceAgeMs)) quantDetails.push('BRTI calculated ' + Math.max(0, data.sourceAgeMs / 1000).toFixed(1) + 's ago');
+    if (data.entryRationale) quantDetails.push(data.entryRationale);
     if ((data.quantMissing || []).length) quantDetails.push('Missing: ' + data.quantMissing.join(', '));
     if ((data.quantPenalties || []).length) quantDetails.push('Penalties: ' + data.quantPenalties.join(' · '));
     if ((data.quantCaps || []).length) quantDetails.push('Caps: ' + data.quantCaps.join(' · '));

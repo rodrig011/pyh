@@ -485,8 +485,8 @@ function enterTick(account, entry, { now, ticker, sizing, forced = false }) {
     worstCents: read.entryCents,
     modelProbability: read.winProbability,
     entryReason: forced
-      ? `Forced paper entry: best available quoted edge; failed filter ${read.result?.reason ?? 'unknown'}.`
-      : `Model entry: ${read.call}; net edge ${Number.isFinite(read.netEdgeCents) ? read.netEdgeCents.toFixed(2) + ' cents' : 'unavailable'}; chart ${read.result?.chartAgreement ?? 'unavailable'}.`,
+      ? `Forced paper entry: best available quoted edge; failed filter ${read.result?.reason ?? 'unknown'}. ${read.entryRationale ?? ''}`
+      : `Model entry: ${read.call}; net edge ${Number.isFinite(read.netEdgeCents) ? read.netEdgeCents.toFixed(2) + ' cents' : 'unavailable'}; chart ${read.result?.chartAgreement ?? 'unavailable'}. ${read.entryRationale ?? ''}`,
     entryEvidence: {
       at: now,
       probability: read.winProbability ?? null,

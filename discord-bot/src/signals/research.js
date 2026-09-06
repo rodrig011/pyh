@@ -29,6 +29,7 @@ export function researchExport(store, asset = 'BTC', now = Date.now()) {
     at: row.at, ticker: row.ticker, secondsLeft: row.secondsLeft,
     spot: row.spot, strike: row.strike, bid: row.bid, ask: row.ask,
     model: row.model, outcome: row.outcome, outcomeSource: row.outcomeSource,
+    evidence: row.evidence ?? null,
   }));
   const profiles = Object.fromEntries(Object.entries(store.paperAccounts?.() ?? {}).map(([name, account]) => {
     const trades = (account.trades ?? []).map((t) => ({
@@ -41,8 +42,9 @@ export function researchExport(store, asset = 'BTC', now = Date.now()) {
     return [name, { start: account.start, cash: account.cash, retainedTrades: trades.length,
       lifetimeTrades: account.tradeStats?.total ?? trades.length, trades, diagnostics: tradeDiagnostics(trades) }];
   }));
-  return { schemaVersion: 1, exportedAt: now, asset, observations, profiles,
-    validation: walkForwardValidation(observations),
+  return { schemaVersion: 2, exportedAt: now, asset, observations, profiles,
+    validation: walkForwardValidation(observations, { requireVerifiedFeed: true }),
     limitations: ['Only retained history is exported; older truncated rows cannot be reconstructed.',
-      'Missing past entry features remain missing; no retrospective thesis is invented.'] };
+      'Missing past entry features remain missing; no retrospective thesis is invented.',
+      'Rows without brti-latest-v2 timestamps may contain the old delayed feed; do not train a new calibration on them.'] };
 }

@@ -1,3 +1,5 @@
+import { priceContext } from './collector.js';
+import { quoteCents } from './cost.js';
 /**
  * Writing down what the market actually charged, so the one question that
  * matters can eventually be answered with data instead of opinion.
@@ -65,6 +67,7 @@ export function makeObservation({
   secondsLeft,
   modelProbability = null,
   sigmas = null,
+  evidence = null,
 }) {
   if (!(at > 0) || !ticker || !(spot > 0) || !(strike > 0)) return null;
   if (!(secondsLeft >= 0)) return null;
@@ -97,6 +100,7 @@ export function makeObservation({
     // the winner. Sigmas rather than probabilities, because any probability
     // can be recomputed from these and a probability cannot be undone.
     sigmas: sigmas ?? null,
+    evidence,
     // Filled in later, once the market has settled.
     outcome: null,
   };
@@ -245,20 +249,23 @@ export async function auditOfficialObservationOutcomes(
  */
 export function observeOnce(
   store,
-  { asset = 'BTC', contract, spot, evaluateModel, historyMs = 60 * 60 * 1000, now = Date.now() } = {},
+  { asset = 'BTC', contract, spot, quote = null, evaluateModel, historyMs = 60 * 60 * 1000, now = Date.now() } = {},
 ) {
   let modelProbability = null;
   let sigmas = null;
+  let evidence = { source: quote?.source ?? null, sourceAt: quote?.sourceAt ?? null,
+    feedVersion: quote?.feedVersion ?? null };
+  const context = priceContext(store.listSamples(asset), quote ?? { price: spot }, { now });
 
   try {
     const market = contract?.market;
     if (market) {
-      sigmas = allVolatilityReadings(logReturns(pricesFrom(store.listSamples(asset), now - historyMs)));
+      sigmas = allVolatilityReadings(logReturns(context.prices));
     }
     if (market && typeof evaluateModel === 'function') {
       const closesAt = closeTimeOf(market);
       const read = evaluateModel({
-        prices: pricesFrom(store.listSamples(asset), now - historyMs),
+        ...context,
         spot,
         strike: contract.strike ?? strikeOf(market),
         marketPriceCents: contract.price,
@@ -266,6 +273,10 @@ export function observeOnce(
         secondsLeft: Number.isFinite(closesAt) ? (closesAt - now) / 1000 : null,
       });
       if (Number.isFinite(read?.probability)) modelProbability = read.probability;
+      evidence = { ...evidence, features: read?.quant?.features ?? null,
+        confidence: read?.quant?.confidence ?? null, missing: read?.quant?.missing ?? [],
+        verdict: read?.verdict ?? null, reason: read?.reason ?? null,
+        bookAt: market.book_at ?? null };
     }
   } catch {
     // A model that throws must not stop the quote being written down. The
@@ -273,7 +284,7 @@ export function observeOnce(
     modelProbability = null;
   }
 
-  return recordOnce(store, { asset, contract, spot, modelProbability, sigmas, now });
+  return recordOnce(store, { asset, contract, spot, modelProbability, sigmas, evidence, now });
 }
 
 /** Prices from stored samples, newest last, from `since` onward. */
@@ -291,17 +302,11 @@ function pricesFrom(samples, since) {
  */
 export function recordOnce(
   store,
-  { asset = 'BTC', contract, spot, modelProbability = null, sigmas = null, now = Date.now() } = {},
+  { asset = 'BTC', contract, spot, modelProbability = null, sigmas = null, evidence = null, now = Date.now() } = {},
 ) {
   try {
     const market = contract?.market;
     if (!market) return { recorded: false, reason: contract?.error ?? 'no market' };
-
-    const toCents = (value) => {
-      const n = Number(value);
-      if (!Number.isFinite(n)) return null;
-      return n > 0 && n <= 1 ? n * 100 : n;
-    };
 
     const closesAt = closeTimeOf(market);
     const observation = makeObservation({
@@ -310,11 +315,12 @@ export function recordOnce(
       asset,
       spot,
       strike: contract.strike ?? strikeOf(market),
-      yesBidCents: toCents(market.yes_bid_dollars ?? market.yes_bid),
-      yesAskCents: toCents(market.yes_ask_dollars ?? market.yes_ask),
+      yesBidCents: quoteCents(market, 'yes_bid'),
+      yesAskCents: quoteCents(market, 'yes_ask'),
       secondsLeft: Number.isFinite(closesAt) ? Math.max(0, (closesAt - now) / 1000) : null,
       modelProbability,
       sigmas,
+      evidence,
     });
 
     if (!observation) return { recorded: false, reason: 'incomplete quote' };

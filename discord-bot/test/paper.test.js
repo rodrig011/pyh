@@ -340,7 +340,7 @@ test('a contract that was EVER tradeable is not booked as a refusal', () => {
 test('a real refusal reason is not overwritten by too_late in the contract\'s last seconds', () => {
   // Priced out (>92c) the whole way through — refused for a real reason for
   // the bulk of its life, with plenty of time on the clock.
-  const overpriced = ladder([95], [65_000]);
+  const overpriced = ladder([99], [65_000]);
   let account = newAccount();
   account = paperTick(account, context({ secondsLeft: 500 }), { candidates: overpriced }).account;
   account = paperTick(account, context({ secondsLeft: 200 }), { candidates: overpriced }).account;

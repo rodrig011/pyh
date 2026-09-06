@@ -1,3 +1,4 @@
+import { priceContext } from '../signals/collector.js';
 import { SCALP_ACTIONS, roundTripReturn, scalpDecision } from '../signals/scalp.js';
 import { directionalRead } from '../signals/direction.js';
 import { readBoard, nearestTheMoney } from '../signals/board.js';
@@ -243,10 +244,7 @@ export async function sweepWatches(client, store, config, deps = {}) {
       const closesAt = closeTimeOf(contract.market);
       const samples = store.listSamples(asset);
       const result = checkWatch(watch, {
-        prices: samples
-          .filter((sample) => sample?.at >= now - 60 * 60 * 1000 && sample?.price > 0)
-          .map((sample) => sample.price),
-        spot: quote.price,
+        ...priceContext(samples, quote, { now, sampleSeconds: config.signals?.sampleSeconds ?? 30 }),
         strike: Number(contract.market.floor_strike ?? contract.market.cap_strike),
         marketPriceCents: contract.price,
         market: contract.market,
@@ -303,6 +301,7 @@ export async function sweepPaper(client, store, config, deps = {}) {
     openBoard,
     fetchSpotPrice,
     fetchMarket,
+    fetchTrades = null,
     now = Date.now(),
     log = { debug() {}, info() {} },
   } = deps;
@@ -384,6 +383,14 @@ export async function sweepPaper(client, store, config, deps = {}) {
       return { ran: false };
     }
 
+    const tradesByTicker = {};
+    if (fetchTrades) {
+      await Promise.all(candidates.slice(0, 4).map(async (candidate) => {
+        const ticker = candidate.market.ticker;
+        const response = await fetchTrades(settings.kalshi, ticker).catch(() => null);
+        tradesByTicker[ticker] = response?.trades ?? [];
+      }));
+    }
     const first = candidates[0]?.market ?? null;
     const closesAt = closeTimeOf(first);
     // A settlement window is one source or the other, never an average made
@@ -391,12 +398,8 @@ export async function sweepPaper(client, store, config, deps = {}) {
     // current quote; if there are none, the current quote alone is the honest
     // fallback and is labelled on the resulting trade.
     const context = {
-      prices: store
-        .listSamples(asset)
-        .filter((s) => s?.at >= now - 60 * 60 * 1000 && s?.price > 0 && s?.source === quote?.source)
-        .map((s) => s.price),
-      spot: quote?.price ?? null,
-      spotSource: quote?.source ?? null,
+      ...priceContext(store.listSamples(asset), quote, { now, sampleSeconds: config.signals?.sampleSeconds ?? 30 }),
+      tradesByTicker,
       spotSamples: store.listSamples(asset),
       secondsLeft: Number.isFinite(closesAt) ? (closesAt - now) / 1000 : null,
     };
@@ -503,11 +506,7 @@ export async function sweepSignalAlerts(client, store, config, deps = {}) {
 
     const closesAt = closeTimeOf(candidates[0].market);
     const context = {
-      prices: store
-        .listSamples(asset)
-        .filter((s) => s?.at >= now - 60 * 60 * 1000 && s?.price > 0)
-        .map((s) => s.price),
-      spot: quote.price,
+      ...priceContext(store.listSamples(asset), quote, { now, sampleSeconds: config.signals?.sampleSeconds ?? 30 }),
       secondsLeft: Number.isFinite(closesAt) ? (closesAt - now) / 1000 : null,
     };
 
@@ -713,11 +712,7 @@ export async function sweepLiveTrading(client, store, config, deps = {}) {
 
     const closesAt = closeTimeOf(candidates[0].market);
     const context = {
-      prices: store
-        .listSamples(asset)
-        .filter((s) => s?.at >= now - 60 * 60 * 1000 && s?.price > 0)
-        .map((s) => s.price),
-      spot: quote.price,
+      ...priceContext(store.listSamples(asset), quote, { now, sampleSeconds: config.signals?.sampleSeconds ?? 30 }),
       secondsLeft: Number.isFinite(closesAt) ? (closesAt - now) / 1000 : null,
     };
 

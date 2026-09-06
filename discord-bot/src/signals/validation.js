@@ -111,9 +111,12 @@ export function strategyResult(rows, { minimumEdgeCents = 6, slippageCents = 1 }
 /** Every test prediction is calibrated only with markets that closed earlier. */
 export function walkForwardValidation(
   observations,
-  { minimumTrainingMarkets = 50, minimumOutOfSampleMarkets = 200, minimumTrades = 30, minimumEdgeCents = 6, slippageCents = 1 } = {},
+  { minimumTrainingMarkets = 50, minimumOutOfSampleMarkets = 200, minimumTrades = 30, minimumEdgeCents = 6, slippageCents = 1, requireVerifiedFeed = false } = {},
 ) {
-  const snapshots = marketSnapshots(observations);
+  const usable = requireVerifiedFeed ? (observations ?? []).filter((row) =>
+    row.evidence?.feedVersion === 'brti-latest-v2' && Number.isFinite(row.evidence?.sourceAt) &&
+    row.at - row.evidence.sourceAt >= -5000 && row.at - row.evidence.sourceAt <= 15000) : observations;
+  const snapshots = marketSnapshots(usable);
   const tested = [];
   for (let index = minimumTrainingMarkets; index < snapshots.length; index += 1) {
     const row = snapshots[index];
@@ -141,6 +144,7 @@ export function walkForwardValidation(
   if (!(strategy.profitCi95Low > 0)) reasons.push('net profit after fees/slippage is not statistically above zero');
   return {
     ready: tested.length > 0,
+    excludedUnverifiedObservations: requireVerifiedFeed ? (observations?.length ?? 0) - usable.length : 0,
     trainingMarkets: Math.min(minimumTrainingMarkets, snapshots.length),
     outOfSampleMarkets: tested.length,
     totalMarkets: snapshots.length,

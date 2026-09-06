@@ -1,3 +1,4 @@
+import { enrichOrderbook } from './orderbook.js';
 /**
  * Reading the contract price from Kalshi.
  *
@@ -419,7 +420,9 @@ export async function openBoard(settings, options = {}) {
   if (board.length === 0) return { contracts: [], error: 'no open markets', url };
 
   const contracts = [];
-  for (const market of board) {
+  for (const listedMarket of board) {
+    const market = options.withOrderbook === false ? listedMarket : await enrichOrderbook(
+      listedMarket, { ...settings, apiBase: settings.apiBase ?? DEFAULT_API_BASE }, options);
     const price = readMarketPrice(market, settings.side ?? 'yes');
     if (!price) continue;
     const strike = strikeOf(market);

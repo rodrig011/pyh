@@ -1,3 +1,4 @@
+import { quoteCents } from './cost.js';
 /**
  * The descriptive layer: what price has been doing.
  *
@@ -280,13 +281,9 @@ export function sessionOf(now = Date.now()) {
  * edge the model claims — an edge of 2 with a spread of 4 is not an edge.
  */
 export function bookQuality(market) {
-  const bid = Number(market?.yes_bid_dollars ?? market?.yes_bid);
-  const ask = Number(market?.yes_ask_dollars ?? market?.yes_ask);
-  const toCents = (value) => (value > 0 && value <= 1 ? value * 100 : value);
-
-  const bidCents = Number.isFinite(bid) ? toCents(bid) : null;
-  const askCents = Number.isFinite(ask) ? toCents(ask) : null;
-  const liquidity = Number(market?.liquidity_dollars ?? market?.liquidity);
+  const bidCents = quoteCents(market, 'yes_bid');
+  const askCents = quoteCents(market, 'yes_ask');
+  const liquidity = Number(market?.book_liquidity_dollars ?? market?.liquidity_dollars ?? market?.liquidity);
 
   return {
     bidCents,

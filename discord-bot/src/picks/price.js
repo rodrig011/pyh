@@ -1,36 +1,8 @@
 import { DEFAULT_API_BASE } from './kalshi.js';
 import { readAccount } from './kalshiAccount.js';
 
-/**
- * Live spot prices, used to stamp a call when it is made and to grade it when
- * the window closes.
- *
- * Kalshi is where these calls get traded, but a 15-minute "up or down" is
- * settled by the underlying price, not by a contract's order book — so the spot
- * feed is the thing worth wiring in. Two independent exchanges are tried in
- * turn: a call that cannot be graded because one venue had a bad minute is a
- * worse outcome than asking a second one.
- *
- * The parsing is separated from the fetching so the shape each exchange returns
- * can be checked against fixtures rather than against the internet.
- */
-
-/**
- * Ordered to match what Kalshi actually settles against.
- *
- * Kalshi resolves every crypto contract on the CME CF Real-Time Index, which is
- * a volume-weighted MEDIAN across a fixed set of constituent exchanges —
- * Bitstamp, Coinbase, Gemini, itBit/Paxos, Kraken, Bullish, Crypto.com and
- * LMAX Digital. Reading a price from outside that set means grading the
- * contract against a number the exchange never looks at.
- *
- * `constituent` marks the sources that are actually in the index. Binance is
- * not one of them, and its pair is BTC against a stablecoin rather than
- * against dollars, so it carries a basis of its own on top. It stays as a last
- * resort — a slightly wrong price beats no price when the alternative is
- * grading a member's call by hand — but it is never preferred and it is
- * labelled so a wrong read can be traced.
- */
+/** BTC uses the timestamped CF BRTI index through Kalshi. Exchange feeds are
+ * explicitly labelled fallbacks; they never stand in for official settlement. */
 export const PRICE_SOURCES = [
   {
     name: 'coinbase',
@@ -68,84 +40,62 @@ export const PRICE_SOURCES = [
   },
 ];
 
+export const BRTI_FEED_VERSION = 'brti-latest-v2';
+export const BRTI_MAX_AGE_MS = 15_000;
+
 function numericPrice(raw) {
-  const value = Number.parseFloat(raw);
+  if (typeof raw !== 'string' && typeof raw !== 'number') return null;
+  const value = Number(raw);
   return Number.isFinite(value) && value > 0 ? value : null;
 }
 
-function newestIndexedValue(rows) {
-  if (!Array.isArray(rows)) return null;
-  const matching = rows.filter((row) => {
-    const id = String(row?.id ?? row?.index ?? row?.symbol ?? row?.name ?? row?.ticker ?? '').toUpperCase();
-    return id === 'BRTI';
-  });
-  const pool = matching.length ? matching : rows;
-  for (const row of pool) {
-    const value = numericPrice(
-      row?.value ??
-        row?.price ??
-        row?.rate ??
-        row?.level ??
-        row?.last ??
-        row?.current ??
-        row?.index_value ??
-        row?.indexValue,
-    );
-    if (value !== null) return value;
-  }
-  return null;
+function valueTime(raw) {
+  if (raw === null || raw === undefined || raw === '') return null;
+  // CF's `time` is Unix milliseconds (also serialized as a string).
+  const number = Number(raw);
+  if (Number.isFinite(number)) return number > 0 ? number : null;
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
-function findBrtiValue(node, seen = new Set()) {
-  const direct = numericPrice(node);
-  if (direct !== null && typeof node !== 'object') return direct;
-  if (!node || typeof node !== 'object' || seen.has(node)) return null;
-  seen.add(node);
-
-  const arrayValue = newestIndexedValue(node);
-  if (arrayValue !== null) return arrayValue;
-
-  const keyed = node.BRTI ?? node.brti;
-  const keyedValue = numericPrice(
-    keyed?.value ??
-      keyed?.price ??
-      keyed?.rate ??
-      keyed?.level ??
-      keyed?.last ??
-      keyed?.current ??
-      keyed?.index_value ??
-      keyed?.indexValue ??
-      keyed,
-  );
-  if (keyedValue !== null) return keyedValue;
-
-  const rowValue = newestIndexedValue(node.values ?? node.data ?? node.payload ?? node.results ?? node.result);
-  if (rowValue !== null) return rowValue;
-
-  const directValue = numericPrice(
-    node.value ??
-      node.price ??
-      node.rate ??
-      node.level ??
-      node.last ??
-      node.current ??
-      node.index_value ??
-      node.indexValue,
-  );
-  const id = String(node.id ?? node.index ?? node.symbol ?? node.name ?? node.ticker ?? '').toUpperCase();
-  if (directValue !== null && (id === 'BRTI' || id === '')) return directValue;
-
-  for (const key of ['payload', 'data', 'result', 'results', 'values', 'items']) {
-    const found = findBrtiValue(node[key], seen);
-    if (found !== null) return found;
+/** /values contains one hour in ASCENDING time order. Never use row zero.
+ * See https://docs.cfbenchmarks.com/api/rest/values/ . Only value fields are
+ * numbers here: serverTime, amendment time and index identifiers aren't prices.
+ */
+export function readBrtiValues(body) {
+  const rows = [];
+  const seen = new Set();
+  function visit(node, inheritedId = '') {
+    if (!node || typeof node !== 'object' || seen.has(node)) return;
+    seen.add(node);
+    if (Array.isArray(node)) {
+      for (const row of node) visit(row, inheritedId);
+      return;
+    }
+    const id = String(node.id ?? node.index ?? node.symbol ?? node.name ?? node.ticker ?? inheritedId).toUpperCase();
+    if (id && id !== 'BRTI') return;
+    const price = numericPrice(node.value ?? node.price ?? node.rate ?? node.level ??
+      node.last ?? node.current ?? node.index_value ?? node.indexValue);
+    if (price !== null) rows.push({
+      price, sourceAt: valueTime(node.time ?? node.timestamp ?? node.at),
+      amendedAt: valueTime(node.amendTime),
+      repeated: node.repeatOfPreviousValue === true,
+    });
+    for (const key of ['payload', 'data', 'result', 'results', 'values', 'items']) visit(node[key], id);
+    for (const key of ['BRTI', 'brti']) {
+      const value = node[key];
+      if (typeof value === 'object') visit(value, 'BRTI');
+      else if (numericPrice(value) !== null) rows.push({ price: numericPrice(value), sourceAt: null });
+    }
   }
-  return null;
+  visit(body);
+  return rows.sort((a, b) => (a.sourceAt ?? -Infinity) - (b.sourceAt ?? -Infinity) ||
+    (a.amendedAt ?? 0) - (b.amendedAt ?? 0));
 }
 
-/** Extract the newest BRTI value from Kalshi's CF Benchmarks envelope. */
+/** Compatibility parser; the network boundary additionally requires freshness. */
 export function readBrti(body) {
-  const payload = body?.data?.payload ?? body?.payload ?? body?.data ?? body;
-  return findBrtiValue(payload);
+  return readBrtiValues(body).at(-1)?.price ?? null;
 }
 
 export function environmentKalshiCredentials(env = process.env) {
@@ -205,15 +155,25 @@ export async function fetchBrtiPrice(credentials, options = {}) {
           : `Kalshi BRTI request failed: ${result.error}`;
     return { price: null, source: 'kalshi-brti', error: guidance, errorCode, httpStatus: status || null };
   }
-  const price = readBrti(result.body);
-  return price > 0
-    ? { price, source: 'kalshi-brti', at: options.now ?? Date.now(), problems: [] }
-    : {
-        price: null,
-        source: 'kalshi-brti',
-        error: 'Kalshi BRTI returned HTTP 200 but no usable value',
-        errorCode: 'invalid_response',
-      };
+  const receivedAt = options.now ?? Date.now();
+  const values = readBrtiValues(result.body);
+  const newest = values.at(-1);
+  const fail = (errorCode, error) => ({ price: null, source: 'kalshi-brti', errorCode, error,
+    sourceAt: newest?.sourceAt ?? null, at: receivedAt });
+  if (!newest) return fail('invalid_response', 'Kalshi BRTI returned HTTP 200 but no usable BRTI value');
+  if (!Number.isFinite(newest.sourceAt)) return fail('missing_timestamp', 'Kalshi BRTI value has no calculation timestamp');
+  if (newest.repeated) return fail('repeated_value', 'Kalshi BRTI is repeating a previous value');
+  const ageMs = receivedAt - newest.sourceAt;
+  if (ageMs > BRTI_MAX_AGE_MS || ageMs < -5_000) {
+    return fail('stale_price', `Kalshi BRTI calculation time is ${Math.round(ageMs / 1000)}s from now`);
+  }
+  return { price: newest.price, source: 'kalshi-brti', at: receivedAt,
+    sourceAt: newest.sourceAt, ageMs, feedVersion: BRTI_FEED_VERSION, problems: [],
+    history: values.filter((row) => !row.repeated && Number.isFinite(row.sourceAt) &&
+      row.sourceAt >= receivedAt - 3_600_000 && row.sourceAt <= receivedAt)
+      .map((row) => ({ at: row.sourceAt, sourceAt: row.sourceAt, price: row.price,
+        source: 'kalshi-brti', feedVersion: BRTI_FEED_VERSION })),
+  };
 }
 
 /** A price is only usable if it is a real positive number. */

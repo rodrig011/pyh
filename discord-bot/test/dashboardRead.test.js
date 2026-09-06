@@ -519,13 +519,16 @@ test('positionAction says settling once the position is off the board', () => {
 });
 
 test('positionAction says cash_out when the scalp exit rule fires', () => {
-  const now = Date.now();
+  const now = Math.floor(Date.now() / 1000) * 1000;
   // At the money (spot == strike, so the model reads a coin flip), but the
   // market has since priced UP at 90 — a disagreement this large flips the
   // model's own verdict against the side held, which is always worth a fee
   // to escape, however far from the bell it is.
   const position = { ticker: 'K-1', side: 'up', strike: 65_000, entryCents: 20 };
-  const result = positionAction(position, board(90, 65_000, now + 30_000), { ...positionDeps, now });
+  const result = positionAction(position, board(90, 65_000, now + 30_000), { ...positionDeps, now,
+    settlementSamples: Array.from({ length: 30 }, (_, i) => ({ source: 'kalshi-brti',
+      sourceAt: now - (30 - i) * 1000, price: 65000 })),
+  });
   assert.equal(result.action, 'cash_out');
 });
 

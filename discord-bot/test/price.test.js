@@ -54,7 +54,7 @@ test('Kalshi BRTI is used before every exchange fallback', async () => {
     kalshiCredentials,
     fetchImpl: async (url) => {
       calls.push(url);
-      return { ok: true, json: async () => ({ data: { payload: { value: '68123.45' } } }) };
+      return { ok: true, json: async () => ({ data: { payload: { id: 'BRTI', time: Date.now(), value: '68123.45' } } }) };
     },
   });
   assert.equal(result.price, 68123.45);
@@ -129,7 +129,7 @@ test('the legacy Kalshi host is upgraded for the BRTI passthrough', async () => 
   }, {
     fetchImpl: async (url) => {
       requested = url;
-      return { ok: true, json: async () => ({ data: { payload: { value: '68111.22' } } }) };
+      return { ok: true, json: async () => ({ data: { payload: { id: 'BRTI', time: Date.now(), value: '68111.22' } } }) };
     },
   });
   assert.match(requested, /^https:\/\/external-api\.kalshi\.com/);

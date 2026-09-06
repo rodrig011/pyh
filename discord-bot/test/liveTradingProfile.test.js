@@ -62,8 +62,13 @@ test('scalp still trades inside the last 45 seconds, where careful goes flat', (
   // A real edge (44c vs. fair here), but only 30 seconds left — careful's
   // minimumSecondsLeft (the DEFAULTS' 45) refuses this outright, whatever the
   // edge is.
-  const closeToTheBell = { ...CONTEXT, secondsLeft: 30 };
+  const now = Math.floor(Date.now() / 1000) * 1000;
+  const closeToTheBell = { ...CONTEXT, secondsLeft: 30, now,
+    settlementSamples: Array.from({ length: 30 }, (_, i) => ({ source: 'kalshi-brti',
+      sourceAt: now - (30 - i) * 1000, price: 65000 })),
+  };
   const ladder = [strike(65_000, 44)];
+  ladder[0].market.close_time = new Date(now + 30_000).toISOString();
 
   const careful = readBoard(ladder, closeToTheBell, PROFILES.careful.engine);
   assert.equal(careful.reads[0].read.tradeable, false);

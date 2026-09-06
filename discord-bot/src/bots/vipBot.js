@@ -30,7 +30,7 @@ import { shouldGreetDm } from '../vip/dmGreeting.js';
 import { banAlertText, isBanned } from '../vip/banlist.js';
 import { promptDueSettlements, publishVoteResults, syncKalshiAccount } from '../picks/commands.js';
 import { checkPicksChannelSetup } from '../picks/channelSetup.js';
-import { collectOnce } from '../signals/collector.js';
+import { collectOnce, priceContext } from '../signals/collector.js';
 import { auditOfficialObservationOutcomes, observeOnce, settleObservations } from '../signals/recorder.js';
 import { evaluate } from '../signals/engine.js';
 import { confluenceRead } from '../signals/confluence.js';
@@ -294,7 +294,7 @@ export function createVipBot(config = loadVipConfig()) {
       let unsaved = 0;
       let lastOfficialAuditAt = 0;
       setInterval(() => {
-        collectOnce(store, { fetchPrice: fetchSpotPrice, asset })
+        collectOnce(store, { fetchPrice: fetchSpotPrice, asset, sampleSeconds: signals.sampleSeconds ?? 30 })
           .then(async (result) => {
             if (!result.added) return;
             unsaved += 1;
@@ -334,6 +334,7 @@ export function createVipBot(config = loadVipConfig()) {
                   asset,
                   contract,
                   spot: result.price,
+                  quote: result.quote,
                   evaluateModel: (input) =>
                     evaluate(input, { sampleSeconds: signals.sampleSeconds ?? 30 }),
                 });
@@ -366,15 +367,13 @@ export function createVipBot(config = loadVipConfig()) {
                 // against the primary model above, over time, the same way
                 // the market's own price already is.
                 try {
-                  const priceHistory = store
-                    .listSamples(asset)
-                    .filter((sample) => sample?.at >= Date.now() - 60 * 60 * 1000 && sample?.price > 0)
-                    .map((sample) => sample.price);
+                  const context = priceContext(store.listSamples(asset), result.quote, { now: Date.now(), sampleSeconds: signals.sampleSeconds ?? 30 });
+                  const priceHistory = context.prices;
                   const strike = Number(contract.market.floor_strike ?? contract.market.cap_strike);
                   const closesAt = closeTimeOf(contract.market);
                   const primary = evaluate(
                     {
-                      prices: priceHistory,
+                      ...context,
                       spot: result.price,
                       strike,
                       marketPriceCents: contract.price,
@@ -492,7 +491,7 @@ export function createVipBot(config = loadVipConfig()) {
 
         // Paper trading rides the same sweep, so it sees the market exactly as
         // often as somebody watching it would.
-        sweepPaper(client, store, config, { openBoard, fetchSpotPrice, fetchMarket, log })
+        sweepPaper(client, store, config, { openBoard, fetchSpotPrice, fetchMarket, fetchTrades, log })
           .then((result) => {
             if (result.event) log.info(`Paper: ${result.event}`);
           })

@@ -234,8 +234,18 @@ export function directionalRead(input, options = {}) {
       : ACTIONS.BUY_DOWN
     : ACTIONS.STAY_OUT;
 
+  const features = result.quant?.features;
+  const entryRationale = features ? [
+    `Distance ${features.distanceDollars.toFixed(2)} USD (${features.distanceSigma.toFixed(2)} sigma), ${Math.ceil(features.secondsLeft)}s left`,
+    `net edge ${Number.isFinite(result.cost?.netCents) ? result.cost.netCents.toFixed(2) + 'c' : 'not executable'}`,
+    `chart ${result.chartAgreement ?? 'not assessed'}`,
+    `OFI ${Number.isFinite(features.ofi) ? features.ofi.toFixed(2) : 'missing'}`,
+    `CVD ${Number.isFinite(features.cvd) ? features.cvd.toFixed(2) : 'missing'}`,
+  ].join('; ') : null;
+
   return {
     action,
+    entryRationale,
     // The side worth owning at what it costs. This is the actionable one.
     call,
     // The side more likely to happen. Informative only.
@@ -297,7 +307,7 @@ export function directionalRead(input, options = {}) {
     stayOut: !tradeable,
     whyNotTradeable: tradeable ? null : (result.explain ?? result.reason ?? null),
     entryCents: Number.isFinite(entryCents) ? entryCents : null,
-    netEdgeCents: result.cost?.netCents ?? null,
+    netEdgeCents: result.cost?.netCents ?? (call === 'up' ? result.quant?.edge?.yes?.netCents : result.quant?.edge?.no?.netCents) ?? null,
     secondsLeft: result.secondsLeft ?? input?.secondsLeft ?? null,
     result,
   };

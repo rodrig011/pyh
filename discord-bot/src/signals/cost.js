@@ -25,16 +25,17 @@ import { feePerContract } from './math.js';
  * book reflected around a hundred. Deriving it rather than reading a separate
  * feed keeps the two sides consistent by construction.
  */
-export function executablePrices(market, fallbackCents = null) {
-  const toCents = (value) => {
-    const n = Number(value);
-    if (!Number.isFinite(n)) return null;
-    // Kalshi publishes both dollars and cents depending on the field.
-    return n > 0 && n <= 1 ? n * 100 : n;
-  };
+export function quoteCents(market, field) {
+  const dollars = market?.[`${field}_dollars`];
+  const raw = dollars ?? market?.[field];
+  if (raw === null || raw === undefined || raw === '') return null;
+  const n = Number(raw) * (dollars !== null && dollars !== undefined ? 100 : 1);
+  return Number.isFinite(n) && n >= 0 && n <= 100 ? n : null;
+}
 
-  const yesBid = toCents(market?.yes_bid_dollars ?? market?.yes_bid);
-  const yesAsk = toCents(market?.yes_ask_dollars ?? market?.yes_ask);
+export function executablePrices(market, fallbackCents = null) {
+  const yesBid = quoteCents(market, 'yes_bid');
+  const yesAsk = quoteCents(market, 'yes_ask');
 
   if (yesBid !== null && yesAsk !== null && yesAsk >= yesBid && yesAsk > 0) {
     return {

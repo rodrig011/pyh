@@ -11,7 +11,44 @@
  * limit on a small volume eventually takes the payments down with it.
  */
 
+import { BRTI_FEED_VERSION } from '../picks/price.js';
+
 export const DEFAULT_CAPACITY = 2880; // 24 hours at one sample every 30 seconds
+
+/** Use completed, uniformly spaced buckets, never 3600 one-second ticks
+ * labelled as thirty-second returns. The provider history also warms a restart. */
+export function signalSamples(samples, quote, { now = Date.now(), sampleSeconds = 30 } = {}) {
+  const since = now - 3_600_000;
+  if (quote?.source !== 'kalshi-brti') {
+    return (samples ?? []).filter((s) => s?.at >= since && s.at <= now && s.price > 0);
+  }
+  const buckets = new Map();
+  const step = sampleSeconds * 1000;
+  for (const sample of [...(samples ?? []), ...(quote.history ?? [])]) {
+    if (sample?.feedVersion !== BRTI_FEED_VERSION || sample.source !== 'kalshi-brti' ||
+        !Number.isFinite(sample.sourceAt) || !(sample.price > 0) ||
+        sample.sourceAt < since || sample.sourceAt >= Math.floor(now / step) * step) continue;
+    const bucket = Math.floor(sample.sourceAt / step);
+    if (!buckets.has(bucket) || buckets.get(bucket).sourceAt <= sample.sourceAt) {
+      buckets.set(bucket, { ...sample, at: sample.sourceAt });
+    }
+  }
+  return [...buckets.values()].sort((a, b) => a.at - b.at);
+}
+
+export function priceContext(samples, quote, options = {}) {
+  const history = signalSamples(samples, quote, options);
+  return {
+    prices: history.map((s) => s.price),
+    priceSamples: history,
+    spot: quote?.price ?? null,
+    spotSource: quote?.source ?? null,
+    sourceAt: quote?.sourceAt ?? null,
+    feedVersion: quote?.feedVersion ?? null,
+    settlementSamples: quote?.history ?? [],
+    now: options.now ?? Date.now(),
+  };
+}
 
 /**
  * Adds a sample and drops the oldest once the buffer is full.
@@ -74,18 +111,32 @@ export function historyQuality(samples, { sampleSeconds = 30, minimumSamples = 2
  * Never throws. A collector that can take the bot down with it is worse than
  * no collector, and this runs beside the code that grants paid access.
  */
-export async function collectOnce(store, { fetchPrice, asset = 'BTC', now = Date.now() } = {}) {
+export async function collectOnce(store, { fetchPrice, asset = 'BTC', now = Date.now(), sampleSeconds = 30 } = {}) {
   try {
     const quote = await fetchPrice(asset);
     const price = Number(quote?.price);
     if (!(price > 0)) return { added: false, reason: quote?.error ?? 'no price' };
 
     const before = store.listSamples(asset);
-    const after = appendSample(before, { at: now, price, source: quote.source ?? null });
+    let after;
+    if (quote.source === 'kalshi-brti') {
+      if (quote.feedVersion !== BRTI_FEED_VERSION || !Number.isFinite(quote.sourceAt)) {
+        return { added: false, reason: 'unverified BRTI timestamp' };
+      }
+      const verified = signalSamples(before, quote, { now, sampleSeconds });
+      const seen = new Set(before.map((s) => `${s.feedVersion}:${s.at}`));
+      const newRows = verified.filter((s) => !seen.has(`${s.feedVersion}:${s.at}`));
+      if (newRows.length === 0) return { added: false, reason: 'no new BRTI interval' };
+      // Retain legacy rows for audit; inference selects only verified v2 rows.
+      after = [...before, ...newRows].sort((a, b) => a.at - b.at).slice(-DEFAULT_CAPACITY);
+    } else {
+      after = appendSample(before, { at: now, price, source: quote.source ?? null });
+    }
     if (after === before) return { added: false, reason: 'stale or out-of-order tick' };
 
     store.putSamples(asset, after);
-    return { added: true, price, source: quote.source ?? null, samples: after.length };
+    return { added: true, price, source: quote.source ?? null, sourceAt: quote.sourceAt ?? null,
+      feedVersion: quote.feedVersion ?? null, quote, samples: after.length };
   } catch (error) {
     return { added: false, reason: error.message };
   }
