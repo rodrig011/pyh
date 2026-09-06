@@ -46,6 +46,15 @@ test('isAuthorized is open with no token configured', () => {
   assert.equal(isAuthorized('anything', undefined), true);
 });
 
+test('research export requires the same dashboard authorization', async (t) => {
+  const { port } = await startServer(t, { token: 'shh' });
+  assert.equal((await get(port, '/api/research')).status, 401);
+  const response = await get(port, '/api/research', { 'x-dashboard-token': 'shh' });
+  assert.equal(response.status, 200);
+  assert.deepEqual(JSON.parse(response.body).observations, []);
+  assert.equal(response.headers['cache-control'], 'no-store');
+});
+
 test('isAuthorized requires an exact match once a token is set', () => {
   assert.equal(isAuthorized('secret', 'secret'), true);
   assert.equal(isAuthorized('wrong', 'secret'), false);

@@ -10,6 +10,7 @@ import {
 } from 'discord.js';
 import { COLORS } from '../lib/brand.js';
 import { measureEdge } from '../signals/measure.js';
+import { walkForwardValidation } from '../signals/validation.js';
 import { readBoard, nearestTheMoney, censusLine } from '../signals/board.js';
 import { scalpPlan } from '../signals/scalpTarget.js';
 import { historyQuality } from '../signals/collector.js';
@@ -1964,6 +1965,7 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
     if (settled > 0) store.putQuotes(asset, log, { flush: true });
 
     const measured = measureEdge(log);
+    const validation = walkForwardValidation(log);
     const recorded = log.length;
 
     if (!measured.ready) {
@@ -2060,6 +2062,16 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
             '`thin_book`, `wide_spread` and `trending` cannot be replayed from it._'
           : `**At the engine's own bar (${measured.minimumEdgeCents}¢):** nothing cleared it yet.\n` +
             '_That is the honest state of it — the row above counts trades the bot would refuse._',
+        '',
+        '**Strict walk-forward validation**',
+        `Out-of-sample markets: **${validation.outOfSampleMarkets}** · ` +
+          `trades: **${validation.strategy.trades}** · ` +
+          `W/L: **${validation.strategy.wins}/${validation.strategy.losses}**`,
+        `Win rate: **${Number.isFinite(validation.strategy.winRate) ? `${(validation.strategy.winRate * 100).toFixed(1)}%` : '—'}** · ` +
+          `net after fees + 1¢ slippage: **${cents(validation.strategy.netProfitCents)} total**`,
+        validation.promotion.eligible
+          ? '✅ **Promotion gate passed** using only prior markets for every tested prediction.'
+          : `⏳ **Not validated for promotion:** ${validation.promotion.reasons.join(' · ')}.`,
         '',
         `_Roughly 96 markets settle per day. Detecting a small edge takes weeks, ` +
           `not days — at ${measured.markets} market(s) so far, treat anything ` +

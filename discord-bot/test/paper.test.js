@@ -572,6 +572,18 @@ test('always forces an entry on a fairly-priced board that careful and scalp cor
   assert.equal(event.trade.forced, true, "nothing here cleared even always's own loosened bar");
   assert.ok(account.position.contracts > 0);
   assert.ok(account.cash < 70, 'the forced stake never actually left the account');
+  assert.match(event.trade.entryReason, /Forced paper entry/);
+  assert.ok(event.trade.entryEvidence);
+});
+
+test('always cannot churn back into the same ticker after closing', () => {
+  const board = fairLadder([65_000]);
+  const first = paperTick(newAccount({ profile: 'always' }), context(), { candidates: board });
+  assert.equal(first.event?.kind, 'enter');
+  const closed = { ...first.account, position: null, trades: [{ ...first.event.trade, profit: -1 }] };
+  const next = paperTick(closed, context(), { candidates: board });
+  assert.equal(next.event, null);
+  assert.equal(next.account.cash, closed.cash);
 });
 
 test("a forced entry sizes off the fixed floor, not Kelly's zero on a no-edge market", () => {

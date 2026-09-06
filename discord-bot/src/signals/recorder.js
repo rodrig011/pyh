@@ -19,7 +19,7 @@
  */
 
 import { logReturns } from './math.js';
-import { closeTimeOf, strikeOf } from '../picks/kalshi.js';
+import { closeTimeOf, officialSettlementOf, strikeOf } from '../picks/kalshi.js';
 import {
   bipowerVolatility,
   ewmaVolatility,
@@ -121,14 +121,14 @@ export function appendObservation(log, observation, { capacity = DEFAULT_CAPACIT
 /**
  * Marks every observation of a finished market with what actually happened.
  *
- * The outcome is decided by the spot the bot itself recorded, not by asking the
- * exchange. That is a real limitation and it is written down rather than hidden:
- * Kalshi settles against its own index, and if that index differs from the spot
- * feed here, a market that settled just over the strike can be scored as just
- * under. It biases nothing on average — the disagreement is symmetric — but it
- * adds noise, and near-the-money observations are where it lands hardest.
+ * A local BRTI-window estimate is provisional so the ledger can update quickly.
+ * The official Kalshi market result always wins once it is available; the audit
+ * below replaces even an already-filled provisional outcome.
  */
-export function settleObservations(log, { now = Date.now(), settledBefore = 60_000, samples = [] } = {}) {
+export function settleObservations(
+  log,
+  { now = Date.now(), settledBefore = 60_000, samples = [], officialResults = {} } = {},
+) {
   // When each market actually closed, from any observation of it: the moment
   // it was seen plus the time it had left.
   //
@@ -181,15 +181,51 @@ export function settleObservations(log, { now = Date.now(), settledBefore = 60_0
 
   let settled = 0;
   const out = log.map((row) => {
+    const official = officialResults?.[row.ticker];
+    if (official === 0 || official === 1) {
+      const changed = row.outcome !== official || row.outcomeSource !== 'kalshi-market:official-result';
+      if (changed) settled += 1;
+      return { ...row, outcome: official, outcomeSource: 'kalshi-market:official-result' };
+    }
     if (row.outcome !== null) return row;
     const spot = finalSpot.get(row.ticker);
     if (spot === undefined) return row;
 
     settled += 1;
-    return { ...row, outcome: spot > row.strike ? 1 : 0 };
+    return { ...row, outcome: spot > row.strike ? 1 : 0, outcomeSource: 'local-brti-window:provisional' };
   });
 
   return { log: out, settled };
+}
+
+/** Gradually replaces provisional outcomes with each contract's official result. */
+export async function auditOfficialObservationOutcomes(
+  log,
+  { fetchMarket, settings, now = Date.now(), settledBefore = 60_000, limit = 3 } = {},
+) {
+  if (typeof fetchMarket !== 'function') return { log, corrected: 0, checked: 0 };
+  const due = new Map();
+  for (const row of log ?? []) {
+    if (!row?.ticker || row.outcomeSource === 'kalshi-market:official-result') continue;
+    const closesAt = row.at + row.secondsLeft * 1000;
+    if (!(now - closesAt > settledBefore)) continue;
+    const known = due.get(row.ticker);
+    if (!known || closesAt > known) due.set(row.ticker, closesAt);
+  }
+  const tickers = [...due.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit).map(([ticker]) => ticker);
+  const officialResults = {};
+  await Promise.all(tickers.map(async (ticker) => {
+    const response = await fetchMarket(settings, ticker).catch(() => null);
+    const settlement = officialSettlementOf(response?.market);
+    if (settlement?.ticker === ticker) officialResults[ticker] = settlement.result === 'yes' ? 1 : 0;
+  }));
+  const before = new Map((log ?? []).map((row) => [`${row.ticker}:${row.at}`, row.outcome]));
+  const result = settleObservations(log ?? [], { now, officialResults, samples: [] });
+  const corrected = result.log.filter((row) =>
+    row.outcomeSource === 'kalshi-market:official-result' &&
+    before.get(`${row.ticker}:${row.at}`) !== row.outcome,
+  ).length;
+  return { log: result.log, corrected, checked: tickers.length };
 }
 
 /**

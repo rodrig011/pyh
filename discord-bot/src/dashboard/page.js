@@ -560,6 +560,12 @@ export function dashboardPage(brandName) {
           <div class="stat"><div class="label">Model Brier</div><div class="value" id="trackModelBrier">—</div></div>
           <div class="stat"><div class="label">Market Brier</div><div class="value" id="trackMarketBrier">—</div></div>
         </div>
+        <div class="grid" style="margin-top:10px;margin-bottom:0">
+          <div class="stat"><div class="label">Test markets</div><div class="value" id="oosMarkets">—</div></div>
+          <div class="stat"><div class="label">Test trades</div><div class="value" id="oosTrades">—</div></div>
+          <div class="stat"><div class="label">Test win rate</div><div class="value" id="oosWinRate">—</div></div>
+          <div class="stat"><div class="label">Net after costs</div><div class="value" id="oosProfit">—</div></div>
+        </div>
         <div class="live-note" id="trackNote">Not enough settled markets yet — this fills in on its own as windows close.</div>
       </div>
 
@@ -670,6 +676,8 @@ export function dashboardPage(brandName) {
       </div>
       <div class="section">
         <div class="section-head"><span class="section-title">Paper trade ledger — audited closes</span></div>
+        <button id="exportResearch">Download saved markets and paper trades</button>
+        <div id="researchStatus" class="live-note"></div>
         <div class="order-list" id="paperLedger"></div>
       </div>
       <div class="live-note" id="liveNote">Arming and disarming real money only happens in Discord — /picks live — never from this page, on purpose.</div>
@@ -1290,6 +1298,7 @@ export function dashboardPage(brandName) {
         '<span>$' + Number(row.bankroll || 0).toFixed(2) + '</span>' +
         '<span>' + row.wins + 'W ' + row.losses + 'L · ' + row.trades + ' lifetime trades · ' + row.openPositions + ' open</span>' +
         (row.benchmark ? '<span>Forced benchmark — not a bot signal or live strategy</span>' : '') +
+        (row.entryReason ? '<span class="ledger-detail">Entry: ' + esc(row.entryReason) + '</span>' : '') +
         auditNote +
         '</div><div class="order-right ' + cls + '">' + pct + '</div></div>';
     }).join('');
@@ -1313,7 +1322,7 @@ export function dashboardPage(brandName) {
             '<span>' + time + '</span>' +
             '<span class="order-side ' + sideClass + '">' + side + '</span>' +
             '<span>' + price + '</span>' +
-            '<span class="ledger-detail">' + esc(t.ticker || '') + ' · ' + strike + ' · ' + (Number.isFinite(t.contracts) ? t.contracts + 'x' : '—') + ' · ' + fees + ' · ' + reason + '</span>' +
+            '<span class="ledger-detail">' + esc(t.ticker || '') + ' · ' + strike + ' · ' + (Number.isFinite(t.contracts) ? t.contracts + 'x' : '—') + ' · ' + fees + ' · ' + reason + '<br>Entry: ' + esc(t.entryReason || 'Not recorded by the older version') + '</span>' +
             (t.forced ? '<span class="order-forced">forced</span>' : '') +
           '</div>' +
           '<div class="order-right ' + profitClass + '">' + profit + '</div>' +
@@ -1403,14 +1412,30 @@ export function dashboardPage(brandName) {
     }
 
     if (tr.modelBeatsMarket === true) {
-      badge.textContent = 'MODEL AHEAD'; badge.className = 'badge up';
-      note.textContent = 'The model is the better forecaster here, by more than the noise between them.';
+      badge.textContent = 'FORECAST AHEAD'; badge.className = 'badge up';
+      note.textContent = 'Forecast score ahead on recorded observations. This does not establish trading profitability; see paper net results and replay below.';
     } else if (tr.modelBeatsMarket === false) {
       badge.textContent = 'MARKET AHEAD'; badge.className = 'badge down';
       note.textContent = 'The market is the better forecaster on what has settled so far — no measured edge to trade.';
     } else {
       badge.textContent = 'TOO CLOSE'; badge.className = 'badge blue';
       note.textContent = 'The gap between model and market has not cleared the noise yet. Same measurement as /picks edge in Discord.';
+    }
+  }
+
+  function paintValidation(v) {
+    var strategy = v && v.strategy;
+    document.getElementById('oosMarkets').textContent = v && Number.isFinite(v.outOfSampleMarkets) ? String(v.outOfSampleMarkets) : '—';
+    document.getElementById('oosTrades').textContent = strategy && Number.isFinite(strategy.trades) ? String(strategy.trades) : '—';
+    document.getElementById('oosWinRate').textContent = strategy && Number.isFinite(strategy.winRate) ? fmtPct(strategy.winRate) : '—';
+    var profit = strategy && Number.isFinite(strategy.netProfitCents) ? strategy.netProfitCents / 100 : null;
+    var profitEl = document.getElementById('oosProfit');
+    profitEl.textContent = Number.isFinite(profit) ? (profit >= 0 ? '+' : '') + '$' + profit.toFixed(2) : '—';
+    profitEl.className = 'value ' + (profit > 0 ? 'up' : profit < 0 ? 'down' : '');
+    if (v && v.promotion && !v.promotion.eligible) {
+      document.getElementById('trackNote').textContent = 'REPLAY NOT VALIDATED: ' + v.promotion.reasons.join(' · ') + '. Forecast accuracy does not establish profitable fills.';
+    } else if (v && v.promotion && v.promotion.eligible) {
+      document.getElementById('trackNote').textContent = 'REPLAY PASSED after fees and 1¢ slippage; fills and book depth still need verification.';
     }
   }
 
@@ -1425,6 +1450,7 @@ export function dashboardPage(brandName) {
     paintPaperTrading(data.paperTrading);
     paintOrderFlow(data.orderFlow);
     paintTrackRecord(data.trackRecord);
+    paintValidation(data.validation);
     document.getElementById('asset').textContent = data.asset + (data.ticker ? ' · ' + data.ticker : '');
     var callEl = document.getElementById('call');
     if (data.action === 'buy_up') {
@@ -1572,6 +1598,21 @@ export function dashboardPage(brandName) {
         if (lastData) redrawChart(lastData);
       }
     });
+  });
+
+  document.getElementById('exportResearch').addEventListener('click', async function () {
+    var status = document.getElementById('researchStatus');
+    try {
+      var response = await fetch('/api/research', { headers: authHeaders() });
+      if (!response.ok) throw new Error('Export failed: HTTP ' + response.status);
+      var payload = await response.json();
+      var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      var url = URL.createObjectURL(blob);
+      var link = document.createElement('a');
+      link.href = url; link.download = 'kalshi-research.json'; link.click();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+      status.textContent = 'Exported saved quotes and paper history. Existing records were preserved.';
+    } catch (error) { status.textContent = error.message; }
   });
 
   function authHeaders() { return token ? { 'x-dashboard-token': token } : {}; }

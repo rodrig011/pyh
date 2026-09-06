@@ -109,6 +109,7 @@ export const PROFILES = {
     sizing: { kellyFraction: 0.25, maximumFraction: 0.05 },
     scalp: { marginCents: 0.25, noEntryWithinSeconds: 30 },
     forceEveryWindow: true,
+    maximumEntriesPerTicker: 1,
     forcedFraction: 0.03,
   },
 };
@@ -428,6 +429,11 @@ function countLook(account, board) {
 function enterTick(account, entry, { now, ticker, sizing, forced = false }) {
   const read = entry.read;
   const profile = profileOf(account);
+  const entryTicker = entry.ticker ?? ticker;
+  const priorEntries = (account.trades ?? []).filter((trade) => trade.ticker === entryTicker).length;
+  if (priorEntries >= (profile.maximumEntriesPerTicker ?? Infinity)) {
+    return { account, event: null };
+  }
 
   // Sized the way the live bot sizes: a quarter of Kelly on the pessimistic
   // probability, hard-capped.
@@ -450,7 +456,7 @@ function enterTick(account, entry, { now, ticker, sizing, forced = false }) {
 
   // `always` is a forced control, not a compounding strategy. Anchor forced
   // risk to the initial bankroll so a paper bias cannot grow exponentially.
-  const stakeBase = profile.forceEveryWindow ? account.start : account.cash;
+  const stakeBase = profile.forceEveryWindow ? Math.min(account.start, account.cash) : account.cash;
   const stake = Math.min(account.cash, stakeBase * suggested);
   const contracts = contractsFor(stake, read.entryCents);
   if (contracts < 1) return { account, event: null };
@@ -478,6 +484,18 @@ function enterTick(account, entry, { now, ticker, sizing, forced = false }) {
     bestCents: read.entryCents,
     worstCents: read.entryCents,
     modelProbability: read.winProbability,
+    entryReason: forced
+      ? `Forced paper entry: best available quoted edge; failed filter ${read.result?.reason ?? 'unknown'}.`
+      : `Model entry: ${read.call}; net edge ${Number.isFinite(read.netEdgeCents) ? read.netEdgeCents.toFixed(2) + ' cents' : 'unavailable'}; chart ${read.result?.chartAgreement ?? 'unavailable'}.`,
+    entryEvidence: {
+      at: now,
+      probability: read.winProbability ?? null,
+      netEdgeCents: read.netEdgeCents ?? null,
+      features: read.result?.quant?.features ?? null,
+      missing: read.result?.quant?.missing ?? [],
+      confidence: read.result?.quant?.confidence ?? null,
+      failedFilter: forced ? read.result?.reason ?? null : null,
+    },
     // Whether the edge gate actually cleared, or this window was taken
     // anyway to measure it. The report reads this so "always" mode's record
     // is never mistaken for the model finding real opportunities.

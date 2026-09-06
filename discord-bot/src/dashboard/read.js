@@ -24,9 +24,20 @@ import { patternWinRates, settlePatternRecords } from '../signals/patternLog.js'
 import { roundHistorySummary, settleRoundSnapshots } from '../signals/roundSnapshot.js';
 import { measureEdge } from '../signals/measure.js';
 import { settleObservations } from '../signals/recorder.js';
+import { marketSnapshots, walkForwardValidation } from '../signals/validation.js';
 import { PROFILES, equity, lifetimeStats } from '../picks/paper.js';
 import { dayKey, riskSummary } from '../picks/riskLimits.js';
 import { buildCandles, buildVolume, rsiSeries } from './candles.js';
+
+let validationCache = { key: null, value: null };
+
+function cachedWalkForwardValidation(log) {
+  const key = JSON.stringify(marketSnapshots(log));
+  if (validationCache.key !== key) {
+    validationCache = { key, value: walkForwardValidation(log) };
+  }
+  return validationCache.value;
+}
 
 /** How much chart history to keep, independent of the 1h window the model itself reads. */
 const CHART_HISTORY_MS = 4 * 60 * 60 * 1000;
@@ -131,6 +142,7 @@ export function paperSummary(accounts, marks = {}) {
       tradesAudited: audited.length,
       netProfit: stats.netProfit,
       openPositions: account.position ? 1 : 0,
+      entryReason: account.position?.entryReason ?? null,
       recentTrades: audited.slice().reverse().map((trade) => ({
         ticker: trade.ticker ?? null,
         side: trade.side ?? null,
@@ -143,6 +155,8 @@ export function paperSummary(accounts, marks = {}) {
         fees: trade.fees ?? null,
         profit: trade.profit ?? null,
         reason: trade.reason ?? null,
+        entryReason: trade.entryReason ?? null,
+        entryEvidence: trade.entryEvidence ?? null,
         forced: Boolean(trade.forced),
         openedAt: trade.openedAt ?? null,
         at: trade.at ?? null,
@@ -393,6 +407,7 @@ export async function computeRead(
   });
   if (settledQuotes.settled > 0 && store.putQuotes) store.putQuotes(asset, settledQuotes.log, { flush: true });
   const trackRecord = measureEdge(settledQuotes.log);
+  const validation = cachedWalkForwardValidation(settledQuotes.log);
 
   // The model's own uncertainty, drawn as a range rather than left as a
   // single number: `sigma` is already scaled to the time left, so ±1σ in log
@@ -516,6 +531,7 @@ export async function computeRead(
     confluenceMeasured,
     liveTrading,
     trackRecord,
+    validation,
     at: now,
   };
 }

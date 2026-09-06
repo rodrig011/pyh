@@ -31,7 +31,7 @@ import { banAlertText, isBanned } from '../vip/banlist.js';
 import { promptDueSettlements, publishVoteResults, syncKalshiAccount } from '../picks/commands.js';
 import { checkPicksChannelSetup } from '../picks/channelSetup.js';
 import { collectOnce } from '../signals/collector.js';
-import { observeOnce } from '../signals/recorder.js';
+import { auditOfficialObservationOutcomes, observeOnce, settleObservations } from '../signals/recorder.js';
 import { evaluate } from '../signals/engine.js';
 import { confluenceRead } from '../signals/confluence.js';
 import { appendConfluenceRecord, makeConfluenceRecord } from '../signals/confluenceLog.js';
@@ -292,6 +292,7 @@ export function createVipBot(config = loadVipConfig()) {
     if (signals.collect !== false) {
       const asset = config.picks?.defaultAsset ?? 'BTC';
       let unsaved = 0;
+      let lastOfficialAuditAt = 0;
       setInterval(() => {
         collectOnce(store, { fetchPrice: fetchSpotPrice, asset })
           .then(async (result) => {
@@ -336,6 +337,28 @@ export function createVipBot(config = loadVipConfig()) {
                   evaluateModel: (input) =>
                     evaluate(input, { sampleSeconds: signals.sampleSeconds ?? 30 }),
                 });
+
+                // The local BRTI close is provisional. Kalshi's exact market
+                // result is the label used for training and can correct it.
+                if (Date.now() - lastOfficialAuditAt >= 60_000) {
+                  lastOfficialAuditAt = Date.now();
+                  const audited = await auditOfficialObservationOutcomes(store.listQuotes(asset), {
+                    fetchMarket,
+                    settings: kalshi,
+                    now: lastOfficialAuditAt,
+                  });
+                  if (audited.checked > 0) {
+                    const officialResults = Object.fromEntries(audited.log
+                      .filter((row) => row.outcomeSource === 'kalshi-market:official-result')
+                      .map((row) => [row.ticker, row.outcome]));
+                    // Merge labels into the latest log: samples may arrive during HTTP awaits.
+                    const merged = settleObservations(store.listQuotes(asset), { officialResults });
+                    if (merged.settled > 0) store.putQuotes(asset, merged.log, { flush: true });
+                  }
+                  if (audited.corrected > 0) {
+                    log.warn(`Corrected ${audited.corrected} signal observation outcome(s) from official Kalshi results`);
+                  }
+                }
 
                 // Confluence's own lean, logged beside the same quote — see
                 // confluenceLog.js. A second read that must never be allowed

@@ -327,6 +327,8 @@ test('the track record is the exact same measurement /picks edge reports, from t
   assert.equal(result.trackRecord.ready, true);
   assert.equal(result.trackRecord.settled, 2);
   assert.equal(result.trackRecord.markets, 2);
+  assert.equal(result.validation.totalMarkets, 0, 'unverified labels do not train the calibrator');
+  assert.equal(result.validation.promotion.eligible, false);
 });
 
 test('the expected range straddles spot and widens with more time left', async () => {

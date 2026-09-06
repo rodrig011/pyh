@@ -9,6 +9,7 @@ import {
 } from '../src/signals/measure.js';
 import {
   appendObservation,
+  auditOfficialObservationOutcomes,
   makeObservation,
   recordOnce,
   settleObservations,
@@ -196,6 +197,49 @@ test('a market is graded when its clock ran out, not when a zero was observed', 
   const done = settleObservations(log, { now, samples });
   assert.equal(done.settled, 2, 'the market finished ten minutes ago');
   assert.ok(done.log.every((row) => row.outcome === 1), 'it closed above the strike');
+  assert.ok(done.log.every((row) => row.outcomeSource === 'local-brti-window:provisional'));
+});
+
+test('the official Kalshi result replaces a wrong provisional outcome', () => {
+  const row = {
+    at: 1_000,
+    ticker: 'M1',
+    strike: 65_000,
+    bid: 50,
+    ask: 52,
+    secondsLeft: 10,
+    outcome: 1,
+    outcomeSource: 'local-brti-window:provisional',
+  };
+  const done = settleObservations([row], { now: 100_000, officialResults: { M1: 0 } });
+  assert.equal(done.log[0].outcome, 0);
+  assert.equal(done.log[0].outcomeSource, 'kalshi-market:official-result');
+});
+
+test('the official outcome audit fetches exact finished tickers and corrects the ledger', async () => {
+  const rows = [{
+    at: 1_000,
+    ticker: 'KXBTC15M-EXACT',
+    strike: 65_000,
+    bid: 50,
+    ask: 52,
+    secondsLeft: 10,
+    outcome: 1,
+    outcomeSource: 'local-brti-window:provisional',
+  }];
+  const fetched = [];
+  const result = await auditOfficialObservationOutcomes(rows, {
+    now: 100_000,
+    settings: { apiBase: 'test' },
+    fetchMarket: async (_settings, ticker) => {
+      fetched.push(ticker);
+      return { market: { ticker, result: 'no' } };
+    },
+  });
+  assert.deepEqual(fetched, ['KXBTC15M-EXACT']);
+  assert.equal(result.corrected, 1);
+  assert.equal(result.log[0].outcome, 0);
+  assert.equal(result.log[0].outcomeSource, 'kalshi-market:official-result');
 });
 
 test('a market still running is left alone', () => {

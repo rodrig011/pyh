@@ -5,6 +5,7 @@ import { fetchSpotPrice } from '../picks/price.js';
 import { fetchTrades } from '../picks/whales.js';
 import { computeRead, enterManualPosition } from './read.js';
 import { dashboardPage } from './page.js';
+import { researchExport } from '../signals/research.js';
 
 const log = createLogger('dashboard');
 
@@ -46,6 +47,12 @@ export function startDashboardServer({ store, config, deps = {} }) {
 
   const server = createServer(async (request, response) => {
     const url = new URL(request.url, 'http://localhost');
+
+    if (request.method === 'GET' && url.pathname === '/api/research') {
+      if (!authorized(request, url)) return respondJson(response, 401, { ok: false, reason: 'unauthorized' });
+      response.setHeader('cache-control', 'no-store');
+      return respondJson(response, 200, researchExport(store, config.picks?.defaultAsset ?? 'BTC'));
+    }
 
     if (url.pathname === '/api/read') {
       if (!authorized(request, url)) return respondJson(response, 401, { ok: false, reason: 'unauthorized' });
