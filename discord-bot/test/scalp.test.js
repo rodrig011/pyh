@@ -89,12 +89,12 @@ test('nothing is opened with no room left for a round trip', () => {
   assert.match(late.reason, /bell/);
 });
 
-test('a banked swing is taken once the price has caught up with the model', () => {
+test('a banked swing is taken once net sale proceeds have caught up with the model', () => {
   const call = scalpDecision({
     position: { entryCents: 65, side: 'up' },
     nowCents: 85,
-    // The model says 85 and the contract costs 85. There is nothing left.
-    signal: edge('up', 0.5, 0.85),
+    // Selling at 85 leaves 84 after the exit fee: equal to held fair value.
+    signal: edge('up', 0.5, 0.84),
     secondsLeft: 400,
   });
 
@@ -208,7 +208,7 @@ test('a losing position the model no longer defends is cut', () => {
   const call = scalpDecision({
     position: { entryCents: 65, side: 'up' },
     nowCents: 55,
-    signal: edge('up', 1, 0.55),
+    signal: edge('up', 1, 0.52),
     secondsLeft: 400,
   });
 
@@ -238,7 +238,8 @@ test("watch.js's liveExit grades every held position on scalp's own margin, not 
   const fixture = {
     position: { entryCents: 65, side: 'up' },
     nowCents: 69.4,
-    signal: edge('up', 8, 0.695),
+    // Sale delivers 67.4 after fees, slightly below the model's 67.5.
+    signal: edge('up', 8, 0.675),
     secondsLeft: 400,
   };
 

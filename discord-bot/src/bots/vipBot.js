@@ -325,6 +325,10 @@ export function createVipBot(config = loadVipConfig()) {
               const board = await openBoard(kalshi).catch(() => null);
               const contract = nearestTheMoneyContract(board?.contracts);
               if (contract) {
+                // Preserve the actual contract tape used by the quantitative
+                // read. Without it every research row silently loses CVD.
+                const tape = await fetchTrades(kalshi, contract.market?.ticker,
+                  { timeoutMs: 1500, limit: 100 }).catch(() => null);
                 // The model's read goes down beside the quote. Recording the
                 // quote alone would only ever answer "is Kalshi biased"; the
                 // question the engine rests on is whether our number beats
@@ -335,6 +339,7 @@ export function createVipBot(config = loadVipConfig()) {
                   contract,
                   spot: result.price,
                   quote: result.quote,
+                  trades: tape?.trades ?? [],
                   evaluateModel: (input) =>
                     evaluate(input, { sampleSeconds: signals.sampleSeconds ?? 30 }),
                 });

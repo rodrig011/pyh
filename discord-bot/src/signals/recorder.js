@@ -249,12 +249,12 @@ export async function auditOfficialObservationOutcomes(
  */
 export function observeOnce(
   store,
-  { asset = 'BTC', contract, spot, quote = null, evaluateModel, historyMs = 60 * 60 * 1000, now = Date.now() } = {},
+  { asset = 'BTC', contract, spot, quote = null, trades = [], evaluateModel, historyMs = 60 * 60 * 1000, now = Date.now() } = {},
 ) {
   let modelProbability = null;
   let sigmas = null;
   let evidence = { source: quote?.source ?? null, sourceAt: quote?.sourceAt ?? null,
-    feedVersion: quote?.feedVersion ?? null };
+    feedVersion: quote?.feedVersion ?? null, tradeCount: trades.length };
   const context = priceContext(store.listSamples(asset), quote ?? { price: spot }, { now });
 
   try {
@@ -270,6 +270,7 @@ export function observeOnce(
         strike: contract.strike ?? strikeOf(market),
         marketPriceCents: contract.price,
         market,
+        trades,
         secondsLeft: Number.isFinite(closesAt) ? (closesAt - now) / 1000 : null,
       });
       if (Number.isFinite(read?.probability)) modelProbability = read.probability;

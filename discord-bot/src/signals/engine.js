@@ -4,6 +4,7 @@ import { flipProbability } from './exit.js';
 import { bookQuality, distanceInSigma, largePrints, momentum, rsi, trendFit } from './indicators.js';
 import { confluenceRead } from './confluence.js';
 import { estimateSettlementProbability, QUANT_STATUS } from './quantEngine.js';
+import { scalpEntryBudget } from './scalp.js';
 
 export const VERDICTS = { UP: 'up', DOWN: 'down', SKIP: 'skip' };
 
@@ -20,6 +21,7 @@ export const SKIP_REASONS = {
   thin_book: 'There is almost nothing resting on this book. A fill here moves the price against you.',
   no_edge: 'The market price is already fair. There is nothing to win here that is not a coin flip.',
   fee_eats_it: 'The edge is real but smaller than the fee. The exchange takes the profit.',
+  round_trip_cost: 'The model target does not cover both entry and exit fees plus the scalp margin.',
   too_late: 'Not enough time left for the move this needs.',
   no_clock:
     'The feed did not say when this market closes, so there is no way to know how much time is left.',
@@ -46,6 +48,8 @@ export const DEFAULTS = {
   // times per 300 markets and lost 9% to fees, while at six it trades 27 times
   // and finishes flat. The edge it captures when there IS one is unchanged.
   minimumEdgeCents: 6,
+  // Optional: settlement edge alone is insufficient for a planned early exit.
+  scalpMarginCents: null,
   // Technical agreement earns a slightly earlier entry, but never below the
   // measured noise floor used before the hard chart gate existed. Neutral
   // charts still need the full six cents.
@@ -237,6 +241,13 @@ export function evaluate(input, options = {}) {
   if (bestEdgeCents < requiredEdgeCents) return skip('no_edge', read);
   if (best.cost.netCents <= 0) return skip('fee_eats_it', read);
 
+  if (Number.isFinite(config.scalpMarginCents)) {
+    read.scalpBudget = scalpEntryBudget(best.entryCents,
+      best.side === VERDICTS.UP ? probability : 1 - probability,
+      { feeRate: config.feeRate, marginCents: config.scalpMarginCents });
+    if (!read.scalpBudget?.coversCosts) return skip('round_trip_cost', read);
+  }
+
   // Read the chart before calling a buy. The probability/price model finds
   // value; this independent layer answers whether price action is actually
   // providing a clue now. Silence or disagreement means stay out, never an
@@ -314,6 +325,7 @@ export function evaluate(input, options = {}) {
     midEdgeCents: Math.abs(upEdgeCents),
     quotes,
     cost: best.cost,
+    scalpBudget: read.scalpBudget ?? null,
     entryCents: best.entryCents,
     expected: best.value,
     sigma,

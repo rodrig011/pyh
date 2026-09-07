@@ -73,6 +73,16 @@ export function roundTripReturn(entryCents, exitCents, { feeRate = 0.07 } = {}) 
   };
 }
 
+/** Budget at the model's hypothetical exit target, not a predicted fill. */
+export function scalpEntryBudget(entryCents, probability, { feeRate = 0.07, marginCents = 0.25 } = {}) {
+  if (!(entryCents > 0 && entryCents < 100)) return null;
+  if (!Number.isFinite(probability) || probability <= 0 || probability >= 1) return null;
+  const targetCents = probability * 100;
+  const trip = roundTripReturn(entryCents, targetCents, { feeRate });
+  if (!trip) return null;
+  return { targetCents, ...trip, marginCents, coversCosts: trip.netCents >= marginCents };
+}
+
 export const SCALP_ACTIONS = { ENTER: 'enter', EXIT: 'exit', WAIT: 'wait' };
 
 /**
@@ -155,7 +165,11 @@ export function scalpDecision({ position = null, nowCents, signal, secondsLeft }
     // of the time, and reading that silence as "get out" turns every position
     // into a guaranteed round trip that pays two fees to capture nothing.
     const held = heldProbability(position.side, signal);
-    const favoured = held === null ? null : held * 100 - nowCents;
+    // Compare holding with the cash a sale actually delivers. The entry fee
+    // is sunk; the exit fee is still avoidable. Comparing with the gross bid
+    // can trigger a sale even when its net proceeds are below held fair value.
+    const liquidationNetCents = nowCents - feePerContract(nowCents / 100, config.feeRate) * 100;
+    const favoured = held === null ? null : held * 100 - liquidationNetCents;
 
     // A real reversal: the engine is calling the OTHER side outright. That is
     // worth paying a fee to escape. Silence is not.

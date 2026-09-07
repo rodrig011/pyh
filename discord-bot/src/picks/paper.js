@@ -14,14 +14,14 @@ import { closeTimeOf } from './kalshi.js';
  * somebody actually has, which is: if I had done what it said, all day, every
  * day, would there be more money at the end.
  *
- * So it trades. Real contract, real quoted prices, real fees, imaginary
+ * So it trades. Real contracts, quoted prices, estimated fees, imaginary
  * dollars. The rules that make the answer worth having:
  *
  *   - Buying pays the ASK and selling takes the BID. Filling at the mid is how
  *     a paper account beats a real one by half a spread on every trade and
  *     nobody notices until the money is real.
- *   - The fee comes off both legs, and settlement is free, exactly as the
- *     exchange charges it.
+ *   - Estimated fees come off both legs; settlement has no exit-trade fee.
+ *     Per-contract cent rounding is conservative, not an exchange receipt.
  *   - It only enters what the live engine would call. No hindsight, no
  *     re-reading a market with the answer in hand.
  *
@@ -71,8 +71,9 @@ export const PROFILES = {
     // second number is not a typo — it means a trade goes through even when
     // the pessimistic read says the edge is probably a small loser. This is
     // the most aggressive this profile goes without ignoring the model
-    // outright; see forceTrade.js for the mode that does that.
-    engine: { minimumEdgeCents: 1, minimumWorstCaseEdgeCents: -2, minimumSecondsLeft: 20 },
+    // outright; see forceTrade.js for the mode that does that. The shared
+    // engine must additionally budget both legs of a planned scalp exit.
+    engine: { minimumEdgeCents: 1, minimumWorstCaseEdgeCents: -2, minimumSecondsLeft: 20, scalpMarginCents: 0.25 },
     // Double the Kelly portion and double the cap. Size is what actually bounds
     // the damage on this instrument — stops were measured and they are worse —
     // so this is the knob that carries the real risk of the profile.
@@ -336,6 +337,21 @@ function holdTick(account, position, input, { now, candidates, officialSettlemen
       reason: call.reason,
       at: now,
       durationMs: now - observed.openedAt,
+      exitEvidence: {
+        at: now,
+        probabilityYes: read.result?.probability ?? null,
+        heldProbability: Number.isFinite(read.result?.probability)
+          ? (observed.side === 'up' ? read.result.probability : 1 - read.result.probability) : null,
+        bidCents: heldBid,
+        exitFeeCentsPerContract: fee / observed.contracts * 100,
+        liquidationNetCents: heldBid - fee / observed.contracts * 100,
+        modelAdvantageOverSaleCents: call.favoured ?? null,
+        verdict: read.result?.verdict ?? null,
+        failedFilter: read.result?.reason ?? null,
+        sourceAt: input.sourceAt ?? null,
+        bookAt: market?.book_at ?? null,
+        policyVersion: 'scalp-cost-v1',
+      },
     };
     return { account: bookTrade(account, closed), event: { kind: 'exit', trade: closed } };
   }
@@ -489,6 +505,8 @@ function enterTick(account, entry, { now, ticker, sizing, forced = false }) {
       : `Model entry: ${read.call}; net edge ${Number.isFinite(read.netEdgeCents) ? read.netEdgeCents.toFixed(2) + ' cents' : 'unavailable'}; chart ${read.result?.chartAgreement ?? 'unavailable'}. ${read.entryRationale ?? ''}`,
     entryEvidence: {
       at: now,
+      policyVersion: 'scalp-cost-v1',
+      scalpBudget: read.result?.scalpBudget ?? null,
       probability: read.winProbability ?? null,
       netEdgeCents: read.netEdgeCents ?? null,
       features: read.result?.quant?.features ?? null,

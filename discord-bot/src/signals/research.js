@@ -6,10 +6,11 @@ export function tradeDiagnostics(trades = []) {
   for (const trade of trades) {
     if (!Number.isFinite(trade.profit)) continue;
     const key = `${trade.forced ? 'forced' : 'model'}:${trade.reason ?? 'unknown'}`;
-    const group = groups.get(key) ?? { category: key, trades: 0, wins: 0, losses: 0, profit: 0, fees: 0 };
+    const group = groups.get(key) ?? { category: key, trades: 0, wins: 0, losses: 0, breakEven: 0, profit: 0, fees: 0 };
     group.trades += 1;
-    group.wins += trade.profit > 0 ? 1 : 0;
-    group.losses += trade.profit < 0 ? 1 : 0;
+    group.wins += trade.profit > 1e-8 ? 1 : 0;
+    group.losses += trade.profit < -1e-8 ? 1 : 0;
+    group.breakEven += Math.abs(trade.profit) <= 1e-8 ? 1 : 0;
     group.profit += trade.profit;
     group.fees += Number.isFinite(trade.fees) ? trade.fees : 0;
     groups.set(key, group);
@@ -19,6 +20,7 @@ export function tradeDiagnostics(trades = []) {
     groups: [...groups.values()],
     repeatedMarkets: [...tickers].filter(([, count]) => count > 1).map(([ticker, count]) => ({ ticker, trades: count })),
     missingEntryEvidence: trades.filter((trade) => !trade.entryEvidence).length,
+    missingExitEvidence: trades.filter((trade) => trade.reason !== 'settled' && !trade.exitEvidence).length,
     note: 'Descriptive results from retained trades. Exit reasons do not establish the causal reason BTC moved.',
   };
 }
@@ -37,6 +39,7 @@ export function researchExport(store, asset = 'BTC', now = Date.now()) {
       entryCents: t.entryCents, exitCents: t.exitCents, contracts: t.contracts,
       profit: t.profit, cost: t.cost, proceeds: t.proceeds, fees: t.fees,
       reason: t.reason, forced: t.forced, entryReason: t.entryReason, entryEvidence: t.entryEvidence,
+      exitEvidence: t.exitEvidence ?? null,
       settlementSource: t.settlementSource, settlementPrice: t.settlementPrice,
     }));
     return [name, { start: account.start, cash: account.cash, retainedTrades: trades.length,
@@ -46,5 +49,6 @@ export function researchExport(store, asset = 'BTC', now = Date.now()) {
     validation: walkForwardValidation(observations, { requireVerifiedFeed: true }),
     limitations: ['Only retained history is exported; older truncated rows cannot be reconstructed.',
       'Missing past entry features remain missing; no retrospective thesis is invented.',
+      'Paper fees use conservative per-contract cent rounding; they are not confirmed exchange fees.',
       'Rows without brti-latest-v2 timestamps may contain the old delayed feed; do not train a new calibration on them.'] };
 }
