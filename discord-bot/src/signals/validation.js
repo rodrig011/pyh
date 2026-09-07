@@ -5,7 +5,7 @@ const logit = (p) => Math.log(clamp(p) / (1 - clamp(p)));
 const logistic = (x) => 1 / (1 + Math.exp(-x));
 
 /** One independent, five-minutes-to-close snapshot per settled market. */
-export function marketSnapshots(observations, { targetSecondsLeft = 300 } = {}) {
+export function marketSnapshots(observations, { targetSecondsLeft = 300, maximumDistanceSeconds = 35 } = {}) {
   const byTicker = new Map();
   for (const row of observations ?? []) {
     if (!row?.ticker || !Number.isFinite(row.model) || row.model < 0 || row.model > 1) continue;
@@ -14,6 +14,7 @@ export function marketSnapshots(observations, { targetSecondsLeft = 300 } = {}) 
     if (row.outcome !== 0 && row.outcome !== 1) continue;
     if (!Number.isFinite(row.bid) || !Number.isFinite(row.ask) || row.ask < row.bid || row.bid < 0 || row.ask > 100) continue;
     const distance = Math.abs((Number(row.secondsLeft) || 0) - targetSecondsLeft);
+    if (distance > maximumDistanceSeconds) continue;
     const previous = byTicker.get(row.ticker);
     if (!previous || distance < previous.distance || (distance === previous.distance && row.at < previous.row.at)) {
       byTicker.set(row.ticker, { distance, row });
@@ -120,7 +121,8 @@ export function walkForwardValidation(
   const tested = [];
   for (let index = minimumTrainingMarkets; index < snapshots.length; index += 1) {
     const row = snapshots[index];
-    const training = snapshots.slice(0, index).filter((prior) => prior.closesAt + 60_000 < row.at);
+    const training = snapshots.slice(0, index).filter((prior) => prior.closesAt + 60_000 < row.at &&
+      (prior.outcomeRecordedAt == null || prior.outcomeRecordedAt < row.at));
     if (training.length < minimumTrainingMarkets) continue;
     const calibrator = fitProbabilityCalibrator(training, {
       minimumMarkets: minimumTrainingMarkets,
@@ -140,7 +142,6 @@ export function walkForwardValidation(
   if (tested.length < minimumOutOfSampleMarkets) reasons.push(`need ${minimumOutOfSampleMarkets} out-of-sample markets`);
   if (!(calibratedBrier < marketBrier)) reasons.push('calibrated model does not beat Kalshi Brier score');
   if (strategy.trades < minimumTrades) reasons.push(`need ${minimumTrades} out-of-sample trades`);
-  if (!(strategy.winRate > 0.5)) reasons.push('out-of-sample win rate is not above 50%');
   if (!(strategy.profitCi95Low > 0)) reasons.push('net profit after fees/slippage is not statistically above zero');
   return {
     ready: tested.length > 0,

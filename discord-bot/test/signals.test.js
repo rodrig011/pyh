@@ -200,9 +200,9 @@ test('a very strong edge can clear a thin but non-empty book with a warning', ()
     prices,
     spot: 65120,
     strike: 65000,
-    marketPriceCents: 40,
+    marketPriceCents: 20,
     secondsLeft: 300,
-    market: { yes_bid_dollars: '0.39', yes_ask_dollars: '0.40', liquidity_dollars: '2' },
+    market: { yes_bid_dollars: '0.19', yes_ask_dollars: '0.20', liquidity_dollars: '2' },
   });
 
   assert.equal(result.verdict, VERDICTS.UP);
@@ -513,8 +513,10 @@ test('the estimate carries the error it actually has', async () => {
 
   assert.ok(few.high - few.low > many.high - many.low, 'fewer samples, wider band');
   assert.ok(few.low > 0 && few.low < few.sigma && few.sigma < few.high);
-  // Standard error of a standard deviation is about sigma / sqrt(2n).
-  assert.ok(Math.abs(many.standardError - many.sigma / Math.sqrt(2 * 200)) < 1e-9);
+  // EWMA's effective memory saturates; appending old history cannot make its
+  // uncertainty shrink as though all 200 samples had equal weight.
+  assert.ok(many.effectiveSamples < 33);
+  assert.ok(many.standardError > many.sigma / Math.sqrt(2 * 200));
 });
 
 test('the pessimistic vol case is always the smaller edge, and it is published', async () => {

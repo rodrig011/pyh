@@ -58,17 +58,11 @@ test('scalp accepts a thin edge careful refuses as no_edge', () => {
   assert.ok(scalp.tradeable.length > careful.tradeable.length);
 });
 
-test('scalp still trades inside the last 45 seconds, where careful goes flat', () => {
-  // A real edge (44c vs. fair here), but only 30 seconds left — careful's
-  // minimumSecondsLeft (the DEFAULTS' 45) refuses this outright, whatever the
-  // edge is.
+test('scalp can trade at 90 seconds while careful respects its 120-second entry deadline', () => {
   const now = Math.floor(Date.now() / 1000) * 1000;
-  const closeToTheBell = { ...CONTEXT, secondsLeft: 30, now,
-    settlementSamples: Array.from({ length: 30 }, (_, i) => ({ source: 'kalshi-brti',
-      sourceAt: now - (30 - i) * 1000, price: 65000 })),
-  };
+  const closeToTheBell = { ...CONTEXT, secondsLeft: 90, now };
   const ladder = [strike(65_000, 44)];
-  ladder[0].market.close_time = new Date(now + 30_000).toISOString();
+  ladder[0].market.close_time = new Date(now + 90_000).toISOString();
 
   const careful = readBoard(ladder, closeToTheBell, PROFILES.careful.engine);
   assert.equal(careful.reads[0].read.tradeable, false);

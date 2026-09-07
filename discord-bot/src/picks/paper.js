@@ -1,7 +1,8 @@
-import { SCALP_ACTIONS, roundTripCostCents, scalpDecision } from '../signals/scalp.js';
+import { SCALP_ACTIONS, scalpDecision } from '../signals/scalp.js';
 import { directionalRead } from '../signals/direction.js';
 import { readBoard, boardIsUnreadable, brokenDiagnosis, censusLine } from '../signals/board.js';
 import { recommendSize } from '../signals/sizing.js';
+import { entryRiskBudget, quotedEntrySize, EXECUTION_POLICY_VERSION } from '../signals/executionRisk.js';
 import { feePerContract } from '../signals/math.js';
 import { leastBadCandidate } from './forceTrade.js';
 import { closeTimeOf } from './kalshi.js';
@@ -49,8 +50,8 @@ export const START_BANKROLL = 70;
 export const PROFILES = {
   careful: {
     label: 'careful',
-    engine: { minimumEdgeCents: 6, minimumWorstCaseEdgeCents: 2 },
-    sizing: { kellyFraction: 0.25, maximumFraction: 0.1 },
+    engine: { minimumEdgeCents: 6, minimumWorstCaseEdgeCents: 2, minimumSecondsLeft: 120 },
+    sizing: { kellyFraction: 0.25, maximumFraction: 0.02 },
     scalp: { marginCents: 0.5, noEntryWithinSeconds: 120 },
   },
   scalp: {
@@ -73,11 +74,10 @@ export const PROFILES = {
     // the most aggressive this profile goes without ignoring the model
     // outright; see forceTrade.js for the mode that does that. The shared
     // engine must additionally budget both legs of a planned scalp exit.
-    engine: { minimumEdgeCents: 1, minimumWorstCaseEdgeCents: -2, minimumSecondsLeft: 20, scalpMarginCents: 0.25 },
-    // Double the Kelly portion and double the cap. Size is what actually bounds
-    // the damage on this instrument — stops were measured and they are worse —
-    // so this is the knob that carries the real risk of the profile.
-    sizing: { kellyFraction: 0.5, maximumFraction: 0.2 },
+    engine: { minimumEdgeCents: 1, minimumWorstCaseEdgeCents: -2, minimumSecondsLeft: 60, scalpMarginCents: 0.25 },
+    // Both signal profiles now cap default entry cost at 2% of paper cash.
+    // Lower entry thresholds do not justify increasing size on unvalidated odds.
+    sizing: { kellyFraction: 0.25, maximumFraction: 0.02 },
     // Enters a minute from the bell instead of two, and banks a move as soon as
     // it has covered the round trip plus a quarter cent.
     scalp: { marginCents: 0.25, noEntryWithinSeconds: 60 },
@@ -128,7 +128,7 @@ export const LIVE_PROFILES = {
     engine: {
       minimumEdgeCents: 0.01,
       minimumWorstCaseEdgeCents: 0,
-      minimumSecondsLeft: 10,
+      minimumSecondsLeft: 30,
     },
     sizing: { kellyFraction: 0.25, maximumFraction: 0.05 },
     scalp: { marginCents: 0.25, noEntryWithinSeconds: 30 },
@@ -186,9 +186,9 @@ export function newAccount({ bankroll = START_BANKROLL, at = Date.now(), profile
 }
 
 /** Contracts affordable at a price, given the stake. Whole contracts only. */
-export function contractsFor(stakeDollars, priceCents) {
+export function contractsFor(stakeDollars, priceCents, { feeRate = 0 } = {}) {
   if (!(stakeDollars > 0) || !(priceCents > 0)) return 0;
-  return Math.floor(stakeDollars / (priceCents / 100));
+  return Math.floor((stakeDollars + 1e-10) / (priceCents / 100 + feePerContract(priceCents / 100, feeRate)));
 }
 
 /**
@@ -301,7 +301,9 @@ function holdTick(account, position, input, { now, candidates, officialSettlemen
   }
 
   const profile = profileOf(account);
-  const read = directionalRead({ ...input, strike, marketPriceCents, market }, profile.engine);
+  const read = directionalRead({ ...input, strike, marketPriceCents, market,
+    trades: input.tradesByTicker?.[position.ticker] ?? input.trades ?? [],
+  }, profile.engine);
   const quotes = read.result?.quotes;
   if (!quotes) return { account, event: null };
 
@@ -312,6 +314,8 @@ function holdTick(account, position, input, { now, candidates, officialSettlemen
     ...position,
     bestCents: Math.max(position.bestCents ?? position.entryCents, heldBid),
     worstCents: Math.min(position.worstCents ?? position.entryCents, heldBid),
+    lastBidCents: heldBid,
+    lastMarkAt: now,
   };
 
   const call = scalpDecision(
@@ -350,7 +354,9 @@ function holdTick(account, position, input, { now, candidates, officialSettlemen
         failedFilter: read.result?.reason ?? null,
         sourceAt: input.sourceAt ?? null,
         bookAt: market?.book_at ?? null,
-        policyVersion: 'scalp-cost-v1',
+        features: read.result?.quant?.features ?? null,
+        probabilityRange: read.result?.quant?.probabilityRange ?? null,
+        policyVersion: EXECUTION_POLICY_VERSION,
       },
     };
     return { account: bookTrade(account, closed), event: { kind: 'exit', trade: closed } };
@@ -457,6 +463,7 @@ function enterTick(account, entry, { now, ticker, sizing, forced = false }) {
     probability: read.winProbability,
     worstProbability: read.result.worstWinProbability ?? read.winProbability,
     priceDollars: read.entryCents / 100,
+    entryFeeDollars: feePerContract(read.entryCents / 100),
     ...profile.sizing,
     ...sizing,
   });
@@ -473,8 +480,12 @@ function enterTick(account, entry, { now, ticker, sizing, forced = false }) {
   // `always` is a forced control, not a compounding strategy. Anchor forced
   // risk to the initial bankroll so a paper bias cannot grow exponentially.
   const stakeBase = profile.forceEveryWindow ? Math.min(account.start, account.cash) : account.cash;
-  const stake = Math.min(account.cash, stakeBase * suggested);
-  const contracts = contractsFor(stake, read.entryCents);
+  const riskBudget = profile.forceEveryWindow ? null : entryRiskBudget(account, entryTicker, {
+    maximumFraction: sizing.maximumFraction ?? profile.sizing.maximumFraction,
+  });
+  const stake = Math.min(account.cash, stakeBase * suggested, riskBudget?.availableDollars ?? Infinity);
+  const quotedSize = quotedEntrySize(entry.market, read.call);
+  const contracts = Math.min(contractsFor(stake, read.entryCents, { feeRate: 0.07 }), quotedSize ?? Infinity);
   if (contracts < 1) return { account, event: null };
 
   // Buying pays the ask, plus the fee, out of cash.
@@ -505,7 +516,12 @@ function enterTick(account, entry, { now, ticker, sizing, forced = false }) {
       : `Model entry: ${read.call}; net edge ${Number.isFinite(read.netEdgeCents) ? read.netEdgeCents.toFixed(2) + ' cents' : 'unavailable'}; chart ${read.result?.chartAgreement ?? 'unavailable'}. ${read.entryRationale ?? ''}`,
     entryEvidence: {
       at: now,
-      policyVersion: 'scalp-cost-v1',
+      policyVersion: EXECUTION_POLICY_VERSION,
+      riskBudget,
+      quotedSize,
+      fillAssumption: quotedSize === null ? 'size unavailable; hypothetical fill' : 'bounded by quoted top size; queue/latency not modeled',
+      rawPYes: read.result?.quant?.rawPYes ?? null,
+      probabilityCap: read.result?.quant?.probabilityCap ?? null,
       scalpBudget: read.result?.scalpBudget ?? null,
       probability: read.winProbability ?? null,
       netEdgeCents: read.netEdgeCents ?? null,
@@ -521,7 +537,10 @@ function enterTick(account, entry, { now, ticker, sizing, forced = false }) {
   };
 
   return {
-    account: { ...account, cash: account.cash - (cost + fee), position: opened },
+    account: { ...account, cash: account.cash - (cost + fee), position: opened,
+      ...(riskBudget ? { marketRisk: { ...riskBudget,
+        committedDollars: riskBudget.committedDollars + cost + fee } } : {}),
+    },
     event: { kind: 'enter', trade: opened },
   };
 }
@@ -655,10 +674,9 @@ export function report(account, { now = Date.now(), markCents = null } = {}) {
   const stats = lifetimeStats(account);
   const wins = stats.wins;
   const losses = stats.losses;
-  const fees = closed.reduce(
-    (total, t) => total + t.contracts * roundTripCostCents(t.entryCents, Math.max(1, t.exitCents)) / 100,
-    0,
-  );
+  const fees = closed.reduce((total, t) => total + (Number.isFinite(t.fees) ? t.fees :
+    t.contracts * (feePerContract(t.entryCents / 100) +
+      (t.reason === 'settled' ? 0 : feePerContract(t.exitCents / 100)))), 0);
 
   const money = (n) => `$${n.toFixed(2)}`;
   const sign = (n) => (n >= 0 ? '+' : '');
@@ -694,7 +712,7 @@ export function report(account, { now = Date.now(), markCents = null } = {}) {
         `refused **${account.refused}** of **${account.seen}** contract(s)`,
       why ? `Refused because: ${why}.` : null,
       lookLine(account),
-      `**${money(fees)}** of that went to the exchange in fees.`,
+      `**${money(fees)}** in estimated paper fees.`,
     );
 
     const best = closed.reduce((a, b) => (b.profit > a.profit ? b : a));

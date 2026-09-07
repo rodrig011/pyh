@@ -29,6 +29,7 @@ import { hasCredentials } from './kalshiAccount.js';
 import { confirmedFillCount, fillPriceCents, orderProceedsDollars, orderRecord } from './kalshiOrders.js';
 import { checkTrade } from './riskLimits.js';
 import { recommendSize } from '../signals/sizing.js';
+import { feePerContract } from '../signals/math.js';
 import { leastBadCandidate } from './forceTrade.js';
 
 /**
@@ -721,10 +722,13 @@ export async function sweepLiveTrading(client, store, config, deps = {}) {
     // Holding: decide whether to sell. Letting it settle costs no fee and is
     // the default, so only an actual EXIT places an order.
     if (held) {
+      const tape = fetchTrades
+        ? await fetchTrades(settings.kalshi, held.ticker, { limit: 100 }).catch(() => null)
+        : null;
       return await liveExit(client, store, config, {
         held,
         candidates,
-        context,
+        context: { ...context, trades: tape?.trades ?? [] },
         placeOrder,
         trading,
         now,
@@ -812,6 +816,7 @@ export async function sweepLiveTrading(client, store, config, deps = {}) {
           probability: best.read.winProbability,
           worstProbability: best.read.result.worstWinProbability ?? best.read.winProbability,
           priceDollars: best.read.entryCents / 100,
+          entryFeeDollars: feePerContract(best.read.entryCents / 100),
           kellyFraction: profile.sizing?.kellyFraction,
           maximumFraction: profile.sizing?.maximumFraction,
         });
@@ -837,7 +842,7 @@ export async function sweepLiveTrading(client, store, config, deps = {}) {
     if (!check.allowed) return { traded: false, blocked: check.blocked };
 
     const limitCents = Math.round(best.read.entryCents);
-    const contracts = Math.floor(check.dollars / (limitCents / 100));
+    const contracts = Math.floor(check.dollars / (limitCents / 100 + feePerContract(limitCents / 100)));
     if (contracts < 1) return { traded: false, reason: 'stake buys no contracts' };
 
     const result = await placeOrder(
@@ -936,7 +941,8 @@ async function liveExit(client, store, config, { held, candidates, context, plac
   // config.js's trading.takeProfitPercent/stopLossDollars. "15% and cap the
   // loss at $5" was asked for explicitly, as a per-trade rule independent of
   // what scalpDecision would otherwise do with the position.
-  const proceedsNow = heldBid > 0 ? (held.contracts * heldBid) / 100 : 0;
+  const proceedsNow = heldBid > 0
+    ? held.contracts * (heldBid / 100 - feePerContract(heldBid / 100)) : 0;
   const profitDollarsNow = proceedsNow - held.costDollars;
   const profitPercent = held.costDollars > 0 ? profitDollarsNow / held.costDollars : 0;
   const takeProfitPercent = Number.isFinite(trading.takeProfitPercent) ? trading.takeProfitPercent : 0.15;

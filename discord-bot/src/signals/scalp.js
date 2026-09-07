@@ -170,11 +170,25 @@ export function scalpDecision({ position = null, nowCents, signal, secondsLeft }
     // can trigger a sale even when its net proceeds are below held fair value.
     const liquidationNetCents = nowCents - feePerContract(nowCents / 100, config.feeRate) * 100;
     const favoured = held === null ? null : held * 100 - liquidationNetCents;
+    const range = signal?.quant?.probabilityRange;
+    const validRange = Array.isArray(range) && range.length === 2 && range.every(Number.isFinite);
+    const heldUpper = validRange ? (position.side === 'down' ? 1 - range[0] : range[1]) : held;
+    const upperAdvantage = heldUpper === null ? null : heldUpper * 100 - liquidationNetCents;
+    const saleImprovesValue = upperAdvantage !== null && upperAdvantage <= -config.marginCents;
 
-    // A real reversal: the engine is calling the OTHER side outright. That is
-    // worth paying a fee to escape. Silence is not.
-    if (signal?.verdict && signal.verdict !== 'skip' && signal.verdict !== position.side) {
-      return say(SCALP_ACTIONS.EXIT, 'model flipped', { trip, favoured });
+    // A non-negative binary payout dominates a sale that pays less than zero.
+    if (liquidationNetCents <= 0) {
+      return say(SCALP_ACTIONS.WAIT, 'sale proceeds consumed by fee', { trip, favoured, upperAdvantage });
+    }
+    if (config.maximumLossPercent !== null && trip && trip.percent <= -config.maximumLossPercent) {
+      return say(SCALP_ACTIONS.EXIT, 'stop loss', { trip, favoured, upperAdvantage });
+    }
+
+    // A new entry on the other side is a different decision from selling the
+    // held side. With a probability available, require better net sale value.
+    if (signal?.verdict && signal.verdict !== 'skip' && signal.verdict !== position.side &&
+        (saleImprovesValue || held === null)) {
+      return say(SCALP_ACTIONS.EXIT, 'model flipped', { trip, favoured, upperAdvantage });
     }
 
     // Out of runway — sell, or let it settle?
@@ -192,7 +206,7 @@ export function scalpDecision({ position = null, nowCents, signal, secondsLeft }
       if (config.maximumLossPercent !== null && trip && trip.percent <= -config.maximumLossPercent) {
         return say(SCALP_ACTIONS.EXIT, 'stop loss', { trip, favoured });
       }
-      if (favoured === null || favoured >= 0) {
+      if (!saleImprovesValue) {
         return say(SCALP_ACTIONS.WAIT, 'settling', { trip, favoured });
       }
       return say(SCALP_ACTIONS.EXIT, 'bell', { trip, favoured });
@@ -201,7 +215,7 @@ export function scalpDecision({ position = null, nowCents, signal, secondsLeft }
     // Both of the remaining exits need the model to have an opinion and for
     // that opinion to be against the price. Treating "no read" as a reason to
     // sell is what made every position a guaranteed round trip.
-    const defended = favoured === null || favoured >= config.marginCents;
+    const defended = !saleImprovesValue;
 
     // The swing has paid for itself and the model no longer defends the price.
     // A position still trading below what the model says it is worth is not a

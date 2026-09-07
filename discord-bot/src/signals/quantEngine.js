@@ -212,9 +212,8 @@ export function estimateSettlementProbability(input = {}, options = {}) {
     ? 0.05 * trendStrength * trendDirection
     : 0;
   const adjustment = microAdjustment + trendAdjustment;
-  const fairPYes = adjustedProbability(structuralPYes, adjustment);
-  const fairPNo = 1 - fairPYes;
-  const probabilityRange = structuralRange.map((value) => adjustedProbability(value, adjustment));
+  const rawPYes = adjustedProbability(structuralPYes, adjustment);
+  const rawRange = structuralRange.map((value) => adjustedProbability(value, adjustment));
 
   const liquidity = liquidityScore(market);
   const liquidityDollars = finite(market?.book_liquidity_dollars ?? market?.liquidity_dollars ?? market?.liquidity);
@@ -238,7 +237,15 @@ export function estimateSettlementProbability(input = {}, options = {}) {
     confidenceScore = Math.min(confidenceScore, 80);
     caps.push('no real OFI or complete book caps confidence at 80%');
   }
-  if (!historicallyCalibrated) {
+  const calibration = input.calibrationEvidence;
+  const validated = historicallyCalibrated && calibration?.outOfSampleMarkets >= 200 &&
+    Number.isFinite(calibration?.brier) && Number.isFinite(calibration?.marketBrier) &&
+    calibration.brier < calibration.marketBrier;
+  const direction = rawPYes >= 0.5 ? 1 : -1;
+  const extraordinary = validated && Math.abs(Math.log(reference / line) / sigma) > 3 &&
+    ofi * direction > 0 && cvd * direction > 0 && depthImbalance * direction > 0 &&
+    microstructure.bookComplete === true && !thinBook && volExpanding === false;
+  if (!extraordinary) {
     confidenceScore = Math.min(confidenceScore, 90);
     caps.push('no calibrated history caps confidence at 90%');
   }
@@ -259,8 +266,17 @@ export function estimateSettlementProbability(input = {}, options = {}) {
   }
   confidenceScore = clamp(confidenceScore, 0, 100);
 
-  const yesEdge = netEdgeCents(fairPYes, 'up', quotes, { feeRate: config.feeRate });
-  const noEdge = netEdgeCents(fairPNo, 'down', quotes, { feeRate: config.feeRate });
+  // This is an evidence policy, not fitted statistical calibration. A cap
+  // must constrain the probability used downstream, not just a UI badge.
+  const probabilityCap = clamp(confidenceScore / 100, 0.5, 0.99);
+  const fairPYes = clamp(rawPYes, 1 - probabilityCap, probabilityCap);
+  const fairPNo = 1 - fairPYes;
+  // Capping YES at 90% must not invent a 10% bargain on an almost worthless
+  // NO. Keep the uncapped case in the uncertainty interval and cost each side
+  // with the less optimistic of the raw and policy estimates.
+  const probabilityRange = [Math.min(...rawRange, fairPYes), Math.max(...rawRange, fairPYes)];
+  const yesEdge = netEdgeCents(Math.min(fairPYes, rawPYes), 'up', quotes, { feeRate: config.feeRate });
+  const noEdge = netEdgeCents(Math.min(fairPNo, 1 - rawPYes), 'down', quotes, { feeRate: config.feeRate });
 
   return {
     status: QUANT_STATUS.OK,
@@ -271,6 +287,9 @@ export function estimateSettlementProbability(input = {}, options = {}) {
     ],
     fairPYes,
     fairPNo,
+    rawPYes,
+    probabilityCap,
+    modelVersion: 'bounded-risk-v2',
     structuralPYes,
     marketProbability,
     probabilityRange,
@@ -283,6 +302,8 @@ export function estimateSettlementProbability(input = {}, options = {}) {
       grade: confidenceGrade(confidenceScore),
       penalties,
       caps,
+      calibrated: validated,
+      meaning: 'evidence coverage, not an observed win rate',
     },
     features: {
       sourceAt: input.sourceAt ?? null,
@@ -291,7 +312,8 @@ export function estimateSettlementProbability(input = {}, options = {}) {
       observedSettlementSeconds: banked?.observedSeconds ?? 0,
       distanceDollars: current - line,
       distancePercent: ((current - line) / line) * 100,
-      distanceSigma: Math.log(current / line) / sigma,
+      distanceSigma: Math.log(reference / line) / sigma,
+      spotDistanceSigma: Math.log(current / line) / sigma,
       secondsLeft: clock,
       trendStrength,
       trendDirection,

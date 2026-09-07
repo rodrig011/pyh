@@ -1,4 +1,5 @@
 import { walkForwardValidation } from './validation.js';
+import { forwardResearch } from './modelLab.js';
 
 export function tradeDiagnostics(trades = []) {
   const groups = new Map();
@@ -31,9 +32,10 @@ export function researchExport(store, asset = 'BTC', now = Date.now()) {
     at: row.at, ticker: row.ticker, secondsLeft: row.secondsLeft,
     spot: row.spot, strike: row.strike, bid: row.bid, ask: row.ask,
     model: row.model, outcome: row.outcome, outcomeSource: row.outcomeSource,
+    outcomeRecordedAt: row.outcomeRecordedAt ?? null,
     evidence: row.evidence ?? null,
   }));
-  const profiles = Object.fromEntries(Object.entries(store.paperAccounts?.() ?? {}).map(([name, account]) => {
+  const exportAccounts = (accounts) => Object.fromEntries(Object.entries(accounts ?? {}).map(([name, account]) => {
     const trades = (account.trades ?? []).map((t) => ({
       ticker: t.ticker, side: t.side, strike: t.strike, openedAt: t.openedAt, at: t.at,
       entryCents: t.entryCents, exitCents: t.exitCents, contracts: t.contracts,
@@ -42,10 +44,28 @@ export function researchExport(store, asset = 'BTC', now = Date.now()) {
       exitEvidence: t.exitEvidence ?? null,
       settlementSource: t.settlementSource, settlementPrice: t.settlementPrice,
     }));
-    return [name, { start: account.start, cash: account.cash, retainedTrades: trades.length,
+    const position = account.position ? {
+      ticker: account.position.ticker, side: account.position.side,
+      strike: account.position.strike, contracts: account.position.contracts,
+      entryCents: account.position.entryCents, cost: account.position.cost,
+      openedAt: account.position.openedAt, closesAt: account.position.closesAt,
+      lastBidCents: account.position.lastBidCents ?? null, lastMarkAt: account.position.lastMarkAt ?? null,
+      entryEvidence: account.position.entryEvidence ?? null,
+    } : null;
+    return [name, { start: account.start, cash: account.cash, startedAt: account.startedAt,
+      runId: `${name}:${account.epoch ?? account.startedAt ?? 'legacy'}`,
+      position, marketRisk: account.marketRisk ?? null,
+      closedProfit: account.tradeStats?.netProfit ?? trades.reduce((sum, t) => sum + (t.profit ?? 0), 0),
+      retainedTrades: trades.length,
       lifetimeTrades: account.tradeStats?.total ?? trades.length, trades, diagnostics: tradeDiagnostics(trades) }];
   }));
+  const profiles = exportAccounts(store.paperAccounts?.());
+  const archivedRuns = (store.paperArchives?.() ?? []).map((archive) => ({
+    at: archive.at, reason: archive.reason, profiles: exportAccounts(archive.accounts),
+  }));
   return { schemaVersion: 2, exportedAt: now, asset, observations, profiles,
+    archivedRuns,
+    modelResearch: forwardResearch(observations),
     validation: walkForwardValidation(observations, { requireVerifiedFeed: true }),
     limitations: ['Only retained history is exported; older truncated rows cannot be reconstructed.',
       'Missing past entry features remain missing; no retrospective thesis is invented.',

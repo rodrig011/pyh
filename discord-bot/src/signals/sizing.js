@@ -72,6 +72,7 @@ export function recommendSize({
   probability,
   worstProbability = null,
   priceDollars,
+  entryFeeDollars = 0,
   kellyFraction: portion = 0.25,
   maximumFraction = 0.1,
 }) {
@@ -80,7 +81,8 @@ export function recommendSize({
   // ends in a drawdown nobody recovers from.
   const conservative = worstProbability ?? probability;
 
-  const full = kellyFraction(conservative, priceDollars);
+  const allInPrice = priceDollars + entryFeeDollars;
+  const full = kellyFraction(conservative, allInPrice);
   if (full === null) return null;
 
   const suggested = Math.min(full * portion, maximumFraction);
@@ -89,10 +91,11 @@ export function recommendSize({
     fullKelly: full,
     suggested,
     // What the account grows at, per bet, at that size and at full Kelly.
-    growthAtSuggested: growthRate(probability, priceDollars, suggested),
-    growthAtFull: growthRate(probability, priceDollars, full),
+    allInPrice,
+    growthAtSuggested: growthRate(probability, allInPrice, suggested),
+    growthAtFull: growthRate(probability, allInPrice, full),
     // The number that ends the argument about betting bigger.
-    growthAtDouble: growthRate(probability, priceDollars, Math.min(0.999, full * 2)),
+    growthAtDouble: growthRate(probability, allInPrice, Math.min(0.999, full * 2)),
     // Where growth turns negative: a genuine edge, bet this size, still loses.
     ruinFraction: Math.min(0.999, full * 2),
   };

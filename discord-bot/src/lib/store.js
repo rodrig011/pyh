@@ -47,6 +47,7 @@ const EMPTY = {
   roundSnapshots: {},
   watches: [],
   paper: null,
+  paperArchives: [],
   // Where the signals panel lives, and what has already been announced there.
   // Kept in the store rather than an environment variable on purpose: setting
   // an env var needs a redeploy and someone at a dashboard, and this has to be
@@ -421,10 +422,21 @@ export function createStore(filePath) {
     },
 
     putPaperAccounts(accounts, { flush = true } = {}) {
+      const previous = this.paperAccounts();
+      const replaced = Object.fromEntries(Object.entries(previous).filter(([profile, old]) =>
+        accounts[profile] && (accounts[profile].epoch !== old.epoch ||
+          accounts[profile].startedAt !== old.startedAt)));
+      if (Object.keys(replaced).length) {
+        data.paperArchives = [...(data.paperArchives ?? []), {
+          at: Date.now(), reason: 'new paper run', accounts: structuredClone(replaced),
+        }];
+      }
       data.paper = accounts;
       if (flush) save();
       return accounts;
     },
+
+    paperArchives() { return data.paperArchives ?? []; },
 
     /** One account by profile, or the most aggressive one running. */
     paperAccount(profile = null) {

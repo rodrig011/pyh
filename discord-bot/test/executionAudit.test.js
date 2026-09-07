@@ -46,7 +46,7 @@ test('soft exits compare held value with net sale proceeds; hard stops and real 
     const worse = { ...state, signal: { verdict: 'skip', probability: side === 'up' ? 0.46 : 0.54 } };
     assert.equal(scalpDecision(worse, { marginCents: 0.25 }).reason, 'cut');
     assert.equal(scalpDecision({ ...state, position: { side, entryCents: 80 } }, { maximumLossPercent: 20 }).reason, 'stop loss');
-    assert.equal(scalpDecision({ ...state, signal: { verdict: side === 'up' ? 'down' : 'up', probability: 0.1 } }).reason, 'model flipped');
+    assert.equal(scalpDecision({ ...state, signal: { verdict: side === 'up' ? 'down' : 'up', probability: side === 'up' ? 0.1 : 0.9 } }).reason, 'model flipped');
   }
 });
 

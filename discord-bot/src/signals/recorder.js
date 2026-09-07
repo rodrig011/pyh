@@ -1,3 +1,4 @@
+import { captureReplayInput } from './replayInput.js';
 import { priceContext } from './collector.js';
 import { quoteCents } from './cost.js';
 /**
@@ -189,7 +190,8 @@ export function settleObservations(
     if (official === 0 || official === 1) {
       const changed = row.outcome !== official || row.outcomeSource !== 'kalshi-market:official-result';
       if (changed) settled += 1;
-      return { ...row, outcome: official, outcomeSource: 'kalshi-market:official-result' };
+      return { ...row, outcome: official, outcomeSource: 'kalshi-market:official-result',
+        outcomeRecordedAt: changed ? now : row.outcomeRecordedAt ?? null };
     }
     if (row.outcome !== null) return row;
     const spot = finalSpot.get(row.ticker);
@@ -264,7 +266,7 @@ export function observeOnce(
     }
     if (market && typeof evaluateModel === 'function') {
       const closesAt = closeTimeOf(market);
-      const read = evaluateModel({
+      const modelInput = {
         ...context,
         spot,
         strike: contract.strike ?? strikeOf(market),
@@ -272,9 +274,15 @@ export function observeOnce(
         market,
         trades,
         secondsLeft: Number.isFinite(closesAt) ? (closesAt - now) / 1000 : null,
-      });
+      };
+      const read = evaluateModel(modelInput);
       if (Number.isFinite(read?.probability)) modelProbability = read.probability;
       evidence = { ...evidence, features: read?.quant?.features ?? null,
+        rawPYes: read?.quant?.rawPYes ?? null, modelVersion: read?.quant?.modelVersion ?? null,
+        probabilityCap: read?.quant?.probabilityCap ?? null,
+        probabilityRange: read?.quant?.probabilityRange ?? null,
+        volatility: read?.quant?.volatility ?? null,
+        replayInput: captureReplayInput(modelInput),
         confidence: read?.quant?.confidence ?? null, missing: read?.quant?.missing ?? [],
         verdict: read?.verdict ?? null, reason: read?.reason ?? null,
         bookAt: market.book_at ?? null };

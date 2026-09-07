@@ -230,7 +230,7 @@ test('the report leads with the money and never hides the fees', () => {
   assert.match(text.split('\n')[0], /PAPER — \$78\.40/);
   assert.match(text, /started \$70\.00/);
   assert.match(text, /1W 1L/);
-  assert.match(text, /went to the exchange in fees/);
+  assert.match(text, /in estimated paper fees/);
   // The limitation is stated every time, not buried in a doc.
   assert.match(text, /whether that price was there in size/);
 });
@@ -618,12 +618,13 @@ test('lifetime counters are not truncated with the 500-row audit log', () => {
 });
 
 test('always still tells a genuine edge from a forced one', () => {
-  // The default ladder carries real drift from its own seeded history, so
-  // several strikes clear even always's loosened bar on their own merits —
-  // this is NOT the forced fallback, and the record has to say so, or a
-  // forced run's results could never be told apart from a real one.
-  const { event } = paperTick(newAccount({ profile: 'always' }), context(), { candidates: ladder() });
-  if (!event) return; // still a legitimate outcome if the seeded history ever shifts
+  // An explicit at-the-money model and a cheap UP quote establish the
+  // fixture's edge even after evidence caps; no seeded-drift assumption.
+  const prices = Array.from({ length: 120 }, (_, i) => 65000 + Math.sin(i) * 20);
+  const { event } = paperTick(newAccount({ profile: 'always' }), context({ prices }), {
+    candidates: ladder([20], [65000]),
+  });
+  assert.ok(event);
   assert.equal(event.trade.forced, false);
 });
 

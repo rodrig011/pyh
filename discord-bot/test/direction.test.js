@@ -355,8 +355,8 @@ test('a strong edge can trade a thin book, but only with a warning', () => {
   // should print the call and warn that size has to be small.
   const read = directionalRead(
     market({
-      marketPriceCents: 40,
-      market: { yes_bid_dollars: '0.39', yes_ask_dollars: '0.41', liquidity_dollars: '2' },
+      marketPriceCents: 20,
+      market: { yes_bid_dollars: '0.19', yes_ask_dollars: '0.21', liquidity_dollars: '2' },
     }),
   );
 

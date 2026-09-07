@@ -143,6 +143,8 @@ export function paperSummary(accounts, marks = {}) {
       trades: stats.total,
       tradesAudited: audited.length,
       netProfit: stats.netProfit,
+      cash: account.cash,
+      openCost: account.position?.cost ?? 0,
       openPositions: account.position ? 1 : 0,
       entryReason: account.position?.entryReason ?? null,
       recentTrades: audited.slice().reverse().map((trade) => ({
@@ -159,6 +161,7 @@ export function paperSummary(accounts, marks = {}) {
         reason: trade.reason ?? null,
         entryReason: trade.entryReason ?? null,
         entryEvidence: trade.entryEvidence ?? null,
+        exitEvidence: trade.exitEvidence ?? null,
         forced: Boolean(trade.forced),
         openedAt: trade.openedAt ?? null,
         at: trade.at ?? null,

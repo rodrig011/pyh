@@ -122,15 +122,21 @@ export function volatilityEstimate(returns, { lambda = 0.94, confidence = 1 } = 
   const sigma =
     ewma > 0 && robust > 0 ? ewma * (1 - weight) + robust * weight : (ewma ?? robust);
 
-  // Standard error of a standard deviation from n samples.
-  const standardError = sigma / Math.sqrt(2 * values.length);
+  // EWMA's effective sample size is smaller than the entire history. Using
+  // all 120 observations as equally weighted understated this uncertainty.
+  const effectiveSamples = lambda > 0 && lambda < 1
+    ? Math.min(values.length, (1 + lambda) / (1 - lambda)) : values.length;
+  const standardError = sigma / Math.sqrt(2 * effectiveSamples);
 
   return {
     sigma,
     low: Math.max(1e-9, sigma - confidence * standardError),
-    high: sigma + confidence * standardError,
+    // The upper scenario also includes observed jumps. A jump-robust central
+    // estimate must not erase the risk that another jump can occur.
+    high: Math.max(sigma, ewma ?? 0, plain ?? 0) + confidence * standardError,
     standardError,
     samples: values.length,
+    effectiveSamples,
     jumpShare: jumps,
     // Kept so a diagnostic can show what each method thought.
     ewma,

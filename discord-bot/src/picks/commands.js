@@ -1600,7 +1600,7 @@ export async function handlePicks(interaction, { store, config, deps = {} }) {
 
     const lines = [
       `📝 **Paper trading ${reset ? 'reset' : 'started'} — $${bankroll.toFixed(2)}${wanted.length > 1 ? ' each' : ''}**`,
-      reset ? '_Previous run wiped: cash, trades, and the refusal count all back to zero._' : null,
+      reset ? '_Previous run archived for research export. A new paper run starts with the requested bankroll._' : null,
       '',
       'The engine trades the real BTC 15-minute market with imaginary money: it buys at the',
       '**ask**, sells at the **bid**, and pays both fees, exactly as the exchange charges them.',

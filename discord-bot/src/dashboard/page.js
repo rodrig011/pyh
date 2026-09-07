@@ -1300,6 +1300,9 @@ export function dashboardPage(brandName) {
         '<span class="order-side">' + String(row.profile).toUpperCase() + '</span>' +
         '<span>$' + Number(row.bankroll || 0).toFixed(2) + '</span>' +
         '<span>' + row.wins + 'W ' + row.losses + 'L · ' + row.trades + ' lifetime trades · ' + row.openPositions + ' open</span>' +
+        '<span class="ledger-detail">Cash $' + Number(row.cash || 0).toFixed(2) +
+        ' · Open stake $' + Number(row.openCost || 0).toFixed(2) +
+        ' · Closed P/L $' + Number(row.netProfit || 0).toFixed(2) + '</span>' +
         (row.benchmark ? '<span>Forced benchmark — not a bot signal or live strategy</span>' : '') +
         (row.entryReason ? '<span class="ledger-detail">Entry: ' + esc(row.entryReason) + '</span>' : '') +
         auditNote +
@@ -1486,13 +1489,13 @@ export function dashboardPage(brandName) {
     document.getElementById('noEdge').textContent = signedCents(data.quantNoEdgeCents);
     var quantBadge = document.getElementById('quantStatus');
     if (data.quantStatus === 'ok') {
-      quantBadge.textContent = 'GRADE ' + (data.confidenceGrade || '—') + ' · ' + Math.round(data.confidenceScore || 0) + '/100';
+      quantBadge.textContent = 'DATA COVERAGE ' + (data.confidenceGrade || '—') + ' · ' + Math.round(data.confidenceScore || 0) + '/100';
       quantBadge.className = 'badge ' + ((data.confidenceScore || 0) >= 70 ? 'up' : 'amber');
     } else {
       quantBadge.textContent = 'INSUFFICIENT DATA';
       quantBadge.className = 'badge down';
     }
-    var quantDetails = ['Model estimate; historical calibration is not yet established.'];
+    var quantDetails = ['Data coverage is not a win rate. Probability is capped by evidence quality; historical calibration is not yet established.'];
     if (Number.isFinite(data.sourceAgeMs)) quantDetails.push('BRTI calculated ' + Math.max(0, data.sourceAgeMs / 1000).toFixed(1) + 's ago');
     if (data.entryRationale) quantDetails.push(data.entryRationale);
     if ((data.quantMissing || []).length) quantDetails.push('Missing: ' + data.quantMissing.join(', '));
