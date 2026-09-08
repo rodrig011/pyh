@@ -30,6 +30,7 @@ import { confirmedFillCount, fillPriceCents, orderProceedsDollars, orderRecord }
 import { checkTrade } from './riskLimits.js';
 import { recommendSize } from '../signals/sizing.js';
 import { feePerContract } from '../signals/math.js';
+import { pendingStudyTickers } from '../signals/exitStudy.js';
 import { leastBadCandidate } from './forceTrade.js';
 
 /**
@@ -370,7 +371,8 @@ export async function sweepPaper(client, store, config, deps = {}) {
         .slice(-3)
         .map((trade) => trade.ticker),
     );
-    const settlementTickers = [...new Set([...heldTickers, ...auditTickers])];
+    const studyTickers = [...new Set(running.flatMap(([, account]) => pendingStudyTickers(account, now)))].slice(0, 3);
+    const settlementTickers = [...new Set([...heldTickers, ...auditTickers, ...studyTickers])];
     const officialSettlements = {};
     if (fetchMarket) {
       await Promise.all(settlementTickers.map(async (ticker) => {
@@ -423,6 +425,7 @@ export async function sweepPaper(client, store, config, deps = {}) {
       stepped[profile] = result.account;
       if (audited.corrections > 0) events.push(`${profile}:audited:${audited.corrections}`);
       if (result.event) events.push(`${profile}:${result.event.kind}`);
+      if (result.account.exitStudy !== audited.account.exitStudy) events.push(`${profile}:exit_study`);
     }
 
     if (Object.keys(stepped).length === 0) return { ran: false };

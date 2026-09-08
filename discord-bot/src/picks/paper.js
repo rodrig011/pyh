@@ -3,6 +3,7 @@ import { directionalRead } from '../signals/direction.js';
 import { readBoard, boardIsUnreadable, brokenDiagnosis, censusLine } from '../signals/board.js';
 import { recommendSize } from '../signals/sizing.js';
 import { entryRiskBudget, quotedEntrySize, EXECUTION_POLICY_VERSION } from '../signals/executionRisk.js';
+import { captureStudyEntry, recordStudyExit, settleExitStudy } from '../signals/exitStudy.js';
 import { feePerContract } from '../signals/math.js';
 import { leastBadCandidate } from './forceTrade.js';
 import { closeTimeOf } from './kalshi.js';
@@ -202,6 +203,7 @@ export function paperTick(
   input,
   { now = Date.now(), ticker = null, sizing = {}, candidates = null, officialSettlements = {} } = {},
 ) {
+  account = settleExitStudy(account, officialSettlements, { now });
   const position = account.position;
   const profile = profileOf(account);
 
@@ -537,10 +539,10 @@ function enterTick(account, entry, { now, ticker, sizing, forced = false }) {
   };
 
   return {
-    account: { ...account, cash: account.cash - (cost + fee), position: opened,
+    account: captureStudyEntry({ ...account, cash: account.cash - (cost + fee), position: opened,
       ...(riskBudget ? { marketRisk: { ...riskBudget,
         committedDollars: riskBudget.committedDollars + cost + fee } } : {}),
-    },
+    }, opened),
     event: { kind: 'enter', trade: opened },
   };
 }
@@ -548,6 +550,7 @@ function enterTick(account, entry, { now, ticker, sizing, forced = false }) {
 /** Moves a closed position into the ledger and returns the cash. */
 function bookTrade(account, closed) {
   const profit = closed.proceeds - closed.cost;
+  account = recordStudyExit(account, { ...closed, profit });
   const previous = lifetimeStats(account);
   const tradeStats = {
     total: previous.total + 1,

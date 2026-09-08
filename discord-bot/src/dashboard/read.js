@@ -27,6 +27,8 @@ import { measureEdge } from '../signals/measure.js';
 import { settleObservations } from '../signals/recorder.js';
 import { marketSnapshots, walkForwardValidation } from '../signals/validation.js';
 import { PROFILES, equity, lifetimeStats } from '../picks/paper.js';
+import { exitStudySummary } from '../signals/exitStudy.js';
+import { EXECUTION_POLICY_VERSION } from '../signals/executionRisk.js';
 import { dayKey, riskSummary } from '../picks/riskLimits.js';
 import { buildCandles, buildVolume, rsiSeries } from './candles.js';
 
@@ -145,6 +147,8 @@ export function paperSummary(accounts, marks = {}) {
       netProfit: stats.netProfit,
       cash: account.cash,
       openCost: account.position?.cost ?? 0,
+      executionPolicy: EXECUTION_POLICY_VERSION,
+      exitStudy: exitStudySummary(account),
       openPositions: account.position ? 1 : 0,
       entryReason: account.position?.entryReason ?? null,
       recentTrades: audited.slice().reverse().map((trade) => ({

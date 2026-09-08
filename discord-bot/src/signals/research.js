@@ -1,5 +1,7 @@
 import { walkForwardValidation } from './validation.js';
 import { forwardResearch } from './modelLab.js';
+import { EXIT_STUDY_VERSION, exitStudySummary } from './exitStudy.js';
+import { EXECUTION_POLICY_VERSION } from './executionRisk.js';
 
 export function tradeDiagnostics(trades = []) {
   const groups = new Map();
@@ -54,6 +56,13 @@ export function researchExport(store, asset = 'BTC', now = Date.now()) {
     } : null;
     return [name, { start: account.start, cash: account.cash, startedAt: account.startedAt,
       runId: `${name}:${account.epoch ?? account.startedAt ?? 'legacy'}`,
+      exitStudy: { ...exitStudySummary(account), trials: (account.exitStudy?.trials ?? []).map((t) => ({
+        ticker: t.ticker, side: t.side, openedAt: t.openedAt, closesAt: t.closesAt,
+        entryCents: t.entryCents, costCents: t.costCents, entryPolicy: t.entryPolicy,
+        actualProfitCents: t.actualProfitCents, actualClosedAt: t.actualClosedAt, actualReason: t.actualReason,
+        holdProfitCents: t.holdProfitCents, outcome: t.outcome, outcomeRecordedAt: t.outcomeRecordedAt,
+        outcomeSource: t.outcomeSource,
+      })) },
       position, marketRisk: account.marketRisk ?? null,
       closedProfit: account.tradeStats?.netProfit ?? trades.reduce((sum, t) => sum + (t.profit ?? 0), 0),
       retainedTrades: trades.length,
@@ -64,6 +73,7 @@ export function researchExport(store, asset = 'BTC', now = Date.now()) {
     at: archive.at, reason: archive.reason, profiles: exportAccounts(archive.accounts),
   }));
   return { schemaVersion: 2, exportedAt: now, asset, observations, profiles,
+    implementation: { executionPolicy: EXECUTION_POLICY_VERSION, exitStudy: EXIT_STUDY_VERSION },
     archivedRuns,
     modelResearch: forwardResearch(observations),
     validation: walkForwardValidation(observations, { requireVerifiedFeed: true }),

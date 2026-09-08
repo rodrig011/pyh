@@ -1296,6 +1296,12 @@ export function dashboardPage(brandName) {
       var auditNote = row.trades > row.tradesAudited
         ? '<span class="ledger-note">showing latest ' + row.tradesAudited + ' audited of ' + row.trades + ' lifetime</span>'
         : '';
+      var study = row.exitStudy;
+      var studyNote = study ? '<span class="ledger-detail">Exit comparison · ' +
+        Number(study.matchedMarkets || 0) + ' matched markets · one contract per first entry: actual $' +
+        Number(study.actualProfitDollars || 0).toFixed(2) + ' / held to settlement $' +
+        Number(study.holdProfitDollars || 0).toFixed(2) + ' · ' + Number(study.pending || 0) +
+        ' pending. Research comparison; not account money.</span>' : '';
       return '<div class="order-row"><div class="order-left">' +
         '<span class="order-side">' + String(row.profile).toUpperCase() + '</span>' +
         '<span>$' + Number(row.bankroll || 0).toFixed(2) + '</span>' +
@@ -1303,9 +1309,10 @@ export function dashboardPage(brandName) {
         '<span class="ledger-detail">Cash $' + Number(row.cash || 0).toFixed(2) +
         ' · Open stake $' + Number(row.openCost || 0).toFixed(2) +
         ' · Closed P/L $' + Number(row.netProfit || 0).toFixed(2) + '</span>' +
+        '<span class="ledger-note">Engine: ' + esc(row.executionPolicy || 'version unavailable') + '</span>' +
         (row.benchmark ? '<span>Forced benchmark — not a bot signal or live strategy</span>' : '') +
         (row.entryReason ? '<span class="ledger-detail">Entry: ' + esc(row.entryReason) + '</span>' : '') +
-        auditNote +
+        auditNote + studyNote +
         '</div><div class="order-right ' + cls + '">' + pct + '</div></div>';
     }).join('');
 
