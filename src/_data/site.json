@@ -1,144 +1,51 @@
 {
+  "title": "Sofisticated",
   "text_size": "normal",
-  "ingredient_spotlight": {
-    "label": "Ingredient spotlight",
-    "title_main": "The quiet science",
-    "title_emphasis": "of Niacinamide",
-    "body": "It's in every serum, every toner, every moisturizer — but do you actually know why? Niacinamide (Vitamin B3) works across multiple biological targets simultaneously, making it every formulator's dream ingredient. Here's the chemistry behind the hype.",
-    "link_text": "Read the deep dive →",
-    "tiles": [
-      {
-        "icon": "✨",
-        "tag": "brightening",
-        "name": "Melanogenesis",
-        "desc": "Inhibits melanosome transfer between melanocytes and keratinocytes"
-      },
-      {
-        "icon": "🛡️",
-        "tag": "barrier",
-        "name": "Ceramide boost",
-        "desc": "Stimulates fatty acid and ceramide synthesis in the stratum corneum"
-      },
-      {
-        "icon": "💧",
-        "tag": "hydration",
-        "name": "NMF increase",
-        "desc": "Boosts natural moisturizing factor retention in the epidermis"
-      },
-      {
-        "icon": "🧬",
-        "tag": "anti-aging",
-        "name": "NAD⁺ pathway",
-        "desc": "Precursor to NAD⁺ — coenzyme critical for cellular energy and repair"
-      }
-    ]
-  },
-  "profile": {
+  "hero": {
+    "title": "Your skin barrier's favorite engineer",
+    "sentence": "Sofia Panting studies chemical engineering at Purdue and reads the ingredient label so you don't have to.",
+    "button_text": "Decode a label",
     "photo": "",
-    "eyebrow": "Meet Sofia",
-    "title_main": "The Story",
-    "title_emphasis": "Behind Sofisticated",
-    "bio_1": "**I didn't become obsessed with skincare because my skin was perfect, I became obsessed with it when nothing seemed to work anymore.**\n\nI started **Sofisticated** as a creative outlet to document my journey with acne, hair care, and beauty. Growing up in Honduras, I never thought much about my skin, until moving to the U.S. and finding that the routine that had always worked for me suddenly didn't. \n\nBetween acne, hair struggles, and learning that beauty is rarely one-size-fits-all, I became fascinated by finding what actually works. \n",
-    "bio_2": "Today, **Sofisticated** is a space where I share the things I'm learning, the products that earn a permanent spot on my shelf, and experiences that have helped me feel more confident in my own skin, in hopes that they might help someone else too.",
-    "stats": [
-      {
-        "number": "40+",
-        "label": "Posts published"
-      },
-      {
-        "number": "3+",
-        "label": "Years studying ChemE"
-      },
-      {
-        "number": "100%",
-        "label": "Science-backed"
-      }
+    "note_left": "Skin sits at pH 5.5",
+    "note_right": "@bysofisticated"
+  },
+  "intro": {
+    "paragraphs": [
+      "I didn't become obsessed with skincare because my skin was perfect. I became obsessed when nothing seemed to work anymore.",
+      "Growing up in Honduras I never thought much about my skin. Then I moved to the U.S., and the routine that had always worked for me stopped working.",
+      "Acne, hair that changed with the water, and a lot of products that promised everything. Studying chemical engineering gave me a way to sort through it: read the label, understand the molecule, then decide.",
+      "This journal is where I write that down. The science behind the products, my real routine, and what earns a permanent spot on my shelf."
     ]
   },
-  "ticker": [
-    "Cosmetic Chemistry",
-    "Skin Formulation",
-    "Sofia Panting",
-    "Purdue University",
-    "Honduras 🇭🇳",
-    "Ingredient Science",
-    "Beauty Research",
-    "Chemical Engineering",
-    "Sofisticated"
-  ],
+  "decoder": {
+    "title": "Decode a label",
+    "sentence": "Paste the ingredient list from the back of any product. I'll tell you what each ingredient is there to do."
+  },
+  "about": {
+    "photo": "",
+    "letter": "Hi, I'm Sofia.\n\nI'm a chemical engineering student at Purdue, originally from Honduras, and I've spent the last few years learning why some formulas work and most of the marketing doesn't.\n\nEvery post here starts the same way: with the ingredient list. I look at what each molecule does, how much of it is likely in there, and whether the claim on the front of the bottle holds up.\n\nI'm not here to sell you a ten-step routine. I want you to understand what you're putting on your face, so you can shop with confidence and skip the hype.",
+    "name": "Sofia Panting",
+    "role": "Chemical Engineering, Purdue University"
+  },
+  "instagram": {
+    "title": "On Instagram",
+    "images": []
+  },
   "social": {
     "instagram_url": "https://www.instagram.com/bysofisticated",
     "instagram_handle": "@bysofisticated",
     "linkedin_url": "https://www.linkedin.com/in/sofia-panting",
     "email": "spanting@purdue.edu"
   },
-  "about": {
-    "photo": "",
-    "name_main": "Sofia",
-    "name_emphasis": "Panting",
-    "role": "Chemical Engineering · Purdue University · Cosmetic Formulation",
-    "quote": "I started Sofisticated because beauty marketing is full of buzzwords and zero chemistry. I want to show you **what's actually in your products**, how they interact with your skin at a molecular level, and how to shop smarter, **because you deserve to understand what you're putting on your face.**",
-    "badges": [
-      "🇭🇳 From Honduras",
-      "📍 Studying at Purdue",
-      "⚗️ Chemical Engineering",
-      "💄 Cosmetic Formulation"
-    ]
-  },
-  "instagram": {
-    "images": [
-      {
-        "src": "https://images.unsplash.com/photo-1556228578-8c89e6adf883?w=300&q=80&auto=format&fit=crop",
-        "emoji": "🌹"
-      },
-      {
-        "src": "https://images.unsplash.com/photo-1607006344380-b6775a0824a7?w=300&q=80&auto=format&fit=crop",
-        "emoji": "⚗️"
-      },
-      {
-        "src": "https://images.unsplash.com/photo-1570194065650-d99fb4b8ccb0?w=300&q=80&auto=format&fit=crop",
-        "emoji": "🪷"
-      },
-      {
-        "src": "https://images.unsplash.com/photo-1587734195503-904fca47e0e9?w=300&q=80&auto=format&fit=crop",
-        "emoji": "🌿"
-      },
-      {
-        "src": "https://images.unsplash.com/photo-1576426863848-c21f53c60b19?w=300&q=80&auto=format&fit=crop",
-        "emoji": "🔬"
-      },
-      {
-        "src": "https://images.unsplash.com/photo-1521590832167-7bcbfaa6381f?w=300&q=80&auto=format&fit=crop",
-        "emoji": "✨"
-      }
-    ]
-  },
-  "title": "Sofisticated",
   "newsletter": {
-    "eyebrow": "✦ The lab notes",
-    "title": "Stay in the know",
-    "subtitle": "New posts on ingredients, formulations and cosmetic chemistry — straight to your inbox. No fluff, just real science.",
-    "note": "No spam, ever. Unsubscribe anytime.",
+    "title": "The lab notes",
+    "subtitle": "One email when a new post goes up: an ingredient, a formula or a product, explained properly. Nothing else.",
+    "button_text": "Get the lab notes",
+    "note": "No spam. Unsubscribe whenever you like.",
+    "success": "You're on the list. The next lab note goes to your inbox.",
     "form_action": ""
   },
-  "hero": {
-    "eyebrow": "sofisticated | Sofia Panting",
-    "title_main": "Your skin barrier's ",
-    "title_emphasis": "favorite engineer ",
-    "subtitle": "🧴 The science behind your skincare and hair care products\n👩🏻‍🔬 My real journey with acne recovery and hair health\n🔬 Product breakdowns from a Purdue ChemE perspective\n📋 I read the ingredient labels so you don't have to\n✨ Let's upgrade your routine @bysofisticated\n\n",
-    "photo": "",
-    "formula_code": "C₁₄H₂₂N₂O₁₀",
-    "formula_label": "niacinamide · MW 122.12 g/mol"
-  },
   "footer": {
-    "description": "Cosmetic chemistry and beauty decoded — by Sofia Panting, Purdue University. 🇭🇳",
-    "copyright": "© 2026 Sofia Panting. All rights reserved."
-  },
-  "nav_links": [
-    "Ingredients",
-    "Formulation",
-    "Skin Science",
-    "Reviews",
-    "About"
-  ]
+    "copyright": "© 2026 Sofia Panting"
+  }
 }

@@ -1,13 +1,24 @@
 ---
 layout: base.njk
 title: Page not found
-description: "This page doesn't exist — but the chemistry does. Head back to the blog."
+description: "This page doesn't exist. Head back to the Sofisticated journal."
 permalink: /404.html
 eleventyExcludeFromCollections: true
 ---
-<div class="nf-wrap">
-  <div class="nf-code">404</div>
-  <h1 class="nf-title">This formula doesn't exist</h1>
-  <p class="nf-sub">The page you're looking for may have been moved, renamed, or never made it out of the lab.</p>
-  <a href="/" class="btn-primary">Back to the blog</a>
+<div class="split">
+  <aside class="stage">
+    <div class="stage__frame">
+      <img class="stage__img is-on" src="/images/brand/velvet-monogram.jpg" alt="Aubergine velvet pressed with the Sofisticated monogram" width="1200" height="1500">
+    </div>
+  </aside>
+  <main id="main" class="col">
+    <header class="sheet">
+      {% include "partials/nav.njk" %}
+      <div class="sheet__body">
+        <h1 class="display">This page isn't on the label</h1>
+        <p class="lead">The link may be old or mistyped. The journal has every post.</p>
+        <a class="btn" href="/blog/">Open the journal</a>
+      </div>
+    </header>
+  </main>
 </div>

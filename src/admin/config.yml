@@ -26,7 +26,7 @@ auth:
   avatar_url_claim: avatar_url
 
 # Better Decap + Bridge logo (optional)
-logo_url: https://decapbridge.com/decapcms-with-bridge.svg
+logo_url: /images/brand/wordmark.svg
 
 # Add site links in Decap CMS (optional)
 site_url: https://sofisticated.lat
@@ -105,19 +105,68 @@ collections:
               - { label: "Normal", value: "normal" }
               - { label: "Grande", value: "grande" }
               - { label: "Más grande", value: "xl" }
-            hint: "Agranda el texto de lectura de todo el sitio (portada, posts, biografía). Los títulos grandes y el menú no cambian, para que el diseño no se rompa."
+            hint: "Agranda el texto de lectura de todo el sitio. Los títulos grandes y el menú no cambian."
 
-          - label: "Barra de texto que se mueve arriba (ticker)"
-            name: "ticker"
-            widget: "list"
-            required: false
-            hint: "Palabras que se repiten en la barra negra de arriba del sitio. Una por línea."
+          - label: "Portada"
+            name: "hero"
+            widget: "object"
+            collapsed: true
+            fields:
+              - { label: "Título grande", name: "title", widget: "string", required: false, hint: "Corto: que quepa en dos renglones (unas 35 letras)." }
+              - { label: "Frase debajo del título", name: "sentence", widget: "text", required: false }
+              - { label: "Texto del botón", name: "button_text", widget: "string", required: false, hint: "El botón lleva al decodificador de etiquetas." }
+              - { label: "Foto del panel fijo (opcional)", name: "photo", widget: "image", required: false, hint: "Vertical. Si la dejas vacía se usa el polvo rosa con el logo." }
+              - { label: "Texto abajo a la izquierda del panel", name: "note_left", widget: "string", required: false }
+              - { label: "Texto abajo a la derecha del panel", name: "note_right", widget: "string", required: false }
 
-          - label: "Enlaces del menú de navegación"
-            name: "nav_links"
-            widget: "list"
-            required: false
-            hint: "Las palabras que aparecen en el menú de arriba (Ingredients, Formulation, etc.)"
+          - label: "Presentación (columna de texto bajo la portada)"
+            name: "intro"
+            widget: "object"
+            collapsed: true
+            fields:
+              - label: "Párrafos"
+                name: "paragraphs"
+                widget: "list"
+                required: false
+                field: { label: "Párrafo", name: "p", widget: "text" }
+                hint: "Cuatro párrafos cortos funcionan mejor. El primero sale en negrita."
+
+          - label: "Decodificador de etiquetas"
+            name: "decoder"
+            widget: "object"
+            collapsed: true
+            fields:
+              - { label: "Título", name: "title", widget: "string", required: false }
+              - { label: "Frase", name: "sentence", widget: "text", required: false }
+
+          - label: "Carta de Sofia (Sobre mí)"
+            name: "about"
+            widget: "object"
+            collapsed: true
+            fields:
+              - { label: "Foto circular", name: "photo", widget: "image", required: false, hint: "Cuadrada o vertical, se recorta en círculo." }
+              - label: "Carta"
+                name: "letter"
+                widget: "markdown"
+                required: false
+                hint: "El primer párrafo sale grande (como un saludo). Lo que pongas en **negrita** se resalta en rosa."
+              - { label: "Firma", name: "name", widget: "string", required: false }
+              - { label: "Debajo de la firma", name: "role", widget: "string", required: false }
+
+          - label: "Fotos de Instagram"
+            name: "instagram"
+            widget: "object"
+            collapsed: true
+            fields:
+              - { label: "Título de la sección", name: "title", widget: "string", required: false }
+              - label: "Fotos"
+                name: "images"
+                widget: "list"
+                required: false
+                hint: "Sube entre 5 y 9 fotos. La sección no aparece en la web mientras esta lista esté vacía."
+                fields:
+                  - { label: "Foto", name: "src", widget: "image", required: false }
+                  - { label: "Descripción corta (para accesibilidad)", name: "alt", widget: "string", required: false }
 
           - label: "Redes sociales y contacto"
             name: "social"
@@ -129,110 +178,16 @@ collections:
               - { label: "Link de LinkedIn", name: "linkedin_url", widget: "string", required: false }
               - { label: "Correo de contacto", name: "email", widget: "string", required: false }
 
-          - label: "Portada (Hero)"
-            name: "hero"
-            widget: "object"
-            collapsed: true
-            fields:
-              - { label: "Texto pequeño de arriba", name: "eyebrow", widget: "string", required: false }
-              - { label: "Título — línea 1", name: "title_main", widget: "string", required: false }
-              - { label: "Título — línea 2 (en cursiva, color rosa)", name: "title_emphasis", widget: "string", required: false }
-              - label: "Subtítulo"
-                name: "subtitle"
-                widget: "text"
-                required: false
-                hint: "Cada Enter crea un renglón nuevo en el sitio. Enter dos veces = renglones más separados. Puedes usar **texto** para negritas."
-              - { label: "Foto principal", name: "photo", widget: "image", required: false }
-              - { label: "Fórmula química decorativa", name: "formula_code", widget: "string", required: false }
-              - { label: "Texto bajo la fórmula", name: "formula_label", widget: "string", required: false }
-
-          - label: "Sección Sobre mí (banner)"
-            name: "about"
-            widget: "object"
-            collapsed: true
-            fields:
-              - { label: "Foto circular", name: "photo", widget: "image", required: false }
-              - { label: "Nombre", name: "name_main", widget: "string", required: false }
-              - { label: "Apellido (en color rosa)", name: "name_emphasis", widget: "string", required: false }
-              - { label: "Rol / estudios", name: "role", widget: "string", required: false }
-              - label: "Frase / cita"
-                name: "quote"
-                widget: "text"
-                required: false
-                hint: "Puedes usar **texto** para ponerlo en negrita y color rosa"
-              - label: "Insignias (badges)"
-                name: "badges"
-                widget: "list"
-                required: false
-                hint: "Una por línea, por ejemplo: 🇭🇳 From Honduras"
-
-          - label: "Ingrediente destacado"
-            name: "ingredient_spotlight"
-            widget: "object"
-            collapsed: true
-            fields:
-              - { label: "Etiqueta pequeña", name: "label", widget: "string", required: false }
-              - { label: "Título — línea 1", name: "title_main", widget: "string", required: false }
-              - { label: "Título — línea 2 (en cursiva)", name: "title_emphasis", widget: "string", required: false }
-              - label: "Texto"
-                name: "body"
-                widget: "text"
-                required: false
-                hint: "Cada Enter crea un renglón nuevo. Puedes usar **texto** para negritas."
-              - { label: "Texto del botón", name: "link_text", widget: "string", required: false }
-              - label: "Tarjetas (4 datos del ingrediente)"
-                name: "tiles"
-                widget: "list"
-                required: false
-                fields:
-                  - { label: "Etiqueta", name: "tag", widget: "string", required: false }
-                  - { label: "Nombre", name: "name", widget: "string", required: false }
-                  - { label: "Descripción", name: "desc", widget: "text", required: false }
-
-          - label: "Mi historia (sección con foto grande)"
-            name: "profile"
-            widget: "object"
-            collapsed: true
-            fields:
-              - { label: "Foto", name: "photo", widget: "image", required: false }
-              - { label: "Texto pequeño de arriba", name: "eyebrow", widget: "string", required: false }
-              - { label: "Título — línea 1", name: "title_main", widget: "string", required: false }
-              - { label: "Título — línea 2 (en cursiva)", name: "title_emphasis", widget: "string", required: false }
-              - { label: "Párrafo 1", name: "bio_1", widget: "text", required: false }
-              - { label: "Párrafo 2", name: "bio_2", widget: "text", required: false }
-              - label: "Estadísticas (3 números)"
-                name: "stats"
-                widget: "list"
-                required: false
-                fields:
-                  - { label: "Número", name: "number", widget: "string", required: false }
-                  - { label: "Descripción", name: "label", widget: "string", required: false }
-
-          - label: "Fotos estilo Instagram"
-            name: "instagram"
-            widget: "object"
-            collapsed: true
-            fields:
-              - label: "Fotos (6 recomendadas)"
-                name: "images"
-                widget: "list"
-                required: false
-                fields:
-                  - { label: "Foto", name: "src", widget: "image", required: false }
-
           - label: "Newsletter"
             name: "newsletter"
             widget: "object"
             collapsed: true
             fields:
-              - { label: "Etiqueta pequeña", name: "eyebrow", widget: "string", required: false }
               - { label: "Título", name: "title", widget: "string", required: false }
-              - label: "Subtítulo"
-                name: "subtitle"
-                widget: "text"
-                required: false
-                hint: "Cada Enter crea un renglón nuevo. Puedes usar **texto** para negritas."
+              - { label: "Texto", name: "subtitle", widget: "text", required: false }
+              - { label: "Texto del botón", name: "button_text", widget: "string", required: false }
               - { label: "Nota pequeña abajo", name: "note", widget: "string", required: false }
+              - { label: "Mensaje al suscribirse", name: "success", widget: "string", required: false }
               - label: "Enlace del formulario (Brevo)"
                 name: "form_action"
                 widget: "string"
@@ -244,5 +199,4 @@ collections:
             widget: "object"
             collapsed: true
             fields:
-              - { label: "Descripción corta", name: "description", widget: "text", required: false }
               - { label: "Texto de copyright", name: "copyright", widget: "string", required: false }

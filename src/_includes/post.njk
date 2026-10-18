@@ -1,45 +1,42 @@
 ---
 layout: base.njk
 ---
-<div class="reading-bar" id="readingBar" aria-hidden="true"></div>
-<article>
-  <div class="post-hero">
-    <a href="/#posts" class="post-back">← Back to posts</a>
-    <div class="post-hero-cat">{{ category }}</div>
-    <h1 class="post-hero-title">{{ title }}</h1>
-    <div class="post-hero-meta">
-      <span>Sofia Panting</span>
-      <span>{{ page.date | postDateFull }}</span>
-      <span>{{ content | readTime }}</span>
+{%- set stageImg = image or (category | brandImage) -%}
+<div class="split split--post">
+  <aside class="stage">
+    <div class="stage__frame">
+      <img class="stage__img is-on" src="{{ stageImg }}" alt="{% if image %}{{ title }}{% else %}{% endif %}" width="1200" height="1500" fetchpriority="high">
+      <p class="stage__bar"><span>{{ category or "Notes" }}</span><span>{{ content | readTime }} read</span></p>
     </div>
-  </div>
-  {% if image %}
-  <div class="post-hero-img">
-    <img src="{{ image }}" alt="{{ title }}" decoding="async" onerror="this.parentElement.remove()" />
-  </div>
-  {% endif %}
-  <div class="post-content">
-    {{ content | safe }}
-  </div>
-</article>
-
-{% set olderPost = collections.posts | getNextCollectionItem %}
-{% set newerPost = collections.posts | getPreviousCollectionItem %}
-{% if olderPost or newerPost %}
-<div class="post-nav" role="navigation" aria-label="More posts">
-  {% if olderPost %}
-  <a href="{{ olderPost.url }}" class="post-nav-link">
-    <div class="post-nav-label">← Older post</div>
-    <div class="post-nav-title">{{ olderPost.data.title }}</div>
-  </a>
-  {% else %}<span class="post-nav-spacer"></span>{% endif %}
-  {% if newerPost %}
-  <a href="{{ newerPost.url }}" class="post-nav-link next">
-    <div class="post-nav-label">Newer post →</div>
-    <div class="post-nav-title">{{ newerPost.data.title }}</div>
-  </a>
-  {% endif %}
+  </aside>
+  <main id="main" class="col">
+    <header class="sheet sheet--post">
+      {% include "partials/nav.njk" %}
+      <div class="sheet__body" data-reveal>
+        <h1 class="display display--post">{{ title }}</h1>
+        {% if excerpt %}<p class="lead">{{ excerpt }}</p>{% endif %}
+        <p class="byline">By Sofia Panting · <time datetime="{{ page.date | isoDate }}">{{ page.date | postDateFull }}</time></p>
+      </div>
+    </header>
+    <article class="prose">
+      {{ content | safe }}
+    </article>
+    {% set olderPost = collections.posts | getNextCollectionItem %}
+    {% set newerPost = collections.posts | getPreviousCollectionItem %}
+    {% if olderPost or newerPost %}
+    <nav class="more" aria-labelledby="more-title">
+      <h2 class="head" id="more-title">Keep reading</h2>
+      <ul>
+        {% if newerPost %}<li><a class="row" href="{{ newerPost.url }}"><span class="row__dot" aria-hidden="true"></span><span class="row__name">{{ newerPost.data.title }}</span><span class="row__val">Newer</span></a></li>{% endif %}
+        {% if olderPost %}<li><a class="row" href="{{ olderPost.url }}"><span class="row__dot" aria-hidden="true"></span><span class="row__name">{{ olderPost.data.title }}</span><span class="row__val">Older</span></a></li>{% endif %}
+      </ul>
+    </nav>
+    {% endif %}
+    <section class="post-nl" id="lab-notes" aria-labelledby="nl-title">
+      <h2 class="head" id="nl-title">{{ site.newsletter.title }}</h2>
+      <p>{{ site.newsletter.subtitle }}</p>
+      {% include "partials/newsletter-form.njk" %}
+    </section>
+  </main>
 </div>
-{% endif %}
-
-{% include "newsletter.njk" %}
+{% include "partials/footer.njk" %}

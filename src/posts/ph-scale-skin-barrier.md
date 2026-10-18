@@ -1,10 +1,7 @@
 ---
 title: "The pH Scale and Why Your Skin Barrier Cares Deeply"
 category: Skin Science
-categoryEmoji: "🔬"
-emoji: "🌿"
 excerpt: "Healthy skin sits at pH 4.5–5.5. What happens when your cleanser is a 9? We go deep into the chemistry."
-image: "https://images.unsplash.com/photo-1607006344380-b6775a0824a7?w=900&q=80&auto=format&fit=crop"
 date: 2026-05-24
 ---
 Your skin's surface is naturally acidic, sitting around pH 4.5 to 5.5. Chemists call this the "acid mantle," and it's not decoration — it's an active defense system.

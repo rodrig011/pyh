@@ -1,10 +1,7 @@
 ---
 title: "Natural vs Synthetic Preservatives — It's Complicated"
 category: Formulation
-categoryEmoji: "⚗️"
-emoji: "🍯"
 excerpt: "\"Natural\" doesn't mean safer. \"Synthetic\" doesn't mean harmful. Here's what actually keeps your cream stable."
-image: "https://images.unsplash.com/photo-1587734195503-904fca47e0e9?w=900&q=80&auto=format&fit=crop"
 date: 2026-05-12
 ---
 Any product with water in it (which is most products) is a buffet for mold, yeast, and bacteria the moment you open the jar. Preservatives aren't optional — they're the difference between a safe product and a contaminated one.

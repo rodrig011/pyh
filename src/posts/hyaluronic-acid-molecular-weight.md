@@ -1,10 +1,7 @@
 ---
 title: "Why Hyaluronic Acid Isn't Always Your Friend — Molecular Weight Explained"
 category: Ingredients
-categoryEmoji: "🧴"
-emoji: "🌹"
 excerpt: "Not all HA works the same way. Molecular weight changes everything — and most brands don't tell you which one they're using."
-image: "https://images.unsplash.com/photo-1556228578-8c89e6adf883?w=900&q=80&auto=format&fit=crop"
 date: 2026-05-28
 ---
 Hyaluronic acid shows up on almost every "hydrating" label, but the molecule on the ingredient list is not one single thing. It's a whole family of sizes, and size is exactly what decides what it does on your skin.

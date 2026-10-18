@@ -1,185 +1,111 @@
 ---
 layout: base.njk
-title: Sofisticated
-permalink: /
 ---
-<!-- HERO -->
-<section class="hero">
-  <div class="hero-left">
-    <div class="hero-eyebrow">
-      <div class="eyebrow-line"></div>
-      <span class="eyebrow-text">{{ site.hero.eyebrow }}</span>
+{%- set heroImg = site.hero.photo or "/images/brand/powder-wordmark.jpg" -%}
+<div class="split">
+  <aside class="stage" aria-label="Sofisticated pressed powder">
+    <div class="stage__frame">
+      <img class="stage__img is-on" data-stage-img="0" src="{{ heroImg }}" alt="Blush pressed powder stamped with the Sofisticated wordmark" width="1200" height="1500" fetchpriority="high">
+      <img class="stage__img" data-stage-img="1" src="/images/brand/powder-monogram.jpg" alt="Rose pressed powder stamped with the Sofisticated monogram" width="1200" height="1500" loading="lazy">
+      <img class="stage__img" data-stage-img="2" src="/images/brand/paper-wordmark.jpg" alt="Pink letterpress paper pressed with the Sofisticated wordmark" width="1200" height="1500" loading="lazy">
+      <p class="stage__bar"><span>{{ site.hero.note_left }}</span><a href="{{ site.social.instagram_url }}" rel="noopener" target="_blank">{{ site.hero.note_right }}</a></p>
     </div>
-    <h1 class="hero-title">
-      {{ site.hero.title_main }}<br>
-      <em>{{ site.hero.title_emphasis }}</em>
-    </h1>
-    <p class="hero-sub">{{ site.hero.subtitle | mdInline | safe }}</p>
-    <div class="hero-btns">
-      <a href="#posts" class="btn-primary">Read the blog</a>
-      {% if collections.posts.length %}<a href="{{ collections.posts[0].url }}" class="btn-ghost">Latest post &nbsp;→</a>{% endif %}
-    </div>
-  </div>
+  </aside>
 
-  <div class="hero-right">
-    <div class="hero-photo">
-      {% if site.hero.photo %}
-      <img src="{{ site.hero.photo }}" alt="Sofia Panting" onerror="this.parentElement.innerHTML='<div class=\'photo-placeholder\'><span>S.</span><p>Sofia Panting</p></div>'" />
-      {% else %}
-      <div class="photo-placeholder"><span>S.</span><p>Sofia Panting</p></div>
-      {% endif %}
-    </div>
+  <main id="main" class="col">
+    <header class="sheet" data-stage="0">
+      {% include "partials/nav.njk" %}
+      <div class="sheet__body" data-reveal>
+        <h1 class="display">{{ site.hero.title }}</h1>
+        <p class="lead">{{ site.hero.sentence }}</p>
+        <a class="btn" href="#decode">{{ site.hero.button_text }}</a>
+      </div>
+    </header>
 
-    <div class="formula-badge">
-      {{ site.hero.formula_code }}<br>
-      <span>{{ site.hero.formula_label }}</span>
-    </div>
-  </div>
+    <section class="intro" data-stage="1" aria-label="About this journal" data-reveal>
+      {% for p in site.intro.paragraphs %}<p>{{ p | mdInline | safe }}</p>{% endfor %}
+      <p><a class="link" href="#about">Read Sofia's letter</a></p>
+    </section>
 
-  <div class="scroll-hint">
-    <span>Scroll</span>
-    <div class="scroll-line"></div>
+    <section class="journal" id="journal" data-stage="2" aria-labelledby="journal-title">
+      <h2 class="head" id="journal-title" data-reveal>The journal</h2>
+      {% for cat in collections.posts | categoriesOf %}
+      <div class="rows" data-reveal>
+        <p class="rows__group">{{ cat }}</p>
+        <ul>
+          {% for post in collections.posts %}{% if (post.data.category or "Notes") == cat %}
+          <li><a class="row" href="{{ post.url }}"><span class="row__dot" aria-hidden="true"></span><span class="row__name">{{ post.data.title }}</span><time class="row__val" datetime="{{ post.date | isoDate }}">{{ post.date | postDate }}</time></a></li>
+          {% endif %}{% endfor %}
+        </ul>
+      </div>
+      {% endfor %}
+      <p data-reveal><a class="link" href="/blog/">Every post, with summaries</a></p>
+    </section>
+  </main>
+</div>
+
+<section class="decoder" id="decode" aria-labelledby="decode-title">
+  <div class="decoder__in">
+    <div class="decoder__head" data-reveal>
+      <h2 class="head" id="decode-title">{{ site.decoder.title }}</h2>
+      <p class="lead">{{ site.decoder.sentence }}</p>
+    </div>
+    <form class="decoder__form" data-decoder data-reveal>
+      <label class="decoder__label" for="inci">Ingredient list (INCI)</label>
+      <textarea id="inci" name="inci" rows="5" spellcheck="false" placeholder="Aqua, Glycerin, Niacinamide, Sodium Hyaluronate, Phenoxyethanol…"></textarea>
+      <div class="decoder__actions">
+        <button class="btn btn--paper" type="submit">Decode it</button>
+        <span class="decoder__try">Or try a real kind of label:
+          <button type="button" class="chip" data-sample="moisturizer">gel moisturizer</button>
+          <button type="button" class="chip" data-sample="serum">vitamin C serum</button>
+          <button type="button" class="chip" data-sample="cleanser">foaming cleanser</button>
+        </span>
+      </div>
+    </form>
+    <div class="decoder__out" data-decoder-out aria-live="polite">
+      <p class="decoder__hint">Your decoded list shows up here, in label order. The first five or so ingredients usually make up most of the formula; anything after the preservative is likely under 1%.</p>
+    </div>
+    <noscript><p class="decoder__hint">The decoder needs JavaScript. Every ingredient it knows is explained in the journal.</p></noscript>
   </div>
 </section>
 
-<!-- ABOUT BANNER -->
-<div class="about-banner" id="about">
-  <div class="avatar-wrap">
-    <div class="avatar">
-      {% if site.about.photo %}
-      <img src="{{ site.about.photo }}" alt="Sofia" onerror="this.parentElement.innerHTML='<div class=\'avatar-placeholder\'>S.</div>'" />
-      {% else %}
-      <div class="avatar-placeholder">S.</div>
-      {% endif %}
-    </div>
+<section class="letter" id="about" aria-label="A letter from Sofia">
+  <div class="letter__in" data-reveal>
+    {% if site.about.photo %}
+    <img class="letter__portrait" src="{{ site.about.photo }}" alt="Sofia Panting" width="88" height="88" loading="lazy">
+    {% else %}
+    <img class="letter__portrait" src="/images/brand/avatar.jpg" alt="" width="88" height="88" loading="lazy">
+    {% endif %}
+    <div class="letter__text">{{ site.about.letter | md | safe }}</div>
+    <p class="letter__sign">{{ site.about.name }}</p>
+    <p class="letter__role">{{ site.about.role }}</p>
   </div>
-  <div>
-    <div class="about-name">{{ site.about.name_main }} <em>{{ site.about.name_emphasis }}</em></div>
-    <div class="about-role">{{ site.about.role }}</div>
-    <p class="about-quote">"{{ site.about.quote | mdInline | safe }}"</p>
-    <div class="about-badges">
-      {% for badge in site.about.badges %}<span class="badge">{{ badge }}</span>{% endfor %}
-    </div>
-  </div>
-</div>
+</section>
 
-<!-- TOPICS -->
-<div class="section-wrap">
-  <div style="height:2.5rem"></div>
-  <div class="topics-row">
-    <button type="button" class="topic-pill active" data-category="all">All posts</button>
-    {% for cat in collections.categories %}
-    <button type="button" class="topic-pill" data-category="{{ cat.name }}">{{ cat.name }}</button>
-    {% endfor %}
+{% if site.instagram.images and site.instagram.images.length %}
+<section class="gallery" aria-labelledby="ig-title">
+  <div class="gallery__head" data-reveal>
+    <h2 class="head" id="ig-title">{{ site.instagram.title }}</h2>
+    <a class="link" href="{{ site.social.instagram_url }}" rel="noopener" target="_blank">{{ site.social.instagram_handle }}</a>
   </div>
-</div>
-
-<!-- POSTS -->
-<div class="posts-wrap" id="posts">
-  <div class="section-hdr">
-    <h2>Recent <em>posts</em></h2>
-    <a href="/blog/">All posts →</a>
-  </div>
-  <div class="posts-grid">
-    {% for post in collections.posts | limit(9) %}
-    {% set imgClasses = ["ia","ib","ic","id","ie","if"] %}
-    {% set tintClasses = ["tint-rose","","tint-sage"] %}
-    <a href="{{ post.url }}" class="post-card" data-category="{{ post.data.category }}">
-      <div class="card-img {{ imgClasses[loop.index0 % 6] }}">
-        <img class="card-photo {{ tintClasses[loop.index0 % 3] }}" src="{{ post.data.image }}" alt="" loading="lazy" decoding="async" onerror="this.remove()" />
-        <span class="card-mark">✦</span>
-        <div class="card-overlay"></div>
-      </div>
-      <div class="post-cat">{{ post.data.category }}</div>
-      <div class="post-title">{{ post.data.title }}</div>
-      <p class="post-excerpt">{{ post.data.excerpt }}</p>
-      <div class="post-foot"><span>{{ post.date | postDate }} · {{ post.templateContent | readTime }}</span><span class="post-read">Read →</span></div>
+  <div class="gallery__row" tabindex="0" aria-label="Instagram pictures, scroll sideways">
+    {% for img in site.instagram.images %}
+    <a class="gallery__item gallery__item--{{ loop.index0 % 3 }}" href="{{ site.social.instagram_url }}" rel="noopener" target="_blank">
+      <img src="{{ img.src }}" alt="{{ img.alt or 'Sofisticated on Instagram' }}" loading="lazy" width="1200" height="1500">
     </a>
     {% endfor %}
   </div>
-</div>
+</section>
+{% endif %}
 
-<!-- INGREDIENT SPOTLIGHT -->
-<div class="feat-dark">
-  <div>
-    <div class="fd-label">{{ site.ingredient_spotlight.label }}</div>
-    <h2 class="fd-title">{{ site.ingredient_spotlight.title_main }}<br><em>{{ site.ingredient_spotlight.title_emphasis }}</em></h2>
-    <p class="fd-body">{{ site.ingredient_spotlight.body | mdInline | safe }}</p>
-    <a href="/blog/" class="btn-primary" style="font-size:11px;padding:11px 20px">{{ site.ingredient_spotlight.link_text }}</a>
+<section class="cta" id="lab-notes" aria-labelledby="nl-title">
+  <img class="cta__img" src="/images/brand/velvet-monogram.jpg" alt="Aubergine velvet pressed with the Sofisticated monogram" width="1200" height="1500" loading="lazy">
+  <div class="cta__text" data-reveal>
+    <h2 class="head" id="nl-title">{{ site.newsletter.title }}</h2>
+    <p>{{ site.newsletter.subtitle }}</p>
+    {% include "partials/newsletter-form.njk" %}
   </div>
-  <div class="ing-grid">
-    {% for tile in site.ingredient_spotlight.tiles %}
-    <div class="ing-tile">
-      <span class="it-num">0{{ loop.index }}</span>
-      <div class="it-tag">{{ tile.tag }}</div>
-      <div class="it-name">{{ tile.name }}</div>
-      <div class="it-desc">{{ tile.desc }}</div>
-    </div>
-    {% endfor %}
-  </div>
-</div>
+</section>
 
-<!-- SOFIA'S STORY / PROFILE -->
-<div class="profile-section" id="profile">
-  <div class="profile-photo-wrap">
-    <div class="profile-photo">
-      {% if site.profile.photo %}
-      <img src="{{ site.profile.photo }}" alt="Sofia Panting" loading="lazy" decoding="async" onerror="this.parentElement.innerHTML='<div class=\'profile-photo-placeholder\'><span>S.</span><p>Sofia Panting</p></div>'" />
-      {% else %}
-      <div class="profile-photo-placeholder"><span>S.</span><p>Sofia Panting</p></div>
-      {% endif %}
-    </div>
-    <div class="profile-accent"></div>
-    <div class="profile-accent-2"></div>
-  </div>
-  <div class="profile-content">
-    <div class="profile-eyebrow">{{ site.profile.eyebrow }}</div>
-    <h2 class="profile-title">{{ site.profile.title_main }}<br><em>{{ site.profile.title_emphasis }}</em></h2>
-    <p class="profile-text">{{ site.profile.bio_1 | mdInline | safe }}</p>
-    <p class="profile-text">{{ site.profile.bio_2 | mdInline | safe }}</p>
-    <div class="profile-stats">
-      {% for stat in site.profile.stats %}
-      <div>
-        <div class="stat-num">{{ stat.number }}</div>
-        <div class="stat-label">{{ stat.label }}</div>
-      </div>
-      {% endfor %}
-    </div>
-    <div class="profile-links">
-      <a href="{{ site.social.instagram_url }}" target="_blank" class="profile-link">
-        <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="0.01" stroke-width="3"/></svg>
-        Instagram
-      </a>
-      <a href="{{ site.social.linkedin_url }}" target="_blank" class="profile-link linkedin-link">
-        <svg viewBox="0 0 24 24"><path d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-2-2 2 2 0 00-2 2v7h-4v-7a6 6 0 016-6z"/><rect x="2" y="9" width="4" height="12"/><circle cx="4" cy="4" r="2"/></svg>
-        LinkedIn
-      </a>
-      <a href="mailto:{{ site.social.email }}" class="profile-link">
-        <svg viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-        Email me
-      </a>
-    </div>
-  </div>
-</div>
-
-<!-- INSTAGRAM STRIP -->
-<div class="ig-wrap">
-  <div class="ig-hdr">
-    <div class="ig-icon">
-      <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="0.01" stroke-width="3"/></svg>
-    </div>
-    <div class="ig-handle">Sof<em>i</em>sticated <small>on Instagram</small></div>
-    <a href="{{ site.social.instagram_url }}" target="_blank" class="ig-follow">{{ site.social.instagram_handle }} →</a>
-  </div>
-  <div class="ig-grid">
-    {% for img in site.instagram.images %}
-    {% set imgClasses = ["ia","ib","ic","id","ie","if"] %}
-    <div class="ig-tile {{ imgClasses[loop.index0 % 6] }}">
-      <img src="{{ img.src }}" alt="" loading="lazy" decoding="async" onerror="this.remove()" style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0" />
-      <span class="card-mark">✦</span><div class="ig-tile-ov"><svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="0.01" stroke-width="3"/></svg></div>
-    </div>
-    {% endfor %}
-  </div>
-</div>
-
-{% include "newsletter.njk" %}
+{% include "partials/footer.njk" %}
+<script src="/js/decoder.js" defer></script>

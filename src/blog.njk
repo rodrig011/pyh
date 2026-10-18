@@ -1,35 +1,36 @@
 ---
 layout: base.njk
-title: All posts
-description: "Every post on ingredients, formulation and skin science — the full Sofisticated archive."
+title: The journal
+description: "Every post on ingredients, formulation and skin science, from Sofisticated by Sofia Panting."
 permalink: /blog/
 ---
-<div class="posts-wrap" style="padding-top:3rem">
-  <div class="section-hdr">
-    <h1>All <em>posts</em></h1>
-    <a href="/">← Home</a>
-  </div>
-  <div class="topics-row" style="margin-bottom:2rem">
-    <button type="button" class="topic-pill active" data-category="all">All posts</button>
-    {% for cat in collections.categories %}
-    <button type="button" class="topic-pill" data-category="{{ cat.name }}">{{ cat.name }}</button>
-    {% endfor %}
-  </div>
-  <div class="posts-grid">
-    {% for post in collections.posts %}
-    {% set imgClasses = ["ia","ib","ic","id","ie","if"] %}
-    {% set tintClasses = ["tint-rose","","tint-sage"] %}
-    <a href="{{ post.url }}" class="post-card" data-category="{{ post.data.category }}">
-      <div class="card-img {{ imgClasses[loop.index0 % 6] }}">
-        <img class="card-photo {{ tintClasses[loop.index0 % 3] }}" src="{{ post.data.image }}" alt="" loading="lazy" decoding="async" onerror="this.remove()" />
-        <span class="card-mark">✦</span>
-        <div class="card-overlay"></div>
+<div class="split">
+  <aside class="stage">
+    <div class="stage__frame">
+      <img class="stage__img is-on" src="/images/brand/powder-monogram.jpg" alt="Rose pressed powder stamped with the Sofisticated monogram" width="1200" height="1500" fetchpriority="high">
+      <p class="stage__bar"><span>{{ collections.posts.length }} posts</span><a href="/feed.xml">RSS feed</a></p>
+    </div>
+  </aside>
+  <main id="main" class="col">
+    <header class="sheet sheet--short">
+      {% include "partials/nav.njk" %}
+      <div class="sheet__body" data-reveal>
+        <h1 class="display">The journal</h1>
+        <p class="lead">Ingredients, formulas and products, explained by a chemical engineering student.</p>
       </div>
-      <div class="post-cat">{{ post.data.category }}</div>
-      <div class="post-title">{{ post.data.title }}</div>
-      <p class="post-excerpt">{{ post.data.excerpt }}</p>
-      <div class="post-foot"><span>{{ post.date | postDate }} · {{ post.templateContent | readTime }}</span><span class="post-read">Read →</span></div>
-    </a>
+    </header>
+    {% for cat in collections.posts | categoriesOf %}
+    <section class="archive" aria-labelledby="cat-{{ loop.index }}" data-reveal>
+      <h2 class="archive__cat" id="cat-{{ loop.index }}">{{ cat }}</h2>
+      {% for post in collections.posts %}{% if (post.data.category or "Notes") == cat %}
+      <a class="entry" href="{{ post.url }}">
+        <span class="entry__title">{{ post.data.title }}</span>
+        <span class="entry__text">{{ post.data.excerpt }}</span>
+        <span class="entry__meta"><time datetime="{{ post.date | isoDate }}">{{ post.date | postDateFull }}</time> · {{ post.templateContent | readTime }} read</span>
+      </a>
+      {% endif %}{% endfor %}
+    </section>
     {% endfor %}
-  </div>
+  </main>
 </div>
+{% include "partials/footer.njk" %}

@@ -1,10 +1,7 @@
 ---
 title: "How to Read an Ingredient List Like a Cosmetic Chemist"
 category: INCI Decoded
-categoryEmoji: "📖"
-emoji: "🔬"
 excerpt: "Order matters. The law behind INCI lists, what concentration thresholds mean, and what brands hide below the 1% line."
-image: "https://images.unsplash.com/photo-1576426863848-c21f53c60b19?w=900&q=80&auto=format&fit=crop"
 date: 2026-05-05
 ---
 INCI lists look intimidating, but they follow one strict rule that, once you know it, tells you almost everything about a formula's priorities.

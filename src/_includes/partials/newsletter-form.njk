@@ -1,0 +1,23 @@
+{% set nl = site.newsletter %}
+{% if nl.form_action %}
+<form class="nl" action="{{ nl.form_action }}" method="post" target="_blank" rel="noopener">
+  <label class="nl__label" for="nl-email">Your email</label>
+  <div class="nl__row">
+    <input class="nl__input" id="nl-email" type="email" name="EMAIL" placeholder="you@email.com" autocomplete="email" required>
+    <button class="btn btn--paper" type="submit">{{ nl.button_text or "Subscribe" }}</button>
+  </div>
+</form>
+{% else %}
+<form class="nl" name="newsletter" method="POST" data-netlify="true" netlify-honeypot="bot-field" data-nl>
+  <input type="hidden" name="form-name" value="newsletter">
+  <p class="nl__hp"><label>Leave this empty <input name="bot-field" tabindex="-1" autocomplete="off"></label></p>
+  <label class="nl__label" for="nl-email">Your email</label>
+  <div class="nl__row">
+    <input class="nl__input" id="nl-email" type="email" name="email" placeholder="you@email.com" autocomplete="email" required>
+    <button class="btn btn--paper" type="submit">{{ nl.button_text or "Subscribe" }}</button>
+  </div>
+  <p class="nl__done" data-nl-done hidden>{{ nl.success }}</p>
+  <p class="nl__error" data-nl-error hidden>That didn't go through. Check the address and try again.</p>
+</form>
+{% endif %}
+<p class="nl__note">{{ nl.note }}</p>

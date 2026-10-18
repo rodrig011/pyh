@@ -6,6 +6,17 @@ const pluginRss = require("@11ty/eleventy-plugin-rss");
 module.exports = function (eleventyConfig) {
   eleventyConfig.addPlugin(pluginRss);
   eleventyConfig.addFilter("mdInline", (str) => md.renderInline(str || ""));
+  eleventyConfig.addFilter("md", (str) => md.render(str || ""));
+  // Categorías en el orden del post más reciente de cada una
+  // Imagen de marca para posts sin foto propia, distinta según la categoría
+  const BRAND = ["/images/brand/paper-wordmark.jpg", "/images/brand/powder-monogram.jpg", "/images/brand/powder-wordmark.jpg", "/images/brand/velvet-monogram.jpg"];
+  eleventyConfig.addFilter("brandImage", (cat) => {
+    const s = String(cat || "");
+    let h = 0;
+    for (const c of s) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+    return BRAND[h % BRAND.length];
+  });
+  eleventyConfig.addFilter("categoriesOf", (posts) => [...new Set((posts || []).map((p) => p.data.category || "Notes"))]);
   // Para meta tags, RSS y JSON-LD: sin saltos de línea ni markdown
   eleventyConfig.addFilter("oneLine", (str) =>
     (str || "")
@@ -16,6 +27,8 @@ module.exports = function (eleventyConfig) {
   eleventyConfig.addPassthroughCopy({ "src/admin": "admin" });
   eleventyConfig.addPassthroughCopy({ "src/_headers": "_headers" });
   eleventyConfig.addPassthroughCopy({ "src/images": "images" });
+  eleventyConfig.addPassthroughCopy({ "src/css": "css" });
+  eleventyConfig.addPassthroughCopy({ "src/js": "js" });
   eleventyConfig.addPassthroughCopy({
     "src/favicon/favicon.ico": "favicon.ico",
     "src/favicon/favicon-16x16.png": "favicon-16x16.png",
@@ -51,15 +64,6 @@ module.exports = function (eleventyConfig) {
     return collectionApi.getFilteredByGlob("src/posts/*.md").sort((a, b) => b.date - a.date);
   });
 
-  eleventyConfig.addCollection("categories", (collectionApi) => {
-    const posts = collectionApi.getFilteredByGlob("src/posts/*.md");
-    const seen = new Map();
-    posts.forEach((p) => {
-      const cat = p.data.category;
-      if (cat && !seen.has(cat)) seen.set(cat, p.data.categoryEmoji || "✨");
-    });
-    return Array.from(seen, ([name, emoji]) => ({ name, emoji }));
-  });
 
   return {
     dir: {

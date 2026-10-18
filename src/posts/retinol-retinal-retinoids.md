@@ -1,10 +1,7 @@
 ---
 title: "Retinol vs Retinal vs Retinoids — A Chemist's Breakdown"
 category: Actives
-categoryEmoji: "✨"
-emoji: "🪷"
 excerpt: "Vitamin A has a whole family tree. Here's exactly what each form does in your skin and which is worth the money."
-image: "https://images.unsplash.com/photo-1570194065650-d99fb4b8ccb0?w=900&q=80&auto=format&fit=crop"
 date: 2026-05-18
 ---
 "Retinoid" is the umbrella term for the whole vitamin A family. Every form has to convert into **retinoic acid** before your skin can actually use it — the question is how many conversion steps it needs to get there.

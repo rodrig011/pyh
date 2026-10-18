@@ -1,0 +1,20 @@
+<footer class="foot">
+  <div class="foot__photo">
+    <img src="/images/brand/powder-wordmark.jpg" alt="" width="1200" height="1500" loading="lazy">
+  </div>
+  <div class="foot__menu">
+    <img class="foot__mark" src="/images/brand/wordmark.svg" alt="Sofisticated" width="200" height="37">
+    <ul class="foot__links">
+      <li><a href="/blog/">Journal</a></li>
+      <li><a href="/#decode">Decode a label</a></li>
+      <li><a href="/#about">About Sofia</a></li>
+      <li><a href="/#lab-notes">Lab notes</a></li>
+      <li><a href="{{ site.social.instagram_url }}" rel="noopener" target="_blank">Instagram</a></li>
+    </ul>
+    <div class="foot__info">
+      <p>Write to Sofia<br><a href="mailto:{{ site.social.email }}">{{ site.social.email }}</a></p>
+      <p>Follow along<br><a href="{{ site.social.instagram_url }}" rel="noopener" target="_blank">{{ site.social.instagram_handle }}</a>{% if site.social.linkedin_url %}<br><a href="{{ site.social.linkedin_url }}" rel="noopener" target="_blank">LinkedIn</a>{% endif %}</p>
+    </div>
+    <p class="foot__legal">{{ site.footer.copyright }} · <a href="/feed.xml">RSS</a> · Educational content, not medical advice.</p>
+  </div>
+</footer>
